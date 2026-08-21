@@ -1,0 +1,66 @@
+# ==============================================================================
+# CAD Copilot Root .gitignore
+# ==============================================================================
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+.secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+wheels/
+.venv/
+env/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Node / Vite
+node_modules/
+.pnpm-store/
+.vite/
+*.tsbuildinfo
+
+# Rust / Tauri
+target/
+src-tauri/target/
+src-tauri/gen/
+*.msi
+*.exe
+*.dll
+*.pdb
+
+# CAD Binary Models & Exports
+*.par
+*.psm
+*.asm
+*.dft
+*.pwd
+*.chm
+outputs/
+
+# IDE & Editor Metadata
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+.handoff/
+.gemini/

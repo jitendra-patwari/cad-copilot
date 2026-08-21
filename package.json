@@ -1,0 +1,12 @@
+{
+  "name": "cad-copilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Root workspace for CAD Copilot desktop application and CAD engine",
+  "scripts": {
+    "test": "pnpm -r test",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint"
+  },
+  "devDependencies": {}
+}
