@@ -1,0 +1,103 @@
+"""Pure domain geometry math, SO(3) coordinate transforms, and AST models for CAD Copilot.
+
+Invariants:
+    - Zero I/O Purity (NFR-1): 100% computational domain logic with zero COM/CAD imports.
+    - Mathematical Determinism (NFR-2): SO(3) coordinate frames with zero numerical drift.
+    - Strict Static Typing (NFR-4): 100% annotated with explicit __all__ exports.
+"""
+
+from __future__ import annotations
+
+from geometry.face_context import (
+    FaceContext,
+    resolve_face_context,
+)
+from geometry.plan_models import (
+    CANONICAL_PLAN_VERSION,
+    DEFAULT_EDGE_MARGIN_MM,
+    ArtifactPolicy,
+    BodyPlacement,
+    BooleanOperation,
+    BooleanOperationFamily,
+    CircularThroughHoleFeature,
+    CylinderBaseBody,
+    DefaultApplied,
+    FeaturePlan,
+    FeaturePlanBackendPortRun,
+    FeaturePlanBaseBody,
+    FeaturePlanFeature,
+    FeaturePlanStatus,
+    FeaturePlanValidationError,
+    LoweringStrategy,
+    PartMetadata,
+    PlacementMode,
+    ProfileCutoutFeature,
+    ProfilePoint2D,
+    RectangularBaseBody,
+    RectangularExtrudedPadFeature,
+    RectangularThroughCutoutFeature,
+    RevolvedProfileFeature,
+    RevolvedShaftBaseBody,
+    SlotOrientationAxis,
+    SlotThroughCutoutFeature,
+    SphereBaseBody,
+    SpurGearBaseBody,
+    SweepCrossSectionSpec,
+    SweepPathSpec,
+    SweptProtrusionFeature,
+    Units,
+    UnsupportedFeature,
+    ValidationDiagnostic,
+)
+from geometry.plan_parser import (
+    MAX_BOOLEAN_OPERATIONS,
+    MAX_FEATURES,
+    MAX_PRIMITIVE_BODIES,
+    MAX_PROFILE_POINTS,
+    feature_plan_from_dict,
+)
+
+__all__ = [
+    "CANONICAL_PLAN_VERSION",
+    "DEFAULT_EDGE_MARGIN_MM",
+    "MAX_BOOLEAN_OPERATIONS",
+    "MAX_FEATURES",
+    "MAX_PRIMITIVE_BODIES",
+    "MAX_PROFILE_POINTS",
+    "ArtifactPolicy",
+    "BodyPlacement",
+    "BooleanOperation",
+    "BooleanOperationFamily",
+    "CircularThroughHoleFeature",
+    "CylinderBaseBody",
+    "DefaultApplied",
+    "FaceContext",
+    "FeaturePlan",
+    "FeaturePlanBackendPortRun",
+    "FeaturePlanBaseBody",
+    "FeaturePlanFeature",
+    "FeaturePlanStatus",
+    "FeaturePlanValidationError",
+    "LoweringStrategy",
+    "PartMetadata",
+    "PlacementMode",
+    "ProfileCutoutFeature",
+    "ProfilePoint2D",
+    "RectangularBaseBody",
+    "RectangularExtrudedPadFeature",
+    "RectangularThroughCutoutFeature",
+    "RevolvedProfileFeature",
+    "RevolvedShaftBaseBody",
+    "SlotOrientationAxis",
+    "SlotThroughCutoutFeature",
+    "SphereBaseBody",
+    "SpurGearBaseBody",
+    "SweepCrossSectionSpec",
+    "SweepPathSpec",
+    "SweptProtrusionFeature",
+    "Units",
+    "UnsupportedFeature",
+    "ValidationDiagnostic",
+    "feature_plan_from_dict",
+    "resolve_face_context",
+]
