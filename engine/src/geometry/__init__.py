@@ -2,7 +2,7 @@
 
 Invariants:
     - Zero I/O Purity (NFR-1): 100% computational domain logic with zero COM/CAD imports.
-    - Mathematical Determinism (NFR-2): SO(3) coordinate frames with zero numerical drift.
+    - Mathematical Determinism (NFR-2): SO(3) coordinate frames and exact polygon math.
     - Strict Static Typing (NFR-4): 100% annotated with explicit __all__ exports.
 """
 
@@ -11,6 +11,28 @@ from __future__ import annotations
 from geometry.face_context import (
     FaceContext,
     resolve_face_context,
+)
+from geometry.gear_math import (
+    gear_base_radius,
+    gear_pitch_radius,
+    gear_root_radius,
+    gear_tip_radius,
+    involute_point,
+    spur_gear_outline_points,
+    spur_gear_profile_points,
+    validate_gear_parameters,
+)
+from geometry.plan_geometry import (
+    Point2DLike,
+    SubtractiveProfileFeature,
+    bounding_boxes_overlap,
+    is_polygon_ccw,
+    point_in_polygon,
+    point_to_segment_distance,
+    polygon_area,
+    polygon_bounding_box,
+    polygon_centroid,
+    polygon_signed_area,
 )
 from geometry.plan_models import (
     CANONICAL_PLAN_VERSION,
@@ -81,6 +103,7 @@ __all__ = [
     "LoweringStrategy",
     "PartMetadata",
     "PlacementMode",
+    "Point2DLike",
     "ProfileCutoutFeature",
     "ProfilePoint2D",
     "RectangularBaseBody",
@@ -92,12 +115,29 @@ __all__ = [
     "SlotThroughCutoutFeature",
     "SphereBaseBody",
     "SpurGearBaseBody",
+    "SubtractiveProfileFeature",
     "SweepCrossSectionSpec",
     "SweepPathSpec",
     "SweptProtrusionFeature",
     "Units",
     "UnsupportedFeature",
     "ValidationDiagnostic",
+    "bounding_boxes_overlap",
     "feature_plan_from_dict",
+    "gear_base_radius",
+    "gear_pitch_radius",
+    "gear_root_radius",
+    "gear_tip_radius",
+    "involute_point",
+    "is_polygon_ccw",
+    "point_in_polygon",
+    "point_to_segment_distance",
+    "polygon_area",
+    "polygon_bounding_box",
+    "polygon_centroid",
+    "polygon_signed_area",
     "resolve_face_context",
+    "spur_gear_outline_points",
+    "spur_gear_profile_points",
+    "validate_gear_parameters",
 ]
