@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from interfaces import (
     ArtifactRecord,
     CADContainmentError,

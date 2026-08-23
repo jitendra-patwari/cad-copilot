@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from geometry.gate_policy import (
     current_gate_policy_mode,
     relaxed_gate_warning,

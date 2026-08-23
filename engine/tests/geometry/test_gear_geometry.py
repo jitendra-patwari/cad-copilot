@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 import pytest
+
 from geometry import (
     ProfilePoint2D,
     gear_base_radius,

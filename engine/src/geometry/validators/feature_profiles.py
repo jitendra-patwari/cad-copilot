@@ -6,6 +6,7 @@ import math
 
 from geometry.face_context import resolve_face_context
 from geometry.gate_policy import GatePolicyMode
+from geometry.plan_geometry import polygon_area
 from geometry.plan_models import (
     CircularThroughHoleFeature,
     CylinderBaseBody,
@@ -229,6 +230,13 @@ def _validate_profile_cutout_fit(
         _reject(
             "INVALID_PROFILE_POINTS",
             "Profile cutout requires at least three polygon points.",
+            path=f"{path}.profile.points",
+        )
+
+    if polygon_area(feature.profile_points) <= 1e-6:
+        _reject(
+            "INVALID_GEOMETRY",
+            "Profile cutout polygon must have non-zero area (points cannot be collinear or degenerate).",
             path=f"{path}.profile.points",
         )
 

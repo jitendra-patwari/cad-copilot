@@ -6,6 +6,7 @@ import math
 from typing import cast
 
 import pytest
+
 from geometry import (
     CircularThroughHoleFeature,
     CylinderBaseBody,

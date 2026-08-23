@@ -63,8 +63,8 @@ def _resolve_feature_target(
 ):
     """Resolve target face selectors and populate deterministic normal axis defaults."""
     target_selector = feature.target_selector
-    target_face = feature.target_face
-    normal_axis = feature.normal_axis
+    target_face = feature.target_face.strip().upper() if feature.target_face is not None else None
+    normal_axis = feature.normal_axis.strip().lower() if feature.normal_axis is not None else None
 
     if target_selector is None:
         target_selector = "side_face" if target_face in {"+X", "-X", "+Y", "-Y"} else "default_thickness_face"
@@ -170,10 +170,14 @@ def _resolve_feature_target(
 
 def _normalize_target_selector(target_selector: str) -> str:
     """Normalize target selector string aliases to canonical selector names."""
+    cleaned = target_selector.strip().lower()
     aliases = {
         "biggest": "largest_face",
         "biggest_face": "largest_face",
         "largest": "largest_face",
+        "largest_face": "largest_face",
+        "smallest": "smallest_face",
+        "smallest_face": "smallest_face",
         "default_xy_face": "default_thickness_face",
         "default_face": "default_thickness_face",
         "default": "default_thickness_face",
@@ -183,8 +187,21 @@ def _normalize_target_selector(target_selector: str) -> str:
         "axial_face": "default_thickness_face",
         "default_axial_face": "default_thickness_face",
         "axial_cross_section": "default_thickness_face",
+        "default_thickness_face": "default_thickness_face",
+        "top": "default_thickness_face",
+        "top_face": "default_thickness_face",
+        "bottom": "default_thickness_face",
+        "bottom_face": "default_thickness_face",
+        "side": "side_face",
+        "side_face": "side_face",
+        "side_faces": "side_face",
+        "lateral": "side_face",
+        "lateral_face": "side_face",
+        "side_wall": "side_face",
+        "side_walls": "side_face",
+        "sidewall": "side_face",
     }
-    return aliases.get(target_selector, target_selector)
+    return aliases.get(cleaned, target_selector)
 
 
 def _default_target_face_for_selector(

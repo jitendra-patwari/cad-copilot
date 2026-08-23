@@ -12,6 +12,13 @@ from geometry.face_context import (
     FaceContext,
     resolve_face_context,
 )
+from geometry.gate_policy import (
+    GatePolicyMode,
+    current_gate_policy_mode,
+    relaxed_gate_warning,
+    shadow_gate_warning,
+    should_retry_canonical_rejection,
+)
 from geometry.gear_math import (
     gear_base_radius,
     gear_pitch_radius,
@@ -78,6 +85,9 @@ from geometry.plan_parser import (
     MAX_PROFILE_POINTS,
     feature_plan_from_dict,
 )
+from geometry.plan_validation import (
+    validate_feature_plan,
+)
 
 __all__ = [
     "CANONICAL_PLAN_VERSION",
@@ -100,6 +110,7 @@ __all__ = [
     "FeaturePlanFeature",
     "FeaturePlanStatus",
     "FeaturePlanValidationError",
+    "GatePolicyMode",
     "LoweringStrategy",
     "PartMetadata",
     "PlacementMode",
@@ -123,6 +134,7 @@ __all__ = [
     "UnsupportedFeature",
     "ValidationDiagnostic",
     "bounding_boxes_overlap",
+    "current_gate_policy_mode",
     "feature_plan_from_dict",
     "gear_base_radius",
     "gear_pitch_radius",
@@ -136,8 +148,12 @@ __all__ = [
     "polygon_bounding_box",
     "polygon_centroid",
     "polygon_signed_area",
+    "relaxed_gate_warning",
     "resolve_face_context",
+    "shadow_gate_warning",
+    "should_retry_canonical_rejection",
     "spur_gear_outline_points",
     "spur_gear_profile_points",
+    "validate_feature_plan",
     "validate_gear_parameters",
 ]

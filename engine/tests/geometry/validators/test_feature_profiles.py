@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from geometry.plan_models import (
     CircularThroughHoleFeature,
     CylinderBaseBody,
@@ -135,3 +136,13 @@ class TestPlanarProfileFitAndSeparation:
         with pytest.raises(FeaturePlanValidationError) as exc:
             _validate_hole_fit(hole, radius_mm=4.0, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]")
         assert exc.value.code == "INVALID_DIMENSION"
+
+    def test_profile_cutout_rejects_collinear_zero_area_polygon(self) -> None:
+        body = RectangularBaseBody(id="b1", length_mm=80.0, width_mm=40.0, thickness_mm=6.0)
+        # 3 collinear points forming a degenerate line with 0 area
+        collinear_points = (ProfilePoint2D(0.0, 0.0), ProfilePoint2D(10.0, 0.0), ProfilePoint2D(20.0, 0.0))
+        cutout = ProfileCutoutFeature(id="pcut_degen", profile_points=collinear_points, target_face="+Z")
+        diagnostics: list[ValidationDiagnostic] = []
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            _validate_profile_cutout_fit(cutout, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]")
+        assert exc.value.code == "INVALID_GEOMETRY"
