@@ -5,8 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import interfaces.cad_exceptions as legacy_exceptions
-import interfaces.cad_interfaces as legacy_interfaces
 import pytest
 from interfaces import (
     ArtifactRecord,
@@ -348,37 +346,3 @@ def test_execution_result_union_polymorphism() -> None:
     assert failure.phase == "modeling"
     assert failure.details == {"step_index": 2}
 
-
-# ---------------------------------------------------------------------------
-# 4. Backwards-Compatibility Bridge Module Tests
-# ---------------------------------------------------------------------------
-
-
-def test_cad_interfaces_backward_compatibility() -> None:
-    """Verifies that legacy cad_interfaces re-exports core interfaces and models."""
-    assert legacy_interfaces.CADExecutorABC is CADExecutorABC
-    assert legacy_interfaces.CADRuntimeABC is CADRuntimeABC
-    assert legacy_interfaces.StandardInspectionReport is StandardInspectionReport
-    assert set(legacy_interfaces.__all__) == {
-        "CADExecutorABC",
-        "CADRuntimeABC",
-        "StandardInspectionReport",
-    }
-
-
-def test_cad_exceptions_backward_compatibility() -> None:
-    """Verifies that legacy cad_exceptions re-exports the complete exception taxonomy."""
-    assert legacy_exceptions.CADError is CADError
-    assert legacy_exceptions.CADRuntimeError is CADRuntimeError
-    assert legacy_exceptions.CADExecutionError is CADExecutionError
-    assert legacy_exceptions.CADDocumentError is CADDocumentError
-    assert legacy_exceptions.CADExportError is CADExportError
-    assert legacy_exceptions.CADContainmentError is CADContainmentError
-    assert set(legacy_exceptions.__all__) == {
-        "CADContainmentError",
-        "CADDocumentError",
-        "CADError",
-        "CADExecutionError",
-        "CADExportError",
-        "CADRuntimeError",
-    }

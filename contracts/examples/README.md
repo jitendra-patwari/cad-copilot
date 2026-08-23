@@ -30,4 +30,5 @@ To prevent runtime path resolution issues and enforce decoupling:
 
 ## Internal DSL Versioning
 
-The `decision_version` (`main_cad.canonical_decision.v0`) and `plan_version` (`main_cad.single_part_feature_plan.v0`) strings identify internal feature lowering AST versions and are decoupled from the public wire protocol `contract_version: "1.0"`.
+The `decision_version` (`cad_copilot.canonical_decision.v1`) and `plan_version` (`cad_copilot.single_part_feature_plan.v1`) strings identify internal feature lowering AST versions and are decoupled from the public wire protocol `contract_version: "1.0"`.
+

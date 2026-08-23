@@ -1,6 +1,7 @@
 {
-  "plan_version": "main_cad.single_part_feature_plan.v0",
+  "plan_version": "cad_copilot.single_part_feature_plan.v1",
   "request_id": "replace-with-request-id",
+
   "units": "mm",
   "part": {
     "part_id": "part.main",

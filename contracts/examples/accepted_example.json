@@ -1,8 +1,9 @@
 {
-  "decision_version": "main_cad.canonical_decision.v0",
+  "decision_version": "cad_copilot.canonical_decision.v1",
   "status": "accepted",
   "feature_plan": {
-    "plan_version": "main_cad.single_part_feature_plan.v0",
+    "plan_version": "cad_copilot.single_part_feature_plan.v1",
+
     "request_id": "replace-with-request-id",
     "units": "mm",
     "part": {
