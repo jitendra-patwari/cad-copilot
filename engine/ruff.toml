@@ -1,0 +1,21 @@
+line-length = 120
+target-version = "py311"
+
+[lint]
+select = [
+    "E", "F", "W",  # Pycodestyle error/warning, Pyflakes
+    "I",            # Isort (imports sorting)
+    "UP",           # Pyupgrade (modern syntax checks)
+    "B",            # Flake8-bugbear (common bug prevention)
+    "SIM",          # Flake8-simplify (simplify complex expressions)
+    "RUF",          # Ruff-specific rules
+]
+
+ignore = [
+    "E501",  # Line too long
+]
+
+[lint.per-file-ignores]
+# Allow dynamic sys.path mutations before imports in test and script runners
+"tests/**/*.py" = ["E402"]
+"scripts/**/*.py" = ["E402"]

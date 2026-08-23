@@ -1,0 +1,384 @@
+"""Comprehensive unit tests for CAD Copilot domain interfaces, models, and exceptions."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import interfaces.cad_exceptions as legacy_exceptions
+import interfaces.cad_interfaces as legacy_interfaces
+import pytest
+from interfaces import (
+    ArtifactRecord,
+    CADContainmentError,
+    CADDocumentError,
+    CADError,
+    CADExecutionError,
+    CADExecutorABC,
+    CADExportError,
+    CADRuntimeABC,
+    CADRuntimeError,
+    ExecutionFailure,
+    ExecutionResult,
+    ExecutionSuccess,
+    PhysicalProperties,
+    StandardInspectionReport,
+)
+
+# ---------------------------------------------------------------------------
+# Test Fixtures & Mock Implementations
+# ---------------------------------------------------------------------------
+
+
+class ConcreteCADRuntime(CADRuntimeABC):
+    """Complete concrete implementation of CADRuntimeABC for testing."""
+
+    def __init__(self) -> None:
+        self.connected = False
+        self.open_docs: list[Path] = []
+
+    def connect_application(self) -> Any:
+        self.connected = True
+        return "mock_app_handle"
+
+    def open_document(self, application: Any, path: Path) -> Any:
+        self.open_docs.append(path)
+        return f"mock_doc_handle:{path.name}"
+
+    def close_document(self, doc_handle: Any) -> None:
+        pass
+
+    def teardown(self, force_kill_on_failure: bool) -> None:
+        self.connected = False
+
+
+class ConcreteCADExecutor(CADExecutorABC):
+    """Complete concrete implementation of CADExecutorABC for testing."""
+
+    def create_prism_body(self, *args: Any, **kwargs: Any) -> Any:
+        return "prism_feature"
+
+    def add_cylindrical_cutout(self, *args: Any, **kwargs: Any) -> Any:
+        return "cutout_feature"
+
+    def export_step(self, output_path: Path) -> None:
+        pass
+
+    def export_preview(self, output_path: Path) -> None:
+        pass
+
+    def export_preview_images(self, output_dir: Path, views: list[str]) -> list[Path]:
+        return [output_dir / f"{view}.jpg" for view in views]
+
+    def inspect_active_document(self) -> StandardInspectionReport:
+        return StandardInspectionReport(
+            volume_mm3=1500.0,
+            mass_kg=1.17,
+            feature_count=4,
+            body_count=1,
+        )
+
+    def recompute_physical_properties(self) -> None:
+        pass
+
+    def generate_flat_pattern(self, output_path: Path) -> None:
+        pass
+
+    def generate_draft(self, output_path: Path) -> None:
+        pass
+
+    def publish_drawing(self, output_path: Path) -> None:
+        pass
+
+    def read_custom_properties(self) -> dict[str, Any]:
+        return {"Material": "Steel"}
+
+    def write_custom_properties(self, properties: dict[str, Any]) -> None:
+        pass
+
+    def update_document(self) -> None:
+        pass
+
+    def save_document(self) -> None:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# 1. ABC Instantiation & Contract Enforcement Tests
+# ---------------------------------------------------------------------------
+
+
+def test_cad_runtime_abc_cannot_be_instantiated_directly() -> None:
+    """Proves that CADRuntimeABC cannot be instantiated without implementing abstract methods."""
+    with pytest.raises(TypeError, match="Can't instantiate abstract class CADRuntimeABC"):
+        CADRuntimeABC()
+
+
+def test_cad_runtime_partial_implementation_fails() -> None:
+    """Proves that a partial subclass of CADRuntimeABC raises TypeError on instantiation."""
+
+    class IncompleteRuntime(CADRuntimeABC):
+        def connect_application(self) -> Any:
+            return "app"
+
+    with pytest.raises(TypeError, match="Can't instantiate abstract class IncompleteRuntime"):
+        IncompleteRuntime()
+
+
+def test_concrete_cad_runtime_lifecycle() -> None:
+    """Proves that a fully implemented CADRuntimeABC operates cleanly."""
+    runtime = ConcreteCADRuntime()
+    assert runtime.is_healthy() is True
+    assert runtime.connected is False
+
+    app = runtime.connect_application()
+    assert app == "mock_app_handle"
+    assert runtime.connected is True
+
+    doc = runtime.open_document(app, Path("test.par"))
+    assert doc == "mock_doc_handle:test.par"
+    assert runtime.open_docs == [Path("test.par")]
+
+    runtime.close_document(doc)
+    runtime.teardown(force_kill_on_failure=False)
+    assert runtime.connected is False
+
+
+def test_cad_executor_abc_cannot_be_instantiated_directly() -> None:
+    """Proves that CADExecutorABC cannot be instantiated without implementing abstract methods."""
+    with pytest.raises(TypeError, match="Can't instantiate abstract class CADExecutorABC"):
+        CADExecutorABC()
+
+
+def test_cad_executor_partial_implementation_fails() -> None:
+    """Proves that a partial subclass of CADExecutorABC raises TypeError on instantiation."""
+
+    class IncompleteExecutor(CADExecutorABC):
+        def create_prism_body(self, *args: Any, **kwargs: Any) -> Any:
+            return "prism"
+
+    with pytest.raises(TypeError, match="Can't instantiate abstract class IncompleteExecutor"):
+        IncompleteExecutor()
+
+
+def test_concrete_cad_executor_methods_and_defaults() -> None:
+    """Proves that a concrete executor executes modeling, extraction, and default helpers."""
+    executor = ConcreteCADExecutor()
+
+    assert executor.create_prism_body() == "prism_feature"
+    assert executor.add_cylindrical_cutout() == "cutout_feature"
+
+    # Test inspection and physical properties extraction
+    report = executor.inspect_active_document()
+    assert report.volume_mm3 == 1500.0
+    assert report.mass_kg == 1.17
+    assert report.feature_count == 4
+    assert report.body_count == 1
+
+    props = executor.extract_physical_properties()
+    assert isinstance(props, PhysicalProperties)
+    assert props.volume_mm3 == 1500.0
+    assert props.mass_kg == 1.17
+
+    # Test preview images and default export artifacts
+    images = executor.export_preview_images(Path("out"), ["iso", "top"])
+    assert images == [Path("out/iso.jpg"), Path("out/top.jpg")]
+    assert executor.export_artifacts(["step"], Path("out")) == []
+
+    # Test custom properties
+    assert executor.read_custom_properties() == {"Material": "Steel"}
+
+
+def test_cad_executor_default_unimplemented_methods_raise() -> None:
+    """Proves that default fallback methods on CADExecutorABC raise or return defaults properly."""
+    ex = ConcreteCADExecutor()
+
+    # execute_feature_plan raises NotImplementedError on base class
+    with pytest.raises(NotImplementedError, match="execute_feature_plan is not implemented"):
+        CADExecutorABC.execute_feature_plan(ex, {"steps": []})
+
+    # export_artifacts default implementation returns empty list
+    assert CADExecutorABC.export_artifacts(ex, ["step"], Path("out")) == []
+
+
+# ---------------------------------------------------------------------------
+# 2. Exception Hierarchy & Wire Error Code Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("exception_cls", "expected_code"),
+    [
+        (CADError, "CAD_ERROR"),
+        (CADRuntimeError, "RUNTIME_ATTACH_FAILED"),
+        (CADExecutionError, "EXECUTION_FAILED"),
+        (CADDocumentError, "DOCUMENT_IO_FAILED"),
+        (CADExportError, "EXPORT_FAILED"),
+        (CADContainmentError, "CONTAINMENT_VIOLATION"),
+    ],
+)
+def test_exception_inheritance_and_error_codes(
+    exception_cls: type[CADError], expected_code: str
+) -> None:
+    """Proves that all domain exceptions inherit from CADError and define standard error codes."""
+    err = exception_cls("Test error message")
+    assert isinstance(err, CADError)
+    assert isinstance(err, Exception)
+    assert str(err) == "Test error message"
+    if isinstance(err, CADError):
+        assert err.error_code == expected_code
+
+
+def test_exception_custom_error_code_override() -> None:
+    """Proves that error_code can be customized during instantiation."""
+    err = CADRuntimeError("Connection refused", error_code="CUSTOM_ATTACH_TIMEOUT")
+    assert err.error_code == "CUSTOM_ATTACH_TIMEOUT"
+    assert str(err) == "Connection refused"
+
+
+def test_catch_all_via_cad_error() -> None:
+    """Proves that catching base CADError intercepts all domain exceptions."""
+    exceptions_to_test: list[CADError] = [
+        CADRuntimeError("runtime failure"),
+        CADExecutionError("execution failure"),
+        CADDocumentError("document failure"),
+        CADExportError("export failure"),
+        CADContainmentError("containment failure"),
+    ]
+
+    for exc in exceptions_to_test:
+        try:
+            raise exc
+        except CADError as caught:
+            assert caught is exc
+            assert caught.error_code != ""
+
+
+# ---------------------------------------------------------------------------
+# 3. Domain Models & Value Objects Tests
+# ---------------------------------------------------------------------------
+
+
+def test_standard_inspection_report_dataclass() -> None:
+    """Verifies StandardInspectionReport attributes."""
+    report = StandardInspectionReport(
+        volume_mm3=25000.5,
+        mass_kg=0.195,
+        feature_count=12,
+        body_count=1,
+    )
+    assert report.volume_mm3 == 25000.5
+    assert report.mass_kg == 0.195
+    assert report.feature_count == 12
+    assert report.body_count == 1
+
+
+def test_physical_properties_dataclass_defaults_and_custom() -> None:
+    """Verifies PhysicalProperties zeroed defaults and custom attributes."""
+    # Test zeroed defaults
+    defaults = PhysicalProperties()
+    assert defaults.density == 0.0
+    assert defaults.volume_mm3 == 0.0
+    assert defaults.mass_kg == 0.0
+    assert defaults.surface_area_mm2 == 0.0
+    assert defaults.center_of_gravity == (0.0, 0.0, 0.0)
+    assert defaults.bounding_box_min == (0.0, 0.0, 0.0)
+    assert defaults.bounding_box_max == (0.0, 0.0, 0.0)
+
+    # Test custom values
+    props = PhysicalProperties(
+        density=7850.0,
+        volume_mm3=1000.0,
+        mass_kg=7.85,
+        surface_area_mm2=600.0,
+        center_of_gravity=(10.0, 20.0, 30.0),
+        bounding_box_min=(0.0, 0.0, 0.0),
+        bounding_box_max=(10.0, 10.0, 10.0),
+    )
+    assert props.density == 7850.0
+    assert props.center_of_gravity == (10.0, 20.0, 30.0)
+    assert props.bounding_box_max == (10.0, 10.0, 10.0)
+
+
+def test_artifact_record_schema_compliance() -> None:
+    """Verifies ArtifactRecord matches JSON Schema contract structure."""
+    # Test minimal required parameters
+    minimal = ArtifactRecord(type="native_part", format="par", path="out/part.par")
+    assert minimal.origin == "cad_copilot"
+    assert minimal.type == "native_part"
+    assert minimal.format == "par"
+    assert minimal.path == "out/part.par"
+    assert minimal.size_bytes is None
+    assert minimal.sha256 is None
+
+    # Test full optional parameters
+    full = ArtifactRecord(
+        type="geometry_step",
+        format="step",
+        path="output/part.step",
+        size_bytes=1048576,
+        sha256="abc123def456",
+    )
+    assert full.origin == "cad_copilot"
+    assert full.type == "geometry_step"
+    assert full.format == "step"
+    assert full.path == "output/part.step"
+    assert full.size_bytes == 1048576
+    assert full.sha256 == "abc123def456"
+
+
+def test_execution_result_union_polymorphism() -> None:
+    """Verifies ExecutionResult discriminated union behavior."""
+    success: ExecutionResult = ExecutionSuccess(
+        operations_executed=3,
+        exported_artifacts=["out.par", "out.step"],
+        warnings=[{"code": "WARN_1", "message": "Low clearance"}],
+    )
+    assert isinstance(success, ExecutionSuccess)
+    assert success.operations_executed == 3
+    assert len(success.exported_artifacts) == 2
+
+    failure: ExecutionResult = ExecutionFailure(
+        message="Failed to cut hole",
+        phase="modeling",
+        details={"step_index": 2},
+    )
+    assert isinstance(failure, ExecutionFailure)
+    assert failure.message == "Failed to cut hole"
+    assert failure.phase == "modeling"
+    assert failure.details == {"step_index": 2}
+
+
+# ---------------------------------------------------------------------------
+# 4. Backwards-Compatibility Bridge Module Tests
+# ---------------------------------------------------------------------------
+
+
+def test_cad_interfaces_backward_compatibility() -> None:
+    """Verifies that legacy cad_interfaces re-exports core interfaces and models."""
+    assert legacy_interfaces.CADExecutorABC is CADExecutorABC
+    assert legacy_interfaces.CADRuntimeABC is CADRuntimeABC
+    assert legacy_interfaces.StandardInspectionReport is StandardInspectionReport
+    assert set(legacy_interfaces.__all__) == {
+        "CADExecutorABC",
+        "CADRuntimeABC",
+        "StandardInspectionReport",
+    }
+
+
+def test_cad_exceptions_backward_compatibility() -> None:
+    """Verifies that legacy cad_exceptions re-exports the complete exception taxonomy."""
+    assert legacy_exceptions.CADError is CADError
+    assert legacy_exceptions.CADRuntimeError is CADRuntimeError
+    assert legacy_exceptions.CADExecutionError is CADExecutionError
+    assert legacy_exceptions.CADDocumentError is CADDocumentError
+    assert legacy_exceptions.CADExportError is CADExportError
+    assert legacy_exceptions.CADContainmentError is CADContainmentError
+    assert set(legacy_exceptions.__all__) == {
+        "CADContainmentError",
+        "CADDocumentError",
+        "CADError",
+        "CADExecutionError",
+        "CADExportError",
+        "CADRuntimeError",
+    }
