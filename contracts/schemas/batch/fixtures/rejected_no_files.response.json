@@ -1,0 +1,11 @@
+{
+  "contract_version": "1.0",
+  "request_id": "batch-002",
+  "status": "rejected",
+  "errors": [
+    {
+      "code": "INVALID_SCHEMA",
+      "message": "input.files must contain at least one relative file path."
+    }
+  ]
+}

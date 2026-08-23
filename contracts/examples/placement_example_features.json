@@ -1,0 +1,282 @@
+[
+  {
+    "id": "feature.hole.1",
+    "family": "circular_through_hole",
+    "target": {
+      "body_id": "body.main",
+      "face": {
+        "selector": "default_thickness_face",
+        "resolved_face": "+Z",
+        "normal_axis": "z"
+      }
+    },
+    "placement": {
+      "mode": "face_local_offset",
+      "center_uv_mm": {
+        "u": -38.0,
+        "v": 0.0
+      }
+    },
+    "orientation": {
+      "axis": "",
+      "angle_deg": 0.0
+    },
+    "dimensions_mm": {
+      "diameter": 8.0,
+      "width": 0.0,
+      "height": 0.0,
+      "length": 0.0
+    },
+    "extent": {
+      "type": "through_all",
+      "direction": "normal",
+      "depth_mm": 0.0
+    },
+    "profile": {
+      "points": []
+    },
+    "revolve": {
+      "axis": {
+        "start": {
+          "x_mm": 0.0,
+          "y_mm": 0.0
+        },
+        "end": {
+          "x_mm": 0.0,
+          "y_mm": 1.0
+        }
+      },
+      "angle_deg": 0.0
+    },
+    "path": {
+      "type": "none",
+      "radius_mm": 0.0,
+      "angle_deg": 0.0
+    },
+    "cross_sections": []
+  },
+  {
+    "id": "feature.hole.2",
+    "family": "circular_through_hole",
+    "target": {
+      "body_id": "body.main",
+      "face": {
+        "selector": "default_thickness_face",
+        "resolved_face": "+Z",
+        "normal_axis": "z"
+      }
+    },
+    "placement": {
+      "mode": "face_local_offset",
+      "center_uv_mm": {
+        "u": 38.0,
+        "v": 0.0
+      }
+    },
+    "orientation": {
+      "axis": "",
+      "angle_deg": 0.0
+    },
+    "dimensions_mm": {
+      "diameter": 8.0,
+      "width": 0.0,
+      "height": 0.0,
+      "length": 0.0
+    },
+    "extent": {
+      "type": "through_all",
+      "direction": "normal",
+      "depth_mm": 0.0
+    },
+    "profile": {
+      "points": []
+    },
+    "revolve": {
+      "axis": {
+        "start": {
+          "x_mm": 0.0,
+          "y_mm": 0.0
+        },
+        "end": {
+          "x_mm": 0.0,
+          "y_mm": 1.0
+        }
+      },
+      "angle_deg": 0.0
+    },
+    "path": {
+      "type": "none",
+      "radius_mm": 0.0,
+      "angle_deg": 0.0
+    },
+    "cross_sections": []
+  },
+  {
+    "id": "feature.slot.1",
+    "family": "slot_through_cutout",
+    "target": {
+      "body_id": "body.main",
+      "face": {
+        "selector": "default_thickness_face",
+        "resolved_face": "+Z",
+        "normal_axis": "z"
+      }
+    },
+    "placement": {
+      "mode": "face_local_offset",
+      "center_uv_mm": {
+        "u": 18.0,
+        "v": 6.0
+      }
+    },
+    "orientation": {
+      "axis": "y",
+      "angle_deg": 90.0
+    },
+    "dimensions_mm": {
+      "diameter": 0.0,
+      "width": 10.0,
+      "height": 0.0,
+      "length": 34.0
+    },
+    "extent": {
+      "type": "through_all",
+      "direction": "normal",
+      "depth_mm": 0.0
+    },
+    "profile": {
+      "points": []
+    },
+    "revolve": {
+      "axis": {
+        "start": {
+          "x_mm": 0.0,
+          "y_mm": 0.0
+        },
+        "end": {
+          "x_mm": 0.0,
+          "y_mm": 1.0
+        }
+      },
+      "angle_deg": 0.0
+    },
+    "path": {
+      "type": "none",
+      "radius_mm": 0.0,
+      "angle_deg": 0.0
+    },
+    "cross_sections": []
+  },
+  {
+    "id": "feature.hole.3",
+    "family": "circular_through_hole",
+    "target": {
+      "body_id": "body.main",
+      "face": {
+        "selector": "side_face",
+        "resolved_face": "+X",
+        "normal_axis": "x"
+      }
+    },
+    "placement": {
+      "mode": "face_local_center",
+      "center_uv_mm": {
+        "u": 0.0,
+        "v": 0.0
+      }
+    },
+    "orientation": {
+      "axis": "",
+      "angle_deg": 0.0
+    },
+    "dimensions_mm": {
+      "diameter": 8.0,
+      "width": 0.0,
+      "height": 0.0,
+      "length": 0.0
+    },
+    "extent": {
+      "type": "through_all",
+      "direction": "normal",
+      "depth_mm": 0.0
+    },
+    "profile": {
+      "points": []
+    },
+    "revolve": {
+      "axis": {
+        "start": {
+          "x_mm": 0.0,
+          "y_mm": 0.0
+        },
+        "end": {
+          "x_mm": 0.0,
+          "y_mm": 1.0
+        }
+      },
+      "angle_deg": 0.0
+    },
+    "path": {
+      "type": "none",
+      "radius_mm": 0.0,
+      "angle_deg": 0.0
+    },
+    "cross_sections": []
+  },
+  {
+    "id": "feature.slot.2",
+    "family": "slot_through_cutout",
+    "target": {
+      "body_id": "body.main",
+      "face": {
+        "selector": "side_face",
+        "resolved_face": "-Y",
+        "normal_axis": "y"
+      }
+    },
+    "placement": {
+      "mode": "face_local_center",
+      "center_uv_mm": {
+        "u": 0.0,
+        "v": 0.0
+      }
+    },
+    "orientation": {
+      "axis": "y",
+      "angle_deg": 90.0
+    },
+    "dimensions_mm": {
+      "diameter": 0.0,
+      "width": 10.0,
+      "height": 0.0,
+      "length": 34.0
+    },
+    "extent": {
+      "type": "through_all",
+      "direction": "normal",
+      "depth_mm": 0.0
+    },
+    "profile": {
+      "points": []
+    },
+    "revolve": {
+      "axis": {
+        "start": {
+          "x_mm": 0.0,
+          "y_mm": 0.0
+        },
+        "end": {
+          "x_mm": 0.0,
+          "y_mm": 1.0
+        }
+      },
+      "angle_deg": 0.0
+    },
+    "path": {
+      "type": "none",
+      "radius_mm": 0.0,
+      "angle_deg": 0.0
+    },
+    "cross_sections": []
+  }
+]

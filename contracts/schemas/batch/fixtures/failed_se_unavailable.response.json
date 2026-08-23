@@ -1,0 +1,11 @@
+{
+  "contract_version": "1.0",
+  "request_id": "batch-004",
+  "status": "failed",
+  "errors": [
+    {
+      "code": "SOLID_EDGE_UNAVAILABLE",
+      "message": "Could not acquire a local Solid Edge application session."
+    }
+  ]
+}

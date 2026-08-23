@@ -1,0 +1,73 @@
+{
+  "plan_version": "main_cad.single_part_feature_plan.v0",
+  "request_id": "replace-with-request-id",
+  "units": "mm",
+  "part": {
+    "part_id": "part.main",
+    "design_intent": "rectangular base with a united centered cylinder boss",
+    "scope": "single_part"
+  },
+  "base_body": {
+    "id": "body.base",
+    "family": "rectangular_prism",
+    "semantic_labels": [
+      "base"
+    ],
+    "dimensions_mm": {
+      "length": 80.0,
+      "width": 40.0,
+      "thickness": 8.0
+    },
+    "placement": {
+      "x_mm": 0.0,
+      "y_mm": 0.0,
+      "z_mm": 0.0
+    }
+  },
+  "primitive_bodies": [
+    {
+      "id": "body.base",
+      "family": "rectangular_prism",
+      "semantic_labels": [
+        "base"
+      ],
+      "dimensions_mm": {
+        "length": 80.0,
+        "width": 40.0,
+        "thickness": 8.0
+      },
+      "placement": {
+        "x_mm": 0.0,
+        "y_mm": 0.0,
+        "z_mm": 0.0
+      }
+    },
+    {
+      "id": "body.boss",
+      "family": "cylinder",
+      "semantic_labels": [
+        "boss"
+      ],
+      "dimensions_mm": {
+        "radius": 8.0,
+        "diameter": 16.0,
+        "height": 16.0
+      },
+      "placement": {
+        "x_mm": 0.0,
+        "y_mm": 0.0,
+        "z_mm": 4.0
+      }
+    }
+  ],
+  "boolean_operations": [
+    {
+      "id": "boolean.union.1",
+      "operation": "union",
+      "target_body_id": "body.base",
+      "tool_body_id": "body.boss",
+      "result_body_id": "body.result"
+    }
+  ],
+  "features": []
+}

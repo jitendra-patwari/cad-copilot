@@ -1,0 +1,214 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad-copilot.dev/schemas/batch-request.schema.json",
+  "title": "BatchRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "request_id", "kind", "input", "output_root", "operation"],
+  "properties": {
+    "contract_version": { "const": "1.0" },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "kind": { "const": "batch_operation" },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "files"],
+      "properties": {
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "output_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "formats"],
+          "properties": {
+            "type": { "const": "export" },
+            "formats": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "enum": ["step", "stl", "parasolid", "jt", "iges", "3mf"]
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "formats"],
+          "properties": {
+            "type": { "const": "publish_drawing" },
+            "formats": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "enum": ["pdf", "dwg", "dxf"]
+              }
+            },
+            "update_views": {
+              "type": "boolean",
+              "default": true
+            },
+            "fail_on_update_error": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "formats"],
+          "properties": {
+            "type": { "const": "flat_pattern" },
+            "formats": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1,
+              "items": { "const": "dxf" }
+            },
+            "use_existing_flat_pattern": {
+              "type": "boolean",
+              "const": true,
+              "default": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {
+            "type": { "const": "read_properties" },
+            "formats": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "default": ["json"],
+              "items": {
+                "type": "string",
+                "enum": ["json", "csv"]
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "save_in_place", "confirm_modify"],
+          "properties": {
+            "type": { "const": "open_save" },
+            "save_in_place": { "const": true },
+            "confirm_modify": { "const": true }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "save_in_place", "confirm_modify"],
+          "properties": {
+            "type": { "const": "physical_properties_update" },
+            "save_in_place": { "const": true },
+            "confirm_modify": { "const": true }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {
+            "type": { "const": "workspace_init" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "save_in_place", "confirm_modify", "properties"],
+          "properties": {
+            "type": { "const": "write_properties" },
+            "save_in_place": { "const": true },
+            "confirm_modify": { "const": true },
+            "properties": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": ["string", "number", "boolean", "null"]
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {
+            "type": { "const": "generate_draft" },
+            "formats": {
+              "type": "array",
+              "items": { "const": "dft" },
+              "minItems": 1,
+              "maxItems": 1,
+              "default": ["dft"]
+            }
+          }
+        }
+      ]
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "continue_on_error": {
+          "type": "boolean",
+          "default": true
+        },
+        "max_files": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500,
+          "default": 100
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["desktop_app", "cad_copilot", "local_agent"]
+        }
+      }
+    }
+  }
+}

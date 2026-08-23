@@ -1,0 +1,16 @@
+{
+  "contract_version": "1.0",
+  "request_id": "fixture-cube-step",
+  "status": "accepted",
+  "data": {
+    "artifacts": [
+      {
+        "type": "geometry_step",
+        "format": "step",
+        "path": "{{OUTPUT_ROOT}}/fixture-cube-step/fixture-cube-step.step",
+        "origin": "cad_copilot"
+      }
+    ]
+  },
+  "warnings": []
+}

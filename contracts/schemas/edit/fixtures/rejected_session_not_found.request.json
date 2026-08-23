@@ -1,0 +1,16 @@
+{
+  "contract_version": "1.0",
+  "request_id": "edit-job-unknown-session",
+  "kind": "prompt_edit_part",
+  "session_id": "session.unknown",
+  "unit": "mm",
+  "prompt": "Add a 4 mm chamfer on top edges.",
+  "base_state_revision": 0,
+  "visible_artifacts": {
+    "formats": ["par", "jpg"]
+  },
+  "metadata": {
+    "source": "desktop_app",
+    "job_id": "edit-job-unknown-session"
+  }
+}

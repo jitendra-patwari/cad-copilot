@@ -1,0 +1,16 @@
+{
+  "contract_version": "1.0",
+  "request_id": "edit-job-001",
+  "kind": "prompt_edit_part",
+  "session_id": "session.main",
+  "unit": "mm",
+  "prompt": "Add a 6 mm through hole on the top face, 20 mm to the right of center.",
+  "base_state_revision": 1,
+  "visible_artifacts": {
+    "formats": ["par", "jpg"]
+  },
+  "metadata": {
+    "source": "desktop_app",
+    "job_id": "edit-job-001"
+  }
+}

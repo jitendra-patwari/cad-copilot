@@ -1,0 +1,11 @@
+{
+  "contract_version": "1.0",
+  "request_id": "batch-003",
+  "status": "rejected",
+  "errors": [
+    {
+      "code": "INPUT_PATH_NOT_ALLOWED",
+      "message": "input.files[0]: path traversal is not allowed: '../secret/part.par'"
+    }
+  ]
+}

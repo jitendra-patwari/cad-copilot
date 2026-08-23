@@ -1,0 +1,19 @@
+{
+  "contract_version": "1.0",
+  "request_id": "batch-003",
+  "kind": "batch_operation",
+  "input": {
+    "root": "C:/my_cad_parts",
+    "files": [
+      "../secret/part.par"
+    ]
+  },
+  "output_root": "C:/my_cad_parts/output",
+  "operation": {
+    "type": "export",
+    "formats": ["step"]
+  },
+  "metadata": {
+    "source": "desktop_app"
+  }
+}

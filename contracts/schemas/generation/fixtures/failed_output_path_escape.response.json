@@ -1,0 +1,11 @@
+{
+  "contract_version": "1.0",
+  "request_id": "fixture-cube-step",
+  "status": "failed",
+  "errors": [
+    {
+      "code": "OUTPUT_PATH_NOT_ALLOWED",
+      "message": "Artifact path escaped CAD_OUTPUT_ROOT: {{OUTSIDE_STEP_PATH}}"
+    }
+  ]
+}

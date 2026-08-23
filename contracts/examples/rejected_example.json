@@ -1,0 +1,10 @@
+{
+  "decision_version": "main_cad.canonical_decision.v0",
+  "status": "rejected",
+  "feature_plan": null,
+  "rejection_code": "unsupported_feature",
+  "user_feedback": "Chamfered edges are not supported in the current CAD Copilot canonical path.",
+  "assumptions": [],
+  "notes": "Prompt asked for chamfer geometry.",
+  "confidence": 0.91
+}

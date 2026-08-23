@@ -1,0 +1,22 @@
+{
+  "contract_version": "1.0",
+  "request_id": "fixture-cube-default",
+  "status": "accepted",
+  "data": {
+    "artifacts": [
+      {
+        "type": "geometry_step",
+        "format": "step",
+        "path": "{{OUTPUT_ROOT}}/fixture-cube-default/fixture-cube-default.step",
+        "origin": "cad_copilot"
+      },
+      {
+        "type": "preview_image",
+        "format": "jpg",
+        "path": "{{OUTPUT_ROOT}}/fixture-cube-default/fixture-cube-default.jpg",
+        "origin": "cad_copilot"
+      }
+    ]
+  },
+  "warnings": []
+}

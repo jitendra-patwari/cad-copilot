@@ -1,0 +1,16 @@
+{
+  "contract_version": "1.0",
+  "request_id": "fixture-cube-jpg-only",
+  "status": "accepted",
+  "data": {
+    "artifacts": [
+      {
+        "type": "preview_image",
+        "format": "jpg",
+        "path": "{{OUTPUT_ROOT}}/fixture-cube-jpg-only/fixture-cube-jpg-only.jpg",
+        "origin": "cad_copilot"
+      }
+    ]
+  },
+  "warnings": []
+}

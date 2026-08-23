@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad-copilot.dev/schemas/batch-response.schema.json",
+  "title": "BatchResponse",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "status", "summary", "results"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "status": { "const": "completed" },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["total", "accepted", "failed"],
+          "properties": {
+            "total": { "type": "integer", "minimum": 0 },
+            "accepted": { "type": "integer", "minimum": 0 },
+            "failed": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "results": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fileResult" }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "status", "errors"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "status": { "const": "rejected" },
+        "errors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/errorRecord" }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "status", "errors"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "status": { "const": "failed" },
+        "errors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/errorRecord" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "fileResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["input", "status", "artifacts"],
+          "properties": {
+            "input": { "type": "string", "minLength": 1 },
+            "status": { "const": "accepted" },
+            "artifacts": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/artifactRecord" }
+            },
+            "warnings": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/errorRecord" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["input", "status", "errors"],
+          "properties": {
+            "input": { "type": "string", "minLength": 1 },
+            "status": { "const": "failed" },
+            "errors": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/errorRecord" }
+            }
+          }
+        }
+      ]
+    },
+    "artifactRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "path"],
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": [
+            "step",
+            "stl",
+            "parasolid",
+            "jt",
+            "iges",
+            "3mf",
+            "pdf",
+            "dwg",
+            "dxf",
+            "json",
+            "csv",
+            "par",
+            "psm",
+            "asm",
+            "dft"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "errorRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

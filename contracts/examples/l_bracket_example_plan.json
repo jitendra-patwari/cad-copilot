@@ -1,0 +1,242 @@
+{
+  "plan_version": "main_cad.single_part_feature_plan.v0",
+  "request_id": "replace-with-request-id",
+  "units": "mm",
+  "part": {
+    "part_id": "part.main",
+    "design_intent": "concept L bracket with base and upright mounting holes",
+    "scope": "single_part"
+  },
+  "base_body": {
+    "id": "body.base",
+    "family": "rectangular_prism",
+    "semantic_labels": [
+      "base_plate"
+    ],
+    "dimensions_mm": {
+      "length": 80.0,
+      "width": 40.0,
+      "thickness": 6.0
+    },
+    "placement": {
+      "x_mm": 0.0,
+      "y_mm": -20.0,
+      "z_mm": 0.0
+    }
+  },
+  "primitive_bodies": [
+    {
+      "id": "body.base",
+      "family": "rectangular_prism",
+      "semantic_labels": [
+        "base_plate"
+      ],
+      "dimensions_mm": {
+        "length": 80.0,
+        "width": 40.0,
+        "thickness": 6.0
+      },
+      "placement": {
+        "x_mm": 0.0,
+        "y_mm": -20.0,
+        "z_mm": 0.0
+      }
+    },
+    {
+      "id": "body.upright",
+      "family": "rectangular_prism",
+      "semantic_labels": [
+        "upright_plate"
+      ],
+      "dimensions_mm": {
+        "length": 80.0,
+        "width": 6.0,
+        "thickness": 50.0
+      },
+      "placement": {
+        "x_mm": 0.0,
+        "y_mm": 0.0,
+        "z_mm": 6.0
+      }
+    }
+  ],
+  "boolean_operations": [
+    {
+      "id": "boolean.union.bracket",
+      "operation": "union",
+      "target_body_id": "body.base",
+      "tool_body_id": "body.upright",
+      "result_body_id": "body.bracket"
+    }
+  ],
+  "features": [
+    {
+      "id": "feature.base-hole.1",
+      "family": "circular_through_hole",
+      "target": {
+        "body_id": "body.base",
+        "face": {
+          "selector": "default_thickness_face",
+          "resolved_face": "+Z",
+          "normal_axis": "z"
+        }
+      },
+      "placement": {
+        "mode": "face_local_offset",
+        "center_uv_mm": {
+          "u": -24.0,
+          "v": 0.0
+        }
+      },
+      "orientation": {
+        "axis": "",
+        "angle_deg": 0.0
+      },
+      "dimensions_mm": {
+        "diameter": 8.0,
+        "width": 0.0,
+        "height": 0.0,
+        "length": 0.0
+      },
+      "extent": {
+        "type": "through_all",
+        "direction": "normal",
+        "depth_mm": 0.0
+      },
+      "profile": {
+        "points": []
+      },
+      "revolve": {
+        "axis": {
+          "start": {
+            "x_mm": 0.0,
+            "y_mm": 0.0
+          },
+          "end": {
+            "x_mm": 0.0,
+            "y_mm": 1.0
+          }
+        },
+        "angle_deg": 0.0
+      },
+      "path": {
+        "type": "none",
+        "radius_mm": 0.0,
+        "angle_deg": 0.0
+      },
+      "cross_sections": []
+    },
+    {
+      "id": "feature.base-hole.2",
+      "family": "circular_through_hole",
+      "target": {
+        "body_id": "body.base",
+        "face": {
+          "selector": "default_thickness_face",
+          "resolved_face": "+Z",
+          "normal_axis": "z"
+        }
+      },
+      "placement": {
+        "mode": "face_local_offset",
+        "center_uv_mm": {
+          "u": 24.0,
+          "v": 0.0
+        }
+      },
+      "orientation": {
+        "axis": "",
+        "angle_deg": 0.0
+      },
+      "dimensions_mm": {
+        "diameter": 8.0,
+        "width": 0.0,
+        "height": 0.0,
+        "length": 0.0
+      },
+      "extent": {
+        "type": "through_all",
+        "direction": "normal",
+        "depth_mm": 0.0
+      },
+      "profile": {
+        "points": []
+      },
+      "revolve": {
+        "axis": {
+          "start": {
+            "x_mm": 0.0,
+            "y_mm": 0.0
+          },
+          "end": {
+            "x_mm": 0.0,
+            "y_mm": 1.0
+          }
+        },
+        "angle_deg": 0.0
+      },
+      "path": {
+        "type": "none",
+        "radius_mm": 0.0,
+        "angle_deg": 0.0
+      },
+      "cross_sections": []
+    },
+    {
+      "id": "feature.upright-hole.1",
+      "family": "circular_through_hole",
+      "target": {
+        "body_id": "body.upright",
+        "face": {
+          "selector": "side_face",
+          "resolved_face": "+Y",
+          "normal_axis": "y"
+        }
+      },
+      "placement": {
+        "mode": "face_local_offset",
+        "center_uv_mm": {
+          "u": 0.0,
+          "v": 0.0
+        }
+      },
+      "orientation": {
+        "axis": "",
+        "angle_deg": 0.0
+      },
+      "dimensions_mm": {
+        "diameter": 10.0,
+        "width": 0.0,
+        "height": 0.0,
+        "length": 0.0
+      },
+      "extent": {
+        "type": "through_all",
+        "direction": "normal",
+        "depth_mm": 0.0
+      },
+      "profile": {
+        "points": []
+      },
+      "revolve": {
+        "axis": {
+          "start": {
+            "x_mm": 0.0,
+            "y_mm": 0.0
+          },
+          "end": {
+            "x_mm": 0.0,
+            "y_mm": 1.0
+          }
+        },
+        "angle_deg": 0.0
+      },
+      "path": {
+        "type": "none",
+        "radius_mm": 0.0,
+        "angle_deg": 0.0
+      },
+      "cross_sections": []
+    }
+  ]
+}

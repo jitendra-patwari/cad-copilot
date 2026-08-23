@@ -1,0 +1,24 @@
+{
+  "contract_version": "1.0",
+  "request_id": "edit-job-001",
+  "status": "accepted",
+  "data": {
+    "session_id": "session.main",
+    "state_revision": 2,
+    "artifacts": [
+      {
+        "type": "native_part",
+        "format": "par",
+        "path": "{{OUTPUT_ROOT}}/session.main/part_rev2.par",
+        "origin": "cad_copilot"
+      },
+      {
+        "type": "preview_image",
+        "format": "jpg",
+        "path": "{{OUTPUT_ROOT}}/session.main/preview_rev2.jpg",
+        "origin": "cad_copilot"
+      }
+    ]
+  },
+  "warnings": []
+}

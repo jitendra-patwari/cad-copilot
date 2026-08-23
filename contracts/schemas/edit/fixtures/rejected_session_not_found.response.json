@@ -1,0 +1,11 @@
+{
+  "contract_version": "1.0",
+  "request_id": "edit-job-unknown-session",
+  "status": "rejected",
+  "errors": [
+    {
+      "code": "SESSION_STATE_NOT_FOUND",
+      "message": "Session state 'session.unknown' not found."
+    }
+  ]
+}

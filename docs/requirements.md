@@ -37,11 +37,12 @@ This specification defines the functional, architectural, and quality requiremen
 - **Repository Hygiene**: Multi-stack `.gitignore` preventing commit of CAD binaries (`*.par`, `*.psm`, `*.asm`), secrets, and build artifacts. `.env.example` template for runtime configuration.
 
 ### FR-2: Domain Contracts & DSL Schemas (Milestone 1)
-- **JSON Schema Namespace**: Canonical schemas defined under `https://cad-copilot.dev/schemas/`.
+- **JSON Schema Namespace**: Canonical schemas defined under `https://cad-copilot.dev/schemas/` conforming to JSON Schema Draft 2020-12.
+- **Wire Protocol Standard**: Semantic `"contract_version": "1.0"` decoupled from domain operation `kind` across all payloads.
 - **Schema Contracts (`contracts/`)**:
-  - `contracts/schemas/bridge/`: Generation request/response envelopes, execution options, and job receipts (`"origin": "cad_copilot"`).
-  - `contracts/schemas/batch/`: Batch task definitions, export configurations, and summary schemas.
-  - `contracts/schemas/edit/`: Parametric feature edit requests, diff payloads, and rollback specifications.
+  - `contracts/schemas/generation/`: 3D CAD prompt generation request/response envelopes (`generation-request.schema.json`, `generation-response.schema.json`, `"origin": "cad_copilot"`).
+  - `contracts/schemas/batch/`: Batch task definitions, export configurations, and summary schemas (`batch-request.schema.json`, `batch-response.schema.json`).
+  - `contracts/schemas/edit/`: Parametric feature edit requests, session diff payloads, and rollback specifications (`edit-request.schema.json`, `edit-response.schema.json`).
 - **Golden Runbooks & Fixtures**: Canonical feature plan DSL examples (`contracts/examples/`) covering standard mechanical parts (e.g., flange plates, brackets, spur gears) for contract validation.
 
 ### FR-3: Abstract Domain Interfaces (Milestone 1)

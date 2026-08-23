@@ -1,0 +1,19 @@
+{
+  "contract_version": "1.0",
+  "request_id": "fixture-sketch-to-cad",
+  "kind": "prompt_to_cad",
+  "unit": "mm",
+  "prompt": "Create a mounting bracket matching the attached hand-drawn sketch with a 10 mm mounting hole.",
+  "image": {
+    "base64_data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    "mime_type": "image/png"
+  },
+  "visible_artifacts": {
+    "formats": ["par", "jpg"]
+  },
+  "metadata": {
+    "source": "desktop_app",
+    "label": "fixture sketch to cad",
+    "job_id": "fixture-sketch-to-cad"
+  }
+}

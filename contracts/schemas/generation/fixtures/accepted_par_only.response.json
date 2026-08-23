@@ -1,0 +1,16 @@
+{
+  "contract_version": "1.0",
+  "request_id": "fixture-cube-par-only",
+  "status": "accepted",
+  "data": {
+    "artifacts": [
+      {
+        "type": "native_part",
+        "format": "par",
+        "path": "{{OUTPUT_ROOT}}/fixture-cube-par-only/fixture-cube-par-only.par",
+        "origin": "cad_copilot"
+      }
+    ]
+  },
+  "warnings": []
+}

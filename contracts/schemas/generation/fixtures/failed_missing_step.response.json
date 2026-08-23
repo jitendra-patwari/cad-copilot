@@ -1,0 +1,11 @@
+{
+  "contract_version": "1.0",
+  "request_id": "fixture-cube-step-jpg",
+  "status": "failed",
+  "errors": [
+    {
+      "code": "ARTIFACT_EXPORT_FAILED",
+      "message": "Export failed for requested STEP artifact."
+    }
+  ]
+}

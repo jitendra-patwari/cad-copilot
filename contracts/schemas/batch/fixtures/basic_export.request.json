@@ -1,0 +1,24 @@
+{
+  "contract_version": "1.0",
+  "request_id": "batch-001",
+  "kind": "batch_operation",
+  "input": {
+    "root": "C:/my_cad_parts",
+    "files": [
+      "part1.par",
+      "subfolder/part2.par"
+    ]
+  },
+  "output_root": "C:/my_cad_parts/output",
+  "operation": {
+    "type": "export",
+    "formats": ["step", "stl", "parasolid", "jt", "iges", "3mf"]
+  },
+  "options": {
+    "continue_on_error": true,
+    "max_files": 100
+  },
+  "metadata": {
+    "source": "desktop_app"
+  }
+}

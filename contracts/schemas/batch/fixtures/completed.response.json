@@ -1,0 +1,53 @@
+{
+  "contract_version": "1.0",
+  "request_id": "batch-001",
+  "status": "completed",
+  "summary": {
+    "total": 2,
+    "accepted": 1,
+    "failed": 1
+  },
+  "results": [
+    {
+      "input": "part1.par",
+      "status": "accepted",
+      "artifacts": [
+        {
+          "format": "step",
+          "path": "C:/my_cad_parts/output/part1.step"
+        },
+        {
+          "format": "stl",
+          "path": "C:/my_cad_parts/output/part1.stl"
+        },
+        {
+          "format": "parasolid",
+          "path": "C:/my_cad_parts/output/part1.x_t"
+        },
+        {
+          "format": "jt",
+          "path": "C:/my_cad_parts/output/part1.jt"
+        },
+        {
+          "format": "iges",
+          "path": "C:/my_cad_parts/output/part1.igs"
+        },
+        {
+          "format": "3mf",
+          "path": "C:/my_cad_parts/output/part1.3mf"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "input": "subfolder/part2.par",
+      "status": "failed",
+      "errors": [
+        {
+          "code": "EXPORT_FAILED",
+          "message": "Could not export subfolder/part2.par"
+        }
+      ]
+    }
+  ]
+}

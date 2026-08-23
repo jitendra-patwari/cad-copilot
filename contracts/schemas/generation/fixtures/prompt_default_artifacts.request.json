@@ -1,0 +1,12 @@
+{
+  "contract_version": "1.0",
+  "request_id": "fixture-cube-default",
+  "kind": "prompt_to_cad",
+  "unit": "mm",
+  "prompt": "Create a 25 mm cube.",
+  "metadata": {
+    "source": "cad_copilot",
+    "label": "fixture cube default artifacts",
+    "job_id": "fixture-cube-default"
+  }
+}

@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad-copilot.dev/schemas/edit-response.schema.json",
+  "title": "EditResponse",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "status", "data", "warnings"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "status": { "const": "accepted" },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["session_id", "state_revision", "artifacts"],
+          "properties": {
+            "session_id": { "$ref": "#/$defs/sessionId" },
+            "state_revision": { "type": "integer", "minimum": 0 },
+            "artifacts": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/artifactRecord" }
+            }
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/diagnosticRecord" }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "status", "errors"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "status": { "const": "rejected" },
+        "errors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/errorRecord" }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "status", "errors"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "status": { "const": "failed" },
+        "errors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/errorRecord" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "sessionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "artifactRecord": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "format", "path", "origin"],
+          "properties": {
+            "type": { "const": "native_part" },
+            "format": { "const": "par" },
+            "path": { "type": "string", "minLength": 1 },
+            "origin": { "const": "cad_copilot" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "format", "path", "origin"],
+          "properties": {
+            "type": { "const": "geometry_step" },
+            "format": { "const": "step" },
+            "path": { "type": "string", "minLength": 1 },
+            "origin": { "const": "cad_copilot" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "format", "path", "origin"],
+          "properties": {
+            "type": { "const": "preview_image" },
+            "format": { "const": "jpg" },
+            "path": { "type": "string", "minLength": 1 },
+            "origin": { "const": "cad_copilot" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "format", "path", "origin"],
+          "properties": {
+            "type": { "const": "mesh_stl" },
+            "format": { "const": "stl" },
+            "path": { "type": "string", "minLength": 1 },
+            "origin": { "const": "cad_copilot" }
+          }
+        }
+      ]
+    },
+    "diagnosticRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    },
+    "errorRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "INVALID_SCHEMA",
+            "UNSUPPORTED_REQUEST",
+            "SESSION_STATE_NOT_FOUND",
+            "SEMANTIC_REVISION_CONFLICT",
+            "BACKEND_SESSION_RUNTIME_BINDINGS_UNAVAILABLE",
+            "PROMPT_EDIT_INTERPRETATION_FAILED",
+            "CAD_EDIT_EXECUTION_FAILED",
+            "ARTIFACT_EXPORT_FAILED",
+            "OUTPUT_PATH_NOT_ALLOWED",
+            "INTERNAL_ERROR"
+          ]
+        },
+        "message": { "type": "string", "minLength": 1 },
+        "field": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

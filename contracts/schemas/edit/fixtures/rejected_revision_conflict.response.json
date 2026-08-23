@@ -1,0 +1,11 @@
+{
+  "contract_version": "1.0",
+  "request_id": "edit-job-conflict",
+  "status": "rejected",
+  "errors": [
+    {
+      "code": "SEMANTIC_REVISION_CONFLICT",
+      "message": "Base revision mismatch: client expected 0, current session revision is 1."
+    }
+  ]
+}

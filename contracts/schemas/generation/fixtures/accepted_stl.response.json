@@ -1,0 +1,16 @@
+{
+  "contract_version": "1.0",
+  "request_id": "fixture-cube-stl",
+  "status": "accepted",
+  "data": {
+    "artifacts": [
+      {
+        "type": "mesh_stl",
+        "format": "stl",
+        "path": "{{OUTPUT_ROOT}}/fixture-cube-stl/fixture-cube-stl.stl",
+        "origin": "cad_copilot"
+      }
+    ]
+  },
+  "warnings": []
+}

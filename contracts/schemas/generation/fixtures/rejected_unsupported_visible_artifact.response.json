@@ -1,0 +1,12 @@
+{
+  "contract_version": "1.0",
+  "request_id": "fixture-unsupported-artifact",
+  "status": "rejected",
+  "errors": [
+    {
+      "code": "INVALID_SCHEMA",
+      "message": "visible_artifacts.formats.0: 'unsupported_format' is not one of ['par', 'step', 'jpg', 'stl']",
+      "field": "visible_artifacts.formats.0"
+    }
+  ]
+}

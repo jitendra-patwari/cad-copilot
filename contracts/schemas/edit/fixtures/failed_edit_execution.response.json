@@ -1,0 +1,11 @@
+{
+  "contract_version": "1.0",
+  "request_id": "edit-job-001",
+  "status": "failed",
+  "errors": [
+    {
+      "code": "CAD_EDIT_EXECUTION_FAILED",
+      "message": "Feature extrusion intersection failed on selected face."
+    }
+  ]
+}
