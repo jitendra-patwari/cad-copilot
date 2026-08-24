@@ -84,7 +84,9 @@ class TestPlanarProfileFitAndSeparation:
 
         # In capability_first mode, boundary overflow is a relaxed warning
         diagnostics: list[ValidationDiagnostic] = []
-        _validate_hole_fit(hole, radius_mm=4.0, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]")
+        _validate_hole_fit(
+            hole, radius_mm=4.0, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]"
+        )
         assert len(diagnostics) == 1
         assert diagnostics[0].severity == "warning"
         assert diagnostics[0].code == "GATE_POLICY_RELAXED"
@@ -96,7 +98,9 @@ class TestPlanarProfileFitAndSeparation:
             id="cut1", width_mm=20.0, height_mm=10.0, center_x_mm=0.0, center_y_mm=0.0, target_face="+Z"
         )
         diagnostics: list[ValidationDiagnostic] = []
-        _validate_rectangular_cutout_fit(cutout, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]")
+        _validate_rectangular_cutout_fit(
+            cutout, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]"
+        )
         assert len(diagnostics) == 0
 
         slot = SlotThroughCutoutFeature(
@@ -111,12 +115,16 @@ class TestPlanarProfileFitAndSeparation:
         points = (ProfilePoint2D(-10, -5), ProfilePoint2D(10, -5), ProfilePoint2D(0, 10))
         profile_cutout = ProfileCutoutFeature(id="pcut1", profile_points=points, target_face="+Z")
         diagnostics: list[ValidationDiagnostic] = []
-        _validate_profile_cutout_fit(profile_cutout, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]")
+        _validate_profile_cutout_fit(
+            profile_cutout, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]"
+        )
         assert len(diagnostics) == 0
 
         pad = RectangularExtrudedPadFeature(id="pad1", width_mm=20.0, height_mm=4.0, distance_mm=5.0, target_face="+X")
         diagnostics.clear()
-        _validate_rectangular_pad_fit(pad, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]")
+        _validate_rectangular_pad_fit(
+            pad, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]"
+        )
         assert len(diagnostics) == 0
 
     def test_hole_separation_detects_overlapping_holes(self) -> None:
@@ -134,7 +142,9 @@ class TestPlanarProfileFitAndSeparation:
         hole = CircularThroughHoleFeature(id="h_nan", diameter_mm=8.0, center_x_mm=float("nan"), center_y_mm=0.0)
         diagnostics: list[ValidationDiagnostic] = []
         with pytest.raises(FeaturePlanValidationError) as exc:
-            _validate_hole_fit(hole, radius_mm=4.0, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]")
+            _validate_hole_fit(
+                hole, radius_mm=4.0, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]"
+            )
         assert exc.value.code == "INVALID_DIMENSION"
 
     def test_profile_cutout_rejects_collinear_zero_area_polygon(self) -> None:
@@ -144,5 +154,7 @@ class TestPlanarProfileFitAndSeparation:
         cutout = ProfileCutoutFeature(id="pcut_degen", profile_points=collinear_points, target_face="+Z")
         diagnostics: list[ValidationDiagnostic] = []
         with pytest.raises(FeaturePlanValidationError) as exc:
-            _validate_profile_cutout_fit(cutout, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]")
+            _validate_profile_cutout_fit(
+                cutout, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]"
+            )
         assert exc.value.code == "INVALID_GEOMETRY"

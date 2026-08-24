@@ -28,6 +28,7 @@ from geometry.plan_models import (
     FeaturePlanFeature,
     RectangularBaseBody,
     RevolvedShaftBaseBody,
+    SphereBaseBody,
     SpurGearBaseBody,
 )
 
@@ -123,11 +124,7 @@ class FaceContext:
         dy = y - (py + oy)
         dz = z - (pz + oz)
 
-        return (
-            dx * self.normal_vector[0]
-            + dy * self.normal_vector[1]
-            + dz * self.normal_vector[2]
-        )
+        return dx * self.normal_vector[0] + dy * self.normal_vector[1] + dz * self.normal_vector[2]
 
     def rotation_matrix(
         self,
@@ -270,6 +267,20 @@ def resolve_face_context(
             half_extents_u = None
             half_extents_v = base_body.height_mm / 2.0
             relative_offset["z_mm"] = base_body.height_mm / 2.0
+
+    elif isinstance(base_body, SphereBaseBody):
+        if target_face == "+Z":
+            relative_offset["z_mm"] = base_body.radius_mm
+        elif target_face == "-Z":
+            relative_offset["z_mm"] = -base_body.radius_mm
+        elif target_face == "+X":
+            relative_offset["x_mm"] = base_body.radius_mm
+        elif target_face == "-X":
+            relative_offset["x_mm"] = -base_body.radius_mm
+        elif target_face == "+Y":
+            relative_offset["y_mm"] = base_body.radius_mm
+        elif target_face == "-Y":
+            relative_offset["y_mm"] = -base_body.radius_mm
 
     return FaceContext(
         target_face=target_face,

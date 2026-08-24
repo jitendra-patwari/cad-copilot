@@ -33,10 +33,7 @@ from geometry.plan_models import (
 Point2DLike: TypeAlias = tuple[float, float] | dict[str, float] | ProfilePoint2D
 
 SubtractiveProfileFeature: TypeAlias = (
-    CircularThroughHoleFeature
-    | RectangularThroughCutoutFeature
-    | SlotThroughCutoutFeature
-    | ProfileCutoutFeature
+    CircularThroughHoleFeature | RectangularThroughCutoutFeature | SlotThroughCutoutFeature | ProfileCutoutFeature
 )
 
 
@@ -65,8 +62,10 @@ def _point_to_dict(point: ProfilePoint2D) -> dict[str, float]:
 def _normalize_polygon_points(polygon: Sequence[Point2DLike]) -> list[tuple[float, float]]:
     """Normalize a point sequence to (x, y) tuples, trimming any duplicate closing endpoint."""
     points = [_to_xy_tuple(p) for p in polygon]
-    if len(points) > 1 and math.isclose(points[0][0], points[-1][0], abs_tol=1e-9) and math.isclose(
-        points[0][1], points[-1][1], abs_tol=1e-9
+    if (
+        len(points) > 1
+        and math.isclose(points[0][0], points[-1][0], abs_tol=1e-9)
+        and math.isclose(points[0][1], points[-1][1], abs_tol=1e-9)
     ):
         points.pop()
     return points

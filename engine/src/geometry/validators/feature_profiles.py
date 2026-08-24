@@ -45,10 +45,7 @@ def _validate_feature_supported_on_base_body(
 
     if isinstance(base_body, CylinderBaseBody | SphereBaseBody) and isinstance(
         feature,
-        CircularThroughHoleFeature
-        | RectangularThroughCutoutFeature
-        | SlotThroughCutoutFeature
-        | ProfileCutoutFeature,
+        CircularThroughHoleFeature | RectangularThroughCutoutFeature | SlotThroughCutoutFeature | ProfileCutoutFeature,
     ):
         return
 
@@ -252,8 +249,7 @@ def _validate_profile_cutout_fit(
                 path=path,
             )
         shifted_points = [
-            math.hypot(p.x_mm + feature.center_x_mm, p.y_mm + feature.center_y_mm)
-            for p in feature.profile_points
+            math.hypot(p.x_mm + feature.center_x_mm, p.y_mm + feature.center_y_mm) for p in feature.profile_points
         ]
         farthest_profile_radius_mm = max(shifted_points)
         _validate_circular_cross_section_profile_fit(

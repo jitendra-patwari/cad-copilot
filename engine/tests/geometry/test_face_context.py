@@ -11,6 +11,7 @@ from geometry import (
     CylinderBaseBody,
     RectangularBaseBody,
     RevolvedShaftBaseBody,
+    SphereBaseBody,
     SpurGearBaseBody,
     resolve_face_context,
 )
@@ -202,3 +203,30 @@ class TestVectorProjections:
             # Perpendicular distance to plane must be 0.0
             dist = ctx.distance_to_face_plane(wx, wy, wz, body.placement)
             assert math.isclose(dist, 0.0, abs_tol=1e-12)
+
+
+def test_sphere_face_context_offsets() -> None:
+    """Verify face context offsets on SphereBaseBody across all 6 faces."""
+    sphere = SphereBaseBody(
+        id="body.sphere",
+        radius_mm=25.0,
+        placement=BodyPlacement(x_mm=0.0, y_mm=0.0, z_mm=0.0),
+    )
+
+    ctx_top = resolve_face_context("+Z", sphere)
+    assert ctx_top.origin_offset_mm["z_mm"] == 25.0
+
+    ctx_bottom = resolve_face_context("-Z", sphere)
+    assert ctx_bottom.origin_offset_mm["z_mm"] == -25.0
+
+    ctx_right = resolve_face_context("+X", sphere)
+    assert ctx_right.origin_offset_mm["x_mm"] == 25.0
+
+    ctx_left = resolve_face_context("-X", sphere)
+    assert ctx_left.origin_offset_mm["x_mm"] == -25.0
+
+    ctx_back = resolve_face_context("+Y", sphere)
+    assert ctx_back.origin_offset_mm["y_mm"] == 25.0
+
+    ctx_front = resolve_face_context("-Y", sphere)
+    assert ctx_front.origin_offset_mm["y_mm"] == -25.0

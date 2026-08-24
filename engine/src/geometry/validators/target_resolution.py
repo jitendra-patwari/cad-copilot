@@ -30,11 +30,7 @@ def _rectangular_prism_face_by_area(base_body: RectangularBaseBody, *, largest: 
         ("+Y", base_body.length_mm * base_body.thickness_mm),
         ("+Z", base_body.length_mm * base_body.width_mm),
     ]
-    best_face, _ = (
-        max(face_areas, key=lambda item: item[1])
-        if largest
-        else min(face_areas, key=lambda item: item[1])
-    )
+    best_face, _ = max(face_areas, key=lambda item: item[1]) if largest else min(face_areas, key=lambda item: item[1])
     return best_face
 
 
@@ -96,8 +92,7 @@ def _resolve_feature_target(
 
     selector_resolved_face: str | None = None
     selector_authoritative = target_selector in {"largest_face", "smallest_face"} or (
-        target_selector == "default_thickness_face"
-        and isinstance(base_body, CylinderBaseBody | SphereBaseBody)
+        target_selector == "default_thickness_face" and isinstance(base_body, CylinderBaseBody | SphereBaseBody)
     )
 
     if selector_authoritative or (target_selector == "default_thickness_face" and target_face is None):

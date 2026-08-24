@@ -53,7 +53,9 @@ class TestRevolvedAndShaftValidators:
             target_face="+X",
         )
         defaults: list[DefaultApplied] = []
-        normalized = _normalize_revolved_profile_from_dimensions(revolve, base_body=body, defaults=defaults, path="features[0]")
+        normalized = _normalize_revolved_profile_from_dimensions(
+            revolve, base_body=body, defaults=defaults, path="features[0]"
+        )
         assert len(normalized.profile_points) == 4
         assert len(defaults) == 1
 

@@ -203,11 +203,7 @@ def _normalize_revolved_profile_from_dimensions(
     axis_start = ProfilePoint2D(0.0, lower_y)
     axis_end = ProfilePoint2D(0.0, upper_y)
 
-    if (
-        feature.profile_points == profile_points
-        and feature.axis_start == axis_start
-        and feature.axis_end == axis_end
-    ):
+    if feature.profile_points == profile_points and feature.axis_start == axis_start and feature.axis_end == axis_end:
         return feature
 
     defaults.append(
@@ -238,10 +234,7 @@ def _normalize_revolved_shaft_profile(
         return base_body
 
     # 1. Clamp negative radii to 0 (on rotation axis)
-    clamped = tuple(
-        ProfilePoint2D(x_mm=max(0.0, point.x_mm), y_mm=point.y_mm)
-        for point in original_points
-    )
+    clamped = tuple(ProfilePoint2D(x_mm=max(0.0, point.x_mm), y_mm=point.y_mm) for point in original_points)
 
     # 2. Sort by height (y_mm)
     sorted_points = tuple(sorted(clamped, key=lambda p: p.y_mm))
@@ -296,26 +289,26 @@ def _validate_revolved_shaft_profile(
         if next_p.y_mm < curr_p.y_mm:
             msg = (
                 f"Revolved shaft profile height values must be monotonic, "
-                f"but point [{i}] y_mm={curr_p.y_mm:.4g} > point [{i+1}] y_mm={next_p.y_mm:.4g}."
+                f"but point [{i}] y_mm={curr_p.y_mm:.4g} > point [{i + 1}] y_mm={next_p.y_mm:.4g}."
             )
             if diagnostics is not None:
                 _warn_allow_or_reject_geometry_fit(
                     "INVALID_GEOMETRY",
                     msg,
                     diagnostics=diagnostics,
-                    path=f"{path}.profile_points[{i+1}].y_mm",
+                    path=f"{path}.profile_points[{i + 1}].y_mm",
                     mode=mode,
                 )
             else:
-                _reject("INVALID_GEOMETRY", msg, path=f"{path}.profile_points[{i+1}].y_mm")
+                _reject("INVALID_GEOMETRY", msg, path=f"{path}.profile_points[{i + 1}].y_mm")
 
         # Equal height with identical radius is a duplicate point error
         if next_p.y_mm == curr_p.y_mm and next_p.x_mm == curr_p.x_mm:
             _reject(
                 "INVALID_GEOMETRY",
-                f"Revolved shaft profile contains duplicate points at [{i}] and [{i+1}]: "
+                f"Revolved shaft profile contains duplicate points at [{i}] and [{i + 1}]: "
                 f"(x_mm={curr_p.x_mm:.4g}, y_mm={curr_p.y_mm:.4g}).",
-                path=f"{path}.profile_points[{i+1}]",
+                path=f"{path}.profile_points[{i + 1}]",
             )
         # Note: Equal height with different radius (next_p.y_mm == curr_p.y_mm and next_p.x_mm != curr_p.x_mm)
         # is accepted as a valid stepped shaft radial shoulder.
