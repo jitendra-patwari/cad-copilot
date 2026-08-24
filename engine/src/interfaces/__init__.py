@@ -13,9 +13,11 @@ from .exceptions import (
 from .executor_abc import CADExecutorABC
 from .models import (
     ArtifactRecord,
+    BodyRef,
     ExecutionFailure,
     ExecutionResult,
     ExecutionSuccess,
+    FeatureRef,
     PhysicalProperties,
     StandardInspectionReport,
 )
@@ -23,6 +25,7 @@ from .runtime_abc import CADRuntimeABC
 
 __all__ = [
     "ArtifactRecord",
+    "BodyRef",
     "CADContainmentError",
     "CADDocumentError",
     "CADError",
@@ -34,6 +37,7 @@ __all__ = [
     "ExecutionFailure",
     "ExecutionResult",
     "ExecutionSuccess",
+    "FeatureRef",
     "PhysicalProperties",
     "StandardInspectionReport",
 ]

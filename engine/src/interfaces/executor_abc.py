@@ -4,27 +4,56 @@ from __future__ import annotations
 
 import abc
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from .models import ArtifactRecord, ExecutionResult, PhysicalProperties, StandardInspectionReport
+from .models import (
+    ArtifactRecord,
+    BodyRef,
+    ExecutionResult,
+    FeatureRef,
+    PhysicalProperties,
+    StandardInspectionReport,
+)
+
+if TYPE_CHECKING:
+    from geometry.plan_models import FeaturePlan
 
 
 class CADExecutorABC(abc.ABC):
     """Abstract interface for executing CAD modeling, inspection, and export tasks."""
 
     # --- High-Level Feature Plan Execution ---
-    def execute_feature_plan(self, plan: Any) -> ExecutionResult:
+    @abc.abstractmethod
+    def execute_feature_plan(self, plan: FeaturePlan) -> ExecutionResult:
         """Execute a declarative feature plan AST and return the execution result."""
-        raise NotImplementedError("execute_feature_plan is not implemented on this executor")
 
     # --- Core Modeling Primitives ---
     @abc.abstractmethod
-    def create_prism_body(self, *args: Any, **kwargs: Any) -> Any:
-        """Create a base prism or extrusion body."""
+    def create_prism_body(
+        self,
+        length_mm: float,
+        width_mm: float,
+        thickness_mm: float,
+        placement_x_mm: float = 0.0,
+        placement_y_mm: float = 0.0,
+        placement_z_mm: float = 0.0,
+        body_id: str = "body.main",
+        **kwargs: Any,
+    ) -> BodyRef:
+        """Create a base prism or extrusion body and return its opaque body handle."""
 
     @abc.abstractmethod
-    def add_cylindrical_cutout(self, *args: Any, **kwargs: Any) -> Any:
-        """Add a cylindrical cutout or hole feature."""
+    def add_cylindrical_cutout(
+        self,
+        diameter_mm: float,
+        depth_mm: float = 0.0,
+        target_face: str = "+Z",
+        center_u_mm: float = 0.0,
+        center_v_mm: float = 0.0,
+        body_id: str = "body.main",
+        **kwargs: Any,
+    ) -> FeatureRef:
+        """Add a cylindrical cutout or hole feature and return its opaque feature handle."""
 
     # --- Artifact Export Methods ---
     @abc.abstractmethod
@@ -39,9 +68,9 @@ class CADExecutorABC(abc.ABC):
     def export_preview_images(self, output_dir: Path, views: list[str]) -> list[Path]:
         """Export multi-angle preview snapshot images (e.g. isometric, top, front)."""
 
+    @abc.abstractmethod
     def export_artifacts(self, formats: list[str], output_dir: Path) -> list[ArtifactRecord]:
         """Export requested formats and return wire-compliant artifact records."""
-        return []
 
     # --- QA & Mass Property Inspection ---
     @abc.abstractmethod

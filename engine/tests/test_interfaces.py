@@ -9,6 +9,7 @@ import pytest
 
 from interfaces import (
     ArtifactRecord,
+    BodyRef,
     CADContainmentError,
     CADDocumentError,
     CADError,
@@ -20,6 +21,7 @@ from interfaces import (
     ExecutionFailure,
     ExecutionResult,
     ExecutionSuccess,
+    FeatureRef,
     PhysicalProperties,
     StandardInspectionReport,
 )
@@ -50,15 +52,40 @@ class ConcreteCADRuntime(CADRuntimeABC):
     def teardown(self, force_kill_on_failure: bool) -> None:
         self.connected = False
 
+    def is_healthy(self) -> bool:
+        return self.connected
+
 
 class ConcreteCADExecutor(CADExecutorABC):
     """Complete concrete implementation of CADExecutorABC for testing."""
 
-    def create_prism_body(self, *args: Any, **kwargs: Any) -> Any:
-        return "prism_feature"
+    def execute_feature_plan(self, plan: Any) -> ExecutionResult:
+        return ExecutionSuccess(operations_executed=1, exported_artifacts=["mock.step"])
 
-    def add_cylindrical_cutout(self, *args: Any, **kwargs: Any) -> Any:
-        return "cutout_feature"
+    def create_prism_body(
+        self,
+        length_mm: float,
+        width_mm: float,
+        thickness_mm: float,
+        placement_x_mm: float = 0.0,
+        placement_y_mm: float = 0.0,
+        placement_z_mm: float = 0.0,
+        body_id: str = "body.main",
+        **kwargs: Any,
+    ) -> BodyRef:
+        return BodyRef(body_id)
+
+    def add_cylindrical_cutout(
+        self,
+        diameter_mm: float,
+        depth_mm: float = 0.0,
+        target_face: str = "+Z",
+        center_u_mm: float = 0.0,
+        center_v_mm: float = 0.0,
+        body_id: str = "body.main",
+        **kwargs: Any,
+    ) -> FeatureRef:
+        return FeatureRef("feature.cutout.1")
 
     def export_step(self, output_path: Path) -> None:
         pass
@@ -68,6 +95,13 @@ class ConcreteCADExecutor(CADExecutorABC):
 
     def export_preview_images(self, output_dir: Path, views: list[str]) -> list[Path]:
         return [output_dir / f"{view}.jpg" for view in views]
+
+    def export_artifacts(self, formats: list[str], output_dir: Path) -> list[ArtifactRecord]:
+        return [
+            ArtifactRecord(type="geometry_step", format="step", path=str(output_dir / "part.step"))
+            for fmt in formats
+            if fmt == "step"
+        ]
 
     def inspect_active_document(self) -> StandardInspectionReport:
         return StandardInspectionReport(
@@ -127,12 +161,13 @@ def test_cad_runtime_partial_implementation_fails() -> None:
 def test_concrete_cad_runtime_lifecycle() -> None:
     """Proves that a fully implemented CADRuntimeABC operates cleanly."""
     runtime = ConcreteCADRuntime()
-    assert runtime.is_healthy() is True
+    assert runtime.is_healthy() is False
     assert runtime.connected is False
 
     app = runtime.connect_application()
     assert app == "mock_app_handle"
     assert runtime.connected is True
+    assert runtime.is_healthy() is True
 
     doc = runtime.open_document(app, Path("test.par"))
     assert doc == "mock_doc_handle:test.par"
@@ -141,6 +176,7 @@ def test_concrete_cad_runtime_lifecycle() -> None:
     runtime.close_document(doc)
     runtime.teardown(force_kill_on_failure=False)
     assert runtime.connected is False
+    assert runtime.is_healthy() is False
 
 
 def test_cad_executor_abc_cannot_be_instantiated_directly() -> None:
@@ -153,7 +189,16 @@ def test_cad_executor_partial_implementation_fails() -> None:
     """Proves that a partial subclass of CADExecutorABC raises TypeError on instantiation."""
 
     class IncompleteExecutor(CADExecutorABC):
-        def create_prism_body(self, *args: Any, **kwargs: Any) -> Any:
+        def create_prism_body(
+            self,
+            length_mm: float,
+            width_mm: float,
+            thickness_mm: float,
+            center_x_mm: float = 0.0,
+            center_y_mm: float = 0.0,
+            center_z_mm: float = 0.0,
+            **kwargs: Any,
+        ) -> Any:
             return "prism"
 
     with pytest.raises(TypeError, match="Can't instantiate abstract class IncompleteExecutor"):
@@ -161,11 +206,16 @@ def test_cad_executor_partial_implementation_fails() -> None:
 
 
 def test_concrete_cad_executor_methods_and_defaults() -> None:
-    """Proves that a concrete executor executes modeling, extraction, and default helpers."""
+    """Proves that a concrete executor executes modeling, extraction, and export operations."""
     executor = ConcreteCADExecutor()
 
-    assert executor.create_prism_body() == "prism_feature"
-    assert executor.add_cylindrical_cutout() == "cutout_feature"
+    assert executor.create_prism_body(length_mm=100.0, width_mm=80.0, thickness_mm=20.0) == BodyRef("body.main")
+    assert executor.add_cylindrical_cutout(diameter_mm=10.0, depth_mm=20.0) == FeatureRef("feature.cutout.1")
+
+    # Test high-level plan execution
+    result = executor.execute_feature_plan({"steps": []})
+    assert isinstance(result, ExecutionSuccess)
+    assert result.operations_executed == 1
 
     # Test inspection and physical properties extraction
     report = executor.inspect_active_document()
@@ -179,25 +229,17 @@ def test_concrete_cad_executor_methods_and_defaults() -> None:
     assert props.volume_mm3 == 1500.0
     assert props.mass_kg == 1.17
 
-    # Test preview images and default export artifacts
+    # Test preview images and export artifacts
     images = executor.export_preview_images(Path("out"), ["iso", "top"])
     assert images == [Path("out/iso.jpg"), Path("out/top.jpg")]
-    assert executor.export_artifacts(["step"], Path("out")) == []
+
+    artifacts = executor.export_artifacts(["step"], Path("out"))
+    assert len(artifacts) == 1
+    assert artifacts[0].type == "geometry_step"
+    assert artifacts[0].format == "step"
 
     # Test custom properties
     assert executor.read_custom_properties() == {"Material": "Steel"}
-
-
-def test_cad_executor_default_unimplemented_methods_raise() -> None:
-    """Proves that default fallback methods on CADExecutorABC raise or return defaults properly."""
-    ex = ConcreteCADExecutor()
-
-    # execute_feature_plan raises NotImplementedError on base class
-    with pytest.raises(NotImplementedError, match="execute_feature_plan is not implemented"):
-        CADExecutorABC.execute_feature_plan(ex, {"steps": []})
-
-    # export_artifacts default implementation returns empty list
-    assert CADExecutorABC.export_artifacts(ex, ["step"], Path("out")) == []
 
 
 # ---------------------------------------------------------------------------
@@ -216,9 +258,7 @@ def test_cad_executor_default_unimplemented_methods_raise() -> None:
         (CADContainmentError, "CONTAINMENT_VIOLATION"),
     ],
 )
-def test_exception_inheritance_and_error_codes(
-    exception_cls: type[CADError], expected_code: str
-) -> None:
+def test_exception_inheritance_and_error_codes(exception_cls: type[CADError], expected_code: str) -> None:
     """Proves that all domain exceptions inherit from CADError and define standard error codes."""
     err = exception_cls("Test error message")
     assert isinstance(err, CADError)
@@ -346,4 +386,3 @@ def test_execution_result_union_polymorphism() -> None:
     assert failure.message == "Failed to cut hole"
     assert failure.phase == "modeling"
     assert failure.details == {"step_index": 2}
-
