@@ -33,8 +33,12 @@ class TestTargetResolution:
     def test_default_target_face_for_selector(self) -> None:
         body = RectangularBaseBody(id="b1", length_mm=100.0, width_mm=50.0, thickness_mm=10.0)
         hole = CircularThroughHoleFeature(id="h1", diameter_mm=8.0)
-        assert _default_target_face_for_selector("largest_face", base_body=body, feature=hole, path="features[0]") == "+Z"
-        assert _default_target_face_for_selector("smallest_face", base_body=body, feature=hole, path="features[0]") == "+X"
+        assert (
+            _default_target_face_for_selector("largest_face", base_body=body, feature=hole, path="features[0]") == "+Z"
+        )
+        assert (
+            _default_target_face_for_selector("smallest_face", base_body=body, feature=hole, path="features[0]") == "+X"
+        )
 
     def test_resolve_feature_target(self) -> None:
         body = RectangularBaseBody(id="b1", length_mm=80.0, width_mm=40.0, thickness_mm=6.0)

@@ -27,24 +27,16 @@ def validate_gear_parameters(
         ValueError: If any parameter violates physical or mathematical bounds.
     """
     if not isinstance(tooth_count, int) or tooth_count < 4:
-        raise ValueError(
-            f"tooth_count must be an integer >= 4 to form a valid gear profile, got {tooth_count}"
-        )
+        raise ValueError(f"tooth_count must be an integer >= 4 to form a valid gear profile, got {tooth_count}")
 
     if not math.isfinite(module_mm) or module_mm <= 0.0:
-        raise ValueError(
-            f"module_mm must be a positive finite float (> 0.0), got {module_mm}"
-        )
+        raise ValueError(f"module_mm must be a positive finite float (> 0.0), got {module_mm}")
 
     if not math.isfinite(pressure_angle_deg) or not (0.0 < pressure_angle_deg < 45.0):
-        raise ValueError(
-            f"pressure_angle_deg must be strictly between 0.0 and 45.0 degrees, got {pressure_angle_deg}"
-        )
+        raise ValueError(f"pressure_angle_deg must be strictly between 0.0 and 45.0 degrees, got {pressure_angle_deg}")
 
     if not math.isfinite(bore_diameter_mm) or bore_diameter_mm < 0.0:
-        raise ValueError(
-            f"bore_diameter_mm must be a non-negative finite float, got {bore_diameter_mm}"
-        )
+        raise ValueError(f"bore_diameter_mm must be a non-negative finite float, got {bore_diameter_mm}")
 
     if bore_diameter_mm > 0.0:
         root_rad = gear_root_radius(tooth_count, module_mm)

@@ -44,6 +44,7 @@ MAX_FEATURES: int = 128
 MAX_PRIMITIVE_BODIES: int = 32
 MAX_BOOLEAN_OPERATIONS: int = 32
 MAX_PROFILE_POINTS: int = 512
+MAX_SWEEP_CROSS_SECTIONS: int = 16
 
 
 def feature_plan_from_dict(payload: dict[str, Any]) -> FeaturePlan:
@@ -131,10 +132,7 @@ def _boolean_operations_from_payload(payload: dict[str, Any]) -> tuple[BooleanOp
             path="boolean_operations",
         )
 
-    return tuple(
-        _boolean_operation_from_dict(_dict(item), index=index)
-        for index, item in enumerate(raw_operations)
-    )
+    return tuple(_boolean_operation_from_dict(_dict(item), index=index) for index, item in enumerate(raw_operations))
 
 
 def _boolean_operation_from_dict(payload: dict[str, Any], *, index: int) -> BooleanOperation:
@@ -209,7 +207,9 @@ def _feature_from_dict(item: object, *, index: int) -> FeaturePlanFeature:
     if family == "circular_through_hole":
         return CircularThroughHoleFeature(
             **common,
-            diameter_mm=float(dimensions.get("diameter", dimensions.get("diameter_mm", payload.get("diameter_mm", 0.0)))),
+            diameter_mm=float(
+                dimensions.get("diameter", dimensions.get("diameter_mm", payload.get("diameter_mm", 0.0)))
+            ),
             depth_mm=depth_mm,
         )
 
@@ -274,6 +274,12 @@ def _feature_from_dict(item: object, *, index: int) -> FeaturePlanFeature:
         cross_sections_raw = payload.get("cross_sections", [])
         if not isinstance(cross_sections_raw, list):
             _reject("INVALID_SWEPT_PROTRUSION", "cross_sections must be a list.", path="cross_sections")
+        if len(cross_sections_raw) > MAX_SWEEP_CROSS_SECTIONS:
+            _reject(
+                "EXCESSIVE_SWEEP_CROSS_SECTIONS",
+                f"cross_sections count {len(cross_sections_raw)} exceeds limit of {MAX_SWEEP_CROSS_SECTIONS}.",
+                path="cross_sections",
+            )
 
         raw_path_type = str(path_payload.get("type", "full_circle"))
         path_type: Any = (
@@ -315,12 +321,16 @@ def _feature_from_dict(item: object, *, index: int) -> FeaturePlanFeature:
             cross_sections=tuple(sections),
         )
 
-    raw_axis = str(
-        orientation.get(
-            "axis",
-            payload.get("orientation_axis", payload.get("axis", "x")),
+    raw_axis = (
+        str(
+            orientation.get(
+                "axis",
+                payload.get("orientation_axis", payload.get("axis", "x")),
+            )
         )
-    ).strip().lower()
+        .strip()
+        .lower()
+    )
     orientation_axis: SlotOrientationAxis = "y" if raw_axis == "y" else "x"
 
     return SlotThroughCutoutFeature(
@@ -335,9 +345,7 @@ def _feature_from_dict(item: object, *, index: int) -> FeaturePlanFeature:
 def _base_body_from_dict(body_payload: dict[str, Any], dimensions: dict[str, Any]) -> FeaturePlanBaseBody:
     family = str(body_payload.get("family", "rectangular_prism"))
     body_id = str(body_payload.get("id", "body.main"))
-    labels = tuple(
-        str(item) for item in body_payload.get("semantic_labels", [_default_label_for_base_family(family)])
-    )
+    labels = tuple(str(item) for item in body_payload.get("semantic_labels", [_default_label_for_base_family(family)]))
     placement = _placement_from_dict(_dict(body_payload.get("placement")))
 
     if family == "rectangular_prism":
@@ -380,9 +388,7 @@ def _base_body_from_dict(body_payload: dict[str, Any], dimensions: dict[str, Any
             id=body_id,
             semantic_labels=labels,
             tooth_count=int(dimensions.get("tooth_count", body_payload.get("tooth_count", 24))),
-            module_mm=float(
-                dimensions.get("module", dimensions.get("module_mm", body_payload.get("module_mm", 2.0)))
-            ),
+            module_mm=float(dimensions.get("module", dimensions.get("module_mm", body_payload.get("module_mm", 2.0)))),
             pressure_angle_deg=float(
                 dimensions.get(
                     "pressure_angle",
@@ -394,7 +400,9 @@ def _base_body_from_dict(body_payload: dict[str, Any], dimensions: dict[str, Any
                     "face_width",
                     dimensions.get(
                         "face_width_mm",
-                        dimensions.get("thickness", dimensions.get("thickness_mm", body_payload.get("face_width_mm", 10.0))),
+                        dimensions.get(
+                            "thickness", dimensions.get("thickness_mm", body_payload.get("face_width_mm", 10.0))
+                        ),
                     ),
                 )
             ),
@@ -506,5 +514,6 @@ __all__ = [
     "MAX_FEATURES",
     "MAX_PRIMITIVE_BODIES",
     "MAX_PROFILE_POINTS",
+    "MAX_SWEEP_CROSS_SECTIONS",
     "feature_plan_from_dict",
 ]

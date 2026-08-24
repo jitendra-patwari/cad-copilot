@@ -159,11 +159,7 @@ class RevolvedShaftBaseBody:
 
 
 FeaturePlanBaseBody: TypeAlias = (
-    RectangularBaseBody
-    | CylinderBaseBody
-    | SphereBaseBody
-    | SpurGearBaseBody
-    | RevolvedShaftBaseBody
+    RectangularBaseBody | CylinderBaseBody | SphereBaseBody | SpurGearBaseBody | RevolvedShaftBaseBody
 )
 
 

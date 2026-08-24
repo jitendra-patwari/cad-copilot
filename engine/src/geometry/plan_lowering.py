@@ -172,7 +172,9 @@ def lower_validated_feature_plan_to_payload(validated: FeaturePlan) -> dict[str,
     for feature in validated.features:
         target_id = getattr(feature, "target_body_id", validated.base_body.id)
         if target_id not in primitive_body_by_id:
-            _reject("UNKNOWN_FEATURE_TARGET", f"Unknown feature target body '{target_id}'.", path="features.target_body_id")
+            _reject(
+                "UNKNOWN_FEATURE_TARGET", f"Unknown feature target body '{target_id}'.", path="features.target_body_id"
+            )
         features_by_body_id.setdefault(target_id, []).append(feature)
 
     entities: list[dict[str, Any]] = []
@@ -325,7 +327,10 @@ def lower_validated_feature_plan_to_payload(validated: FeaturePlan) -> dict[str,
                 | ProfileCutoutFeature
                 | SweptProtrusionFeature,
             ):
-                _reject("UNSUPPORTED_FEATURE_FAMILY", f"Unsupported feature family '{getattr(feature, 'family', 'unknown')}'.")
+                _reject(
+                    "UNSUPPORTED_FEATURE_FAMILY",
+                    f"Unsupported feature family '{getattr(feature, 'family', 'unknown')}'.",
+                )
 
             target_body = primitive_body_by_id.get(feature.target_body_id)
             if target_body is None:

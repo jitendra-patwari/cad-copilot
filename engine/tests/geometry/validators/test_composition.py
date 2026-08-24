@@ -59,9 +59,7 @@ class TestCompositionLayerAndBooleanLifecycle:
             request_id="req.3",
             part=PartMetadata(part_id="self_target"),
             base_body=RectangularBaseBody(id="body.base", length_mm=80.0, width_mm=40.0, thickness_mm=6.0),
-            primitive_bodies=(
-                RectangularBaseBody(id="body.base", length_mm=80.0, width_mm=40.0, thickness_mm=6.0),
-            ),
+            primitive_bodies=(RectangularBaseBody(id="body.base", length_mm=80.0, width_mm=40.0, thickness_mm=6.0),),
             boolean_operations=(
                 BooleanOperation(
                     id="bool.1",

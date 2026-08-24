@@ -259,8 +259,12 @@ class TestMultiHoleSeparationAndDiagnostics:
 
     def test_overlapping_holes_strict_mode(self) -> None:
         body = RectangularBaseBody(id="b1", length_mm=100.0, width_mm=100.0, thickness_mm=10.0)
-        h1 = CircularThroughHoleFeature(id="h1", diameter_mm=20.0, center_x_mm=0.0, center_y_mm=0.0, target_body_id="b1")
-        h2 = CircularThroughHoleFeature(id="h2", diameter_mm=20.0, center_x_mm=5.0, center_y_mm=0.0, target_body_id="b1")
+        h1 = CircularThroughHoleFeature(
+            id="h1", diameter_mm=20.0, center_x_mm=0.0, center_y_mm=0.0, target_body_id="b1"
+        )
+        h2 = CircularThroughHoleFeature(
+            id="h2", diameter_mm=20.0, center_x_mm=5.0, center_y_mm=0.0, target_body_id="b1"
+        )
         plan = FeaturePlan(request_id="r1", part=PartMetadata(), base_body=body, features=(h1, h2))
         with pytest.raises(FeaturePlanValidationError) as exc:
             validate_feature_plan(plan, mode="strict")
@@ -273,7 +277,9 @@ class TestGatePolicyModesAndRetryPolicy:
     def test_gate_policy_mode_propagation(self) -> None:
         body = RectangularBaseBody(id="b1", length_mm=100.0, width_mm=100.0, thickness_mm=10.0)
         # Hole close to edge with 0 edge margin is relaxed warning in capability_first
-        h1 = CircularThroughHoleFeature(id="h1", diameter_mm=10.0, center_x_mm=48.0, center_y_mm=0.0, target_body_id="b1")
+        h1 = CircularThroughHoleFeature(
+            id="h1", diameter_mm=10.0, center_x_mm=48.0, center_y_mm=0.0, target_body_id="b1"
+        )
         plan = FeaturePlan(request_id="r1", part=PartMetadata(), base_body=body, features=(h1,))
 
         # In capability_first mode: warning diagnostic emitted

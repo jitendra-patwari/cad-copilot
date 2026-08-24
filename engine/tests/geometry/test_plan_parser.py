@@ -45,9 +45,7 @@ class TestPlanParserGoldenFixtures:
         assert plan.base_body is not None
 
 
-
 class TestDefensiveBounds:
-
     """Verify CWE-400 defensive bounding enforcement in plan_parser.py."""
 
     def test_excessive_features_rejected(self) -> None:
@@ -76,3 +74,22 @@ class TestDefensiveBounds:
         with pytest.raises(FeaturePlanValidationError) as exc:
             feature_plan_from_dict(payload)
         assert exc.value.code == "EXCESSIVE_PRIMITIVE_BODIES"
+
+    def test_excessive_sweep_cross_sections_rejected(self) -> None:
+        payload = {
+            "part": {"part_id": "test"},
+            "base_body": {
+                "family": "cylinder",
+                "dimensions_mm": {"radius": 10, "height": 20},
+            },
+            "features": [
+                {
+                    "family": "swept_protrusion",
+                    "path": {"type": "full_circle", "radius_mm": 50.0},
+                    "cross_sections": [{"type": "circle", "diameter_mm": 5.0} for _ in range(17)],
+                }
+            ],
+        }
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            feature_plan_from_dict(payload)
+        assert exc.value.code == "EXCESSIVE_SWEEP_CROSS_SECTIONS"

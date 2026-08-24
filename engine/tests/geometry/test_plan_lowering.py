@@ -70,7 +70,10 @@ def _make_box(
 def _make_plan(
     *,
     base_body: RectangularBaseBody | CylinderBaseBody | SphereBaseBody | SpurGearBaseBody | RevolvedShaftBaseBody,
-    primitive_bodies: tuple[RectangularBaseBody | CylinderBaseBody | SphereBaseBody | SpurGearBaseBody | RevolvedShaftBaseBody, ...] | None = None,
+    primitive_bodies: tuple[
+        RectangularBaseBody | CylinderBaseBody | SphereBaseBody | SpurGearBaseBody | RevolvedShaftBaseBody, ...
+    ]
+    | None = None,
     features: tuple[
         CircularThroughHoleFeature
         | RectangularThroughCutoutFeature
@@ -193,9 +196,7 @@ class TestSpatialGeometryInvariants:
 
         # 4. Determinant of SO(3) Rotation Matrix = +1
         det_r = (
-            u[0] * (v[1] * n[2] - v[2] * n[1])
-            - u[1] * (v[0] * n[2] - v[2] * n[0])
-            + u[2] * (v[0] * n[1] - v[1] * n[0])
+            u[0] * (v[1] * n[2] - v[2] * n[1]) - u[1] * (v[0] * n[2] - v[2] * n[0]) + u[2] * (v[0] * n[1] - v[1] * n[0])
         )
         assert det_r == pytest.approx(1.0)
 
@@ -470,9 +471,7 @@ class TestFeatureFamiliesLowering:
             id="feature.sweep.1",
             target_face="+Z",
             path=SweepPathSpec(type="full_circle", radius_mm=30.0),
-            cross_sections=(
-                SweepCrossSectionSpec(type="circle", diameter_mm=6.0, position="start"),
-            ),
+            cross_sections=(SweepCrossSectionSpec(type="circle", diameter_mm=6.0, position="start"),),
         )
         plan = _make_plan(base_body=box, features=(sweep,))
         payload = lower_validated_feature_plan_to_payload(plan)
