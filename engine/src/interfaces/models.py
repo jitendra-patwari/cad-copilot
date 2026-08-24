@@ -6,7 +6,10 @@ This is a pure leaf module with zero runtime or abstract class dependencies.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, TypeAlias
+from typing import Any, NewType, TypeAlias
+
+BodyRef = NewType("BodyRef", str)
+FeatureRef = NewType("FeatureRef", str)
 
 
 @dataclass
@@ -66,9 +69,11 @@ ExecutionResult: TypeAlias = ExecutionSuccess | ExecutionFailure
 
 __all__ = [
     "ArtifactRecord",
+    "BodyRef",
     "ExecutionFailure",
     "ExecutionResult",
     "ExecutionSuccess",
+    "FeatureRef",
     "PhysicalProperties",
     "StandardInspectionReport",
 ]

@@ -26,9 +26,9 @@ class CADRuntimeABC(abc.ABC):
     def teardown(self, force_kill_on_failure: bool) -> None:
         """Cleanly terminate or force-kill orphan CAD processes."""
 
+    @abc.abstractmethod
     def is_healthy(self) -> bool:
         """Check if the CAD runtime is alive and responsive."""
-        return True
 
 
 __all__ = ["CADRuntimeABC"]
