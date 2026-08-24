@@ -185,7 +185,7 @@ def _feature_from_dict(item: object, *, index: int) -> FeaturePlanFeature:
         "face_local_offset" if raw_placement_mode == "face_local_offset" else "face_local_center"
     )
 
-    common = {
+    common: dict[str, Any] = {
         "id": feature_id,
         "target_body_id": str(target.get("body_id", "body.main")),
         "target_selector": _optional_str(face.get("selector")),

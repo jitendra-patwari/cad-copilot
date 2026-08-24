@@ -41,6 +41,10 @@ from geometry.plan_geometry import (
     polygon_centroid,
     polygon_signed_area,
 )
+from geometry.plan_lowering import (
+    lower_feature_plan_to_payload,
+    lower_validated_feature_plan_to_payload,
+)
 from geometry.plan_models import (
     CANONICAL_PLAN_VERSION,
     DEFAULT_EDGE_MARGIN_MM,
@@ -142,6 +146,8 @@ __all__ = [
     "gear_tip_radius",
     "involute_point",
     "is_polygon_ccw",
+    "lower_feature_plan_to_payload",
+    "lower_validated_feature_plan_to_payload",
     "point_in_polygon",
     "point_to_segment_distance",
     "polygon_area",
