@@ -41,18 +41,22 @@ class ValidationDiagnostic:
 
 @dataclass(frozen=True)
 class DefaultApplied:
-    """Record of a default value applied to an omitted plan attribute."""
+    """Record of a default value applied to an omitted or fallback plan attribute."""
 
     path: str
     value: object
     reason: str
+    original_value: object = None
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        out: dict[str, object] = {
             "path": self.path,
             "value": self.value,
             "reason": self.reason,
         }
+        if self.original_value is not None:
+            out["original_value"] = self.original_value
+        return out
 
 
 class FeaturePlanValidationError(ValueError):

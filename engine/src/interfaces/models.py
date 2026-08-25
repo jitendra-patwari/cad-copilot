@@ -63,6 +63,7 @@ class ExecutionFailure:
     message: str
     phase: str = "execution"
     details: dict[str, Any] = field(default_factory=dict)
+    warnings: list[dict[str, str]] = field(default_factory=list)
 
 
 ExecutionResult: TypeAlias = ExecutionSuccess | ExecutionFailure

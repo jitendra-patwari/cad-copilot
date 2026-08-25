@@ -14,6 +14,7 @@ from geometry.plan_models import (
     BooleanOperationFamily,
     CircularThroughHoleFeature,
     CylinderBaseBody,
+    DefaultApplied,
     FeaturePlan,
     FeaturePlanBaseBody,
     FeaturePlanFeature,
@@ -66,11 +67,33 @@ def feature_plan_from_dict(payload: dict[str, Any]) -> FeaturePlan:
             path="features",
         )
 
+    defaults_applied: list[DefaultApplied] = []
+    diagnostics: list[ValidationDiagnostic] = []
+
     body_dimensions = _dict(body_payload.get("dimensions_mm", body_payload.get("dimensions")))
-    base_body = _base_body_from_dict(body_payload, body_dimensions)
-    features = tuple(_feature_from_dict(item, index=index) for index, item in enumerate(raw_features))
-    primitive_bodies = _primitive_bodies_from_payload(payload, base_body=base_body)
-    boolean_operations = _boolean_operations_from_payload(payload)
+    base_body = _base_body_from_dict(
+        body_payload,
+        body_dimensions,
+        path="base_body",
+    )
+    features = tuple(
+        _feature_from_dict(
+            item,
+            index=index,
+            defaults=defaults_applied,
+            diagnostics=diagnostics,
+        )
+        for index, item in enumerate(raw_features)
+    )
+    primitive_bodies = _primitive_bodies_from_payload(
+        payload,
+        base_body=base_body,
+    )
+    boolean_operations = _boolean_operations_from_payload(
+        payload,
+        defaults=defaults_applied,
+        diagnostics=diagnostics,
+    )
 
     units: Units = "mm"
 
@@ -87,6 +110,8 @@ def feature_plan_from_dict(payload: dict[str, Any]) -> FeaturePlan:
         primitive_bodies=primitive_bodies,
         boolean_operations=boolean_operations,
         features=features,
+        defaults_applied=tuple(defaults_applied),
+        validation_diagnostics=tuple(diagnostics),
     )
 
 
@@ -109,8 +134,12 @@ def _primitive_bodies_from_payload(
         )
 
     bodies = tuple(
-        _base_body_from_dict(body_payload, _dict(body_payload.get("dimensions_mm", body_payload.get("dimensions"))))
-        for item in raw_bodies
+        _base_body_from_dict(
+            body_payload,
+            _dict(body_payload.get("dimensions_mm", body_payload.get("dimensions"))),
+            path=f"primitive_bodies[{index}]",
+        )
+        for index, item in enumerate(raw_bodies)
         for body_payload in (_dict(item),)
     )
     if not bodies:
@@ -118,7 +147,12 @@ def _primitive_bodies_from_payload(
     return bodies
 
 
-def _boolean_operations_from_payload(payload: dict[str, Any]) -> tuple[BooleanOperation, ...]:
+def _boolean_operations_from_payload(
+    payload: dict[str, Any],
+    *,
+    defaults: list[DefaultApplied],
+    diagnostics: list[ValidationDiagnostic],
+) -> tuple[BooleanOperation, ...]:
     raw_operations = payload.get("boolean_operations", payload.get("booleans", []))
     if raw_operations is None:
         return ()
@@ -132,11 +166,32 @@ def _boolean_operations_from_payload(payload: dict[str, Any]) -> tuple[BooleanOp
             path="boolean_operations",
         )
 
-    return tuple(_boolean_operation_from_dict(_dict(item), index=index) for index, item in enumerate(raw_operations))
+    return tuple(
+        _boolean_operation_from_dict(
+            _dict(item),
+            index=index,
+            defaults=defaults,
+            diagnostics=diagnostics,
+        )
+        for index, item in enumerate(raw_operations)
+    )
 
 
-def _boolean_operation_from_dict(payload: dict[str, Any], *, index: int) -> BooleanOperation:
-    operation = _normalize_boolean_operation(payload.get("operation", payload.get("family", "")))
+def _boolean_operation_from_dict(
+    payload: dict[str, Any],
+    *,
+    index: int,
+    defaults: list[DefaultApplied],
+    diagnostics: list[ValidationDiagnostic],
+) -> BooleanOperation:
+    path = f"boolean_operations[{index}]"
+    raw_op = payload.get("operation", payload.get("family"))
+    operation = _normalize_boolean_operation(
+        raw_op,
+        path=f"{path}.operation",
+        defaults=defaults,
+        diagnostics=diagnostics,
+    )
     return BooleanOperation(
         id=str(payload.get("id", f"boolean.{index + 1}")),
         operation=operation,
@@ -146,17 +201,295 @@ def _boolean_operation_from_dict(payload: dict[str, Any], *, index: int) -> Bool
     )
 
 
-def _normalize_boolean_operation(value: object) -> BooleanOperationFamily:
-    normalized = str(value).strip().lower()
+def _normalize_boolean_operation(
+    value: object,
+    *,
+    path: str,
+    defaults: list[DefaultApplied],
+    diagnostics: list[ValidationDiagnostic],
+) -> BooleanOperationFamily:
+    if value is None or str(value).strip() == "":
+        return "union"
+    raw = str(value).strip()
+    normalized = raw.lower()
     if normalized in {"subtract", "difference", "cut", "remove", "boolean_subtract"}:
         return "subtract"
     if normalized in {"intersect", "common", "intersection", "boolean_intersect"}:
         return "intersect"
+    if normalized in {"union", "add", "fuse", "join", "boolean_union"}:
+        return "union"
+    defaults.append(
+        DefaultApplied(
+            path=path,
+            value="union",
+            reason=f"Unknown boolean operation '{raw}' fell back to 'union'",
+            original_value=raw,
+        )
+    )
+    diagnostics.append(
+        ValidationDiagnostic(
+            severity="warning",
+            code="UNKNOWN_BOOLEAN_OPERATION",
+            message=f"Unknown boolean operation '{raw}' defaulted to 'union'.",
+            path=path,
+        )
+    )
     return "union"
 
 
-def _feature_from_dict(item: object, *, index: int) -> FeaturePlanFeature:
+def _normalize_placement_mode(
+    value: object,
+    *,
+    path: str,
+    defaults: list[DefaultApplied],
+    diagnostics: list[ValidationDiagnostic],
+) -> PlacementMode:
+    if value is None or str(value).strip() == "":
+        return "face_local_center"
+    raw = str(value).strip()
+    normalized = raw.lower()
+    if normalized in {"face_local_center", "center", "local_center"}:
+        return "face_local_center"
+    if normalized in {"face_local_offset", "offset", "local_offset"}:
+        return "face_local_offset"
+    defaults.append(
+        DefaultApplied(
+            path=path,
+            value="face_local_center",
+            reason=f"Unknown placement mode '{raw}' fell back to 'face_local_center'",
+            original_value=raw,
+        )
+    )
+    diagnostics.append(
+        ValidationDiagnostic(
+            severity="warning",
+            code="UNKNOWN_PLACEMENT_MODE",
+            message=f"Unknown placement mode '{raw}' defaulted to 'face_local_center'.",
+            path=path,
+        )
+    )
+    return "face_local_center"
+
+
+def _normalize_face_alias(
+    value: object,
+    *,
+    path: str,
+    defaults: list[DefaultApplied],
+    diagnostics: list[ValidationDiagnostic],
+) -> str | None:
+    if value is None or str(value).strip() == "":
+        return None
+    raw = str(value).strip()
+    tf = raw.lower()
+    if tf in {"top", "up", "+z", "z+", "z"}:
+        return "+Z"
+    if tf in {"bottom", "down", "-z", "z-"}:
+        return "-Z"
+    if tf in {"right", "+x", "x+", "x"}:
+        return "+X"
+    if tf in {"left", "-x", "x-"}:
+        return "-X"
+    if tf in {"back", "+y", "y+", "y"}:
+        return "+Y"
+    if tf in {"front", "-y", "y-"}:
+        return "-Y"
+    defaults.append(
+        DefaultApplied(
+            path=path,
+            value="+Z",
+            reason=f"Unknown face alias '{raw}' fell back to '+Z'",
+            original_value=raw,
+        )
+    )
+    diagnostics.append(
+        ValidationDiagnostic(
+            severity="warning",
+            code="UNKNOWN_FACE_ALIAS",
+            message=f"Unknown face alias '{raw}' defaulted to '+Z'.",
+            path=path,
+        )
+    )
+    return "+Z"
+
+
+def _normalize_slot_orientation(
+    value: object,
+    *,
+    path: str,
+    defaults: list[DefaultApplied],
+    diagnostics: list[ValidationDiagnostic],
+) -> SlotOrientationAxis:
+    if value is None or str(value).strip() == "":
+        return "x"
+    raw = str(value).strip()
+    normalized = raw.lower().replace(" ", "").replace("_", "")
+    if normalized in {
+        "x",
+        "horizontal",
+        "u",
+        "axisx",
+        "0",
+        "0deg",
+        "0degree",
+        "0degrees",
+        "0.0",
+        "0.0deg",
+        "deg0",
+    }:
+        return "x"
+    if normalized in {
+        "y",
+        "vertical",
+        "v",
+        "axisy",
+        "90",
+        "90deg",
+        "90degree",
+        "90degrees",
+        "90.0",
+        "90.0deg",
+        "deg90",
+    }:
+        return "y"
+    defaults.append(
+        DefaultApplied(
+            path=path,
+            value="x",
+            reason=f"Unknown slot orientation '{raw}' fell back to 'x'",
+            original_value=raw,
+        )
+    )
+    diagnostics.append(
+        ValidationDiagnostic(
+            severity="warning",
+            code="UNKNOWN_SLOT_ORIENTATION",
+            message=f"Unknown slot orientation '{raw}' defaulted to 'x'.",
+            path=path,
+        )
+    )
+    return "x"
+
+
+def _normalize_sweep_path_type(
+    value: object,
+    *,
+    path: str,
+    defaults: list[DefaultApplied],
+    diagnostics: list[ValidationDiagnostic],
+) -> Any:
+    if value is None or str(value).strip() == "":
+        return "full_circle"
+    raw = str(value).strip()
+    normalized = raw.lower()
+    if normalized in {"full_circle", "circle", "closed_circle"}:
+        return "full_circle"
+    if normalized in {"semicircle", "half_circle"}:
+        return "semicircle"
+    if normalized in {"quarter_arc", "quarter_circle", "arc_90"}:
+        return "quarter_arc"
+    if normalized in {"straight_line", "linear", "line"}:
+        return "straight_line"
+    if normalized in {"none"}:
+        return "none"
+    defaults.append(
+        DefaultApplied(
+            path=path,
+            value="full_circle",
+            reason=f"Unknown sweep path type '{raw}' fell back to 'full_circle'",
+            original_value=raw,
+        )
+    )
+    diagnostics.append(
+        ValidationDiagnostic(
+            severity="warning",
+            code="UNKNOWN_SWEEP_PATH_TYPE",
+            message=f"Unknown sweep path type '{raw}' defaulted to 'full_circle'.",
+            path=path,
+        )
+    )
+    return "full_circle"
+
+
+def _normalize_sweep_section_type(
+    value: object,
+    *,
+    path: str,
+    defaults: list[DefaultApplied],
+    diagnostics: list[ValidationDiagnostic],
+) -> Any:
+    if value is None or str(value).strip() == "":
+        return "circle"
+    raw = str(value).strip()
+    normalized = raw.lower()
+    if normalized in {"circle", "round", "circular"}:
+        return "circle"
+    if normalized in {"rectangle", "square", "rectangular"}:
+        return "rectangle"
+    if normalized in {"polygon", "poly"}:
+        return "polygon"
+    defaults.append(
+        DefaultApplied(
+            path=path,
+            value="circle",
+            reason=f"Unknown sweep section type '{raw}' fell back to 'circle'",
+            original_value=raw,
+        )
+    )
+    diagnostics.append(
+        ValidationDiagnostic(
+            severity="warning",
+            code="UNKNOWN_SWEEP_SECTION_TYPE",
+            message=f"Unknown sweep section type '{raw}' defaulted to 'circle'.",
+            path=path,
+        )
+    )
+    return "circle"
+
+
+def _normalize_sweep_section_position(
+    value: object,
+    *,
+    path: str,
+    defaults: list[DefaultApplied],
+    diagnostics: list[ValidationDiagnostic],
+) -> Any:
+    if value is None or str(value).strip() == "":
+        return "start"
+    raw = str(value).strip()
+    normalized = raw.lower()
+    if normalized in {"start", "begin", "origin"}:
+        return "start"
+    if normalized in {"end", "finish", "terminal"}:
+        return "end"
+    defaults.append(
+        DefaultApplied(
+            path=path,
+            value="start",
+            reason=f"Unknown sweep cross-section position '{raw}' fell back to 'start'",
+            original_value=raw,
+        )
+    )
+    diagnostics.append(
+        ValidationDiagnostic(
+            severity="warning",
+            code="UNKNOWN_SWEEP_SECTION_POSITION",
+            message=f"Unknown sweep cross-section position '{raw}' defaulted to 'start'.",
+            path=path,
+        )
+    )
+    return "start"
+
+
+def _feature_from_dict(
+    item: object,
+    *,
+    index: int,
+    defaults: list[DefaultApplied],
+    diagnostics: list[ValidationDiagnostic],
+) -> FeaturePlanFeature:
     payload = _dict(item)
+    path = f"features[{index}]"
     family = str(payload.get("family", ""))
     feature_id = str(payload.get("id", f"feature.{index + 1}"))
     if family not in {
@@ -178,16 +511,32 @@ def _feature_from_dict(item: object, *, index: int) -> FeaturePlanFeature:
     extent = _dict(payload.get("extent"))
     orientation = _dict(payload.get("orientation"))
 
-    raw_placement_mode = str(placement.get("mode", "face_local_center"))
-    placement_mode: PlacementMode = (
-        "face_local_offset" if raw_placement_mode == "face_local_offset" else "face_local_center"
+    raw_placement_mode = placement.get("mode")
+    placement_mode = _normalize_placement_mode(
+        raw_placement_mode,
+        path=f"{path}.placement.mode",
+        defaults=defaults,
+        diagnostics=diagnostics,
+    )
+
+    raw_face = face.get("resolved_face")
+    if raw_face is None:
+        target_face_val = target.get("face")
+        if isinstance(target_face_val, str):
+            raw_face = target_face_val
+
+    target_face = _normalize_face_alias(
+        raw_face,
+        path=f"{path}.target.face",
+        defaults=defaults,
+        diagnostics=diagnostics,
     )
 
     common: dict[str, Any] = {
         "id": feature_id,
         "target_body_id": str(target.get("body_id", "body.main")),
         "target_selector": _optional_str(face.get("selector")),
-        "target_face": _optional_str(face.get("resolved_face")),
+        "target_face": target_face,
         "normal_axis": _optional_str(face.get("normal_axis")),
         "placement_mode": placement_mode,
         "center_x_mm": float(center.get("u", center.get("x_mm", center.get("x", 0.0)))),
@@ -200,7 +549,10 @@ def _feature_from_dict(item: object, *, index: int) -> FeaturePlanFeature:
         profile = _dict(payload.get("profile"))
         return ProfileCutoutFeature(
             **common,
-            profile_points=_profile_points_from_list(profile.get("points", payload.get("profile_points", []))),
+            profile_points=_profile_points_from_list(
+                profile.get("points", payload.get("profile_points", [])),
+                path=f"{path}.profile.points",
+            ),
             depth_mm=depth_mm,
         )
 
@@ -251,9 +603,12 @@ def _feature_from_dict(item: object, *, index: int) -> FeaturePlanFeature:
         axis = _dict(revolve.get("axis"))
         return RevolvedProfileFeature(
             **common,
-            profile_points=_profile_points_from_list(profile.get("points", payload.get("profile_points", []))),
-            axis_start=_point_from_dict(_dict(axis.get("start")), path="revolve.axis.start"),
-            axis_end=_point_from_dict(_dict(axis.get("end")), path="revolve.axis.end"),
+            profile_points=_profile_points_from_list(
+                profile.get("points", payload.get("profile_points", [])),
+                path=f"{path}.profile.points",
+            ),
+            axis_start=_point_from_dict(_dict(axis.get("start")), path=f"{path}.revolve.axis.start"),
+            axis_end=_point_from_dict(_dict(axis.get("end")), path=f"{path}.revolve.axis.end"),
             angle_deg=float(revolve.get("angle_deg", dimensions.get("angle_deg", payload.get("angle_deg", 360.0)))),
             radial_depth_mm=float(
                 dimensions.get(
@@ -273,19 +628,20 @@ def _feature_from_dict(item: object, *, index: int) -> FeaturePlanFeature:
         path_payload = _dict(payload.get("path"))
         cross_sections_raw = payload.get("cross_sections", [])
         if not isinstance(cross_sections_raw, list):
-            _reject("INVALID_SWEPT_PROTRUSION", "cross_sections must be a list.", path="cross_sections")
+            _reject("INVALID_SWEPT_PROTRUSION", "cross_sections must be a list.", path=f"{path}.cross_sections")
         if len(cross_sections_raw) > MAX_SWEEP_CROSS_SECTIONS:
             _reject(
                 "EXCESSIVE_SWEEP_CROSS_SECTIONS",
                 f"cross_sections count {len(cross_sections_raw)} exceeds limit of {MAX_SWEEP_CROSS_SECTIONS}.",
-                path="cross_sections",
+                path=f"{path}.cross_sections",
             )
 
-        raw_path_type = str(path_payload.get("type", "full_circle"))
-        path_type: Any = (
-            raw_path_type
-            if raw_path_type in {"full_circle", "semicircle", "quarter_arc", "straight_line", "none"}
-            else "full_circle"
+        raw_path_type = path_payload.get("type")
+        path_type = _normalize_sweep_path_type(
+            raw_path_type,
+            path=f"{path}.path.type",
+            defaults=defaults,
+            diagnostics=diagnostics,
         )
         path_spec = SweepPathSpec(
             type=path_type,
@@ -294,12 +650,22 @@ def _feature_from_dict(item: object, *, index: int) -> FeaturePlanFeature:
         )
 
         sections: list[SweepCrossSectionSpec] = []
-        for _index, s_item in enumerate(cross_sections_raw):
+        for s_index, s_item in enumerate(cross_sections_raw):
             s_payload = _dict(s_item)
-            raw_sec_type = str(s_payload.get("type", "circle"))
-            sec_type: Any = raw_sec_type if raw_sec_type in {"circle", "rectangle", "polygon"} else "circle"
-            raw_pos = str(s_payload.get("position", "start"))
-            sec_pos: Any = "end" if raw_pos == "end" else "start"
+            raw_sec_type = s_payload.get("type")
+            sec_type = _normalize_sweep_section_type(
+                raw_sec_type,
+                path=f"{path}.cross_sections[{s_index}].type",
+                defaults=defaults,
+                diagnostics=diagnostics,
+            )
+            raw_pos = s_payload.get("position")
+            sec_pos = _normalize_sweep_section_position(
+                raw_pos,
+                path=f"{path}.cross_sections[{s_index}].position",
+                defaults=defaults,
+                diagnostics=diagnostics,
+            )
             sections.append(
                 SweepCrossSectionSpec(
                     type=sec_type,
@@ -307,7 +673,10 @@ def _feature_from_dict(item: object, *, index: int) -> FeaturePlanFeature:
                     width_mm=float(s_payload.get("width_mm", s_payload.get("width", 0.0))),
                     height_mm=float(s_payload.get("height_mm", s_payload.get("height", 0.0))),
                     profile_points=(
-                        _profile_points_from_list(s_payload.get("profile_points", []))
+                        _profile_points_from_list(
+                            s_payload.get("profile_points", []),
+                            path=f"{path}.cross_sections[{s_index}].profile_points",
+                        )
                         if s_payload.get("profile_points")
                         else ()
                     ),
@@ -321,17 +690,16 @@ def _feature_from_dict(item: object, *, index: int) -> FeaturePlanFeature:
             cross_sections=tuple(sections),
         )
 
-    raw_axis = (
-        str(
-            orientation.get(
-                "axis",
-                payload.get("orientation_axis", payload.get("axis", "x")),
-            )
-        )
-        .strip()
-        .lower()
+    raw_axis = orientation.get(
+        "axis",
+        payload.get("orientation_axis", payload.get("axis")),
     )
-    orientation_axis: SlotOrientationAxis = "y" if raw_axis == "y" else "x"
+    orientation_axis = _normalize_slot_orientation(
+        raw_axis,
+        path=f"{path}.orientation.axis",
+        defaults=defaults,
+        diagnostics=diagnostics,
+    )
 
     return SlotThroughCutoutFeature(
         **common,
@@ -342,7 +710,12 @@ def _feature_from_dict(item: object, *, index: int) -> FeaturePlanFeature:
     )
 
 
-def _base_body_from_dict(body_payload: dict[str, Any], dimensions: dict[str, Any]) -> FeaturePlanBaseBody:
+def _base_body_from_dict(
+    body_payload: dict[str, Any],
+    dimensions: dict[str, Any],
+    *,
+    path: str = "base_body",
+) -> FeaturePlanBaseBody:
     family = str(body_payload.get("family", "rectangular_prism"))
     body_id = str(body_payload.get("id", "body.main"))
     labels = tuple(str(item) for item in body_payload.get("semantic_labels", [_default_label_for_base_family(family)]))
@@ -422,19 +795,16 @@ def _base_body_from_dict(body_payload: dict[str, Any], dimensions: dict[str, Any
             radius_mm=_radius_from_dimensions(dimensions, body_payload),
             height_mm=float(dimensions.get("height", dimensions.get("height_mm", body_payload.get("height_mm", 0.0)))),
             profile_points=_profile_points_from_list(
-                body_payload.get("profile_points", dimensions.get("profile_points", []))
+                body_payload.get("profile_points", dimensions.get("profile_points", [])),
+                path=f"{path}.profile_points",
             ),
             placement=placement,
         )
 
-    return RectangularBaseBody(
-        id=body_id,
-        family="rectangular_prism",
-        semantic_labels=labels,
-        length_mm=0.0,
-        width_mm=0.0,
-        thickness_mm=0.0,
-        placement=placement,
+    _reject(
+        "UNKNOWN_BASE_BODY_FAMILY",
+        f"Unsupported or unknown base body family '{family}'.",
+        path=f"{path}.family",
     )
 
 
@@ -465,16 +835,16 @@ def _radius_from_dimensions(dimensions: dict[str, Any], body_payload: dict[str, 
     return float(diameter) / 2.0
 
 
-def _profile_points_from_list(value: object) -> tuple[ProfilePoint2D, ...]:
+def _profile_points_from_list(value: object, *, path: str = "profile.points") -> tuple[ProfilePoint2D, ...]:
     if not isinstance(value, list):
-        _reject("INVALID_REVOLVE_PROFILE", "profile.points must be a list.", path="profile.points")
+        _reject("INVALID_REVOLVE_PROFILE", f"{path} must be a list.", path=path)
     if len(value) > MAX_PROFILE_POINTS:
         _reject(
             "EXCESSIVE_PROFILE_POINTS",
             f"Profile points count {len(value)} exceeds maximum allowed limit of {MAX_PROFILE_POINTS}.",
-            path="profile.points",
+            path=path,
         )
-    return tuple(_point_from_dict(_dict(item), path=f"profile.points[{index}]") for index, item in enumerate(value))
+    return tuple(_point_from_dict(_dict(item), path=f"{path}[{index}]") for index, item in enumerate(value))
 
 
 def _point_from_dict(payload: dict[str, Any], *, path: str) -> ProfilePoint2D:
