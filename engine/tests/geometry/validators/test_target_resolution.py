@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import pytest
+
 from geometry.plan_models import (
     DEFAULT_EDGE_MARGIN_MM,
     CircularThroughHoleFeature,
+    CylinderBaseBody,
     DefaultApplied,
+    FeaturePlanValidationError,
     RectangularBaseBody,
+    SphereBaseBody,
 )
 from geometry.validators.common import _effective_edge_margin_mm
 from geometry.validators.target_resolution import (
@@ -67,3 +72,27 @@ class TestTargetResolution:
         assert _effective_edge_margin_mm(DEFAULT_EDGE_MARGIN_MM, mode="capability_first") == 0.0
         assert _effective_edge_margin_mm(DEFAULT_EDGE_MARGIN_MM, mode="strict") == DEFAULT_EDGE_MARGIN_MM
         assert _effective_edge_margin_mm(2.0, mode="capability_first") == 2.0
+
+    def test_sphere_face_resolution_rejects_non_top_face(self) -> None:
+        sphere = SphereBaseBody(id="s1", radius_mm=25.0)
+        hole = CircularThroughHoleFeature(id="h1", diameter_mm=8.0, target_face="-Z")
+        defaults: list[DefaultApplied] = []
+
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            _resolve_feature_target(hole, base_body=sphere, defaults=defaults, path="features[0]")
+        assert exc.value.diagnostic.code == "UNSUPPORTED_SPHERE_FACE"
+
+    def test_cylinder_default_thickness_face_selector_authority(self) -> None:
+        """Verify default_thickness_face authoritatively canonicalizes -Z to +Z for cylinders."""
+        cyl = CylinderBaseBody(id="c1", radius_mm=10.0, height_mm=30.0)
+        hole = CircularThroughHoleFeature(
+            id="h1",
+            diameter_mm=8.0,
+            target_face="-Z",
+            target_selector="default_thickness_face",
+        )
+        defaults: list[DefaultApplied] = []
+
+        resolved = _resolve_feature_target(hole, base_body=cyl, defaults=defaults, path="features[0]")
+        assert resolved.target_face == "+Z"
+        assert any(d.reason == "default_thickness_face_resolved_face" and d.value == "+Z" for d in defaults)

@@ -7,7 +7,7 @@ Invariants:
     1. Zero I/O Purity (NFR-1): Pure computational geometry with zero COM, CAD kernel, or network imports.
     2. Deterministic Cryptographic Fingerprints (NFR-2): Canonical JSON serialization with allow_nan=False,
        IEEE-754 signed zero normalization (-0.0 -> 0.0), and SHA-256 entity fingerprinting.
-    3. Strict Zero Legacy Shims: Canonical contract_version "1.0" with zero backward-compatibility bridges.
+    3. Clean Architecture: Canonical contract_version "1.0" with pure domain lowering.
     4. CSG Context Tracking: Formally updates active_body_ref across multi-body boolean operation chains.
 """
 
@@ -221,6 +221,13 @@ def lower_validated_feature_plan_to_payload(validated: FeaturePlan) -> dict[str,
             sketch_ref = f"sketch.gear-bore.{bore_counter}"
             profile_ref = f"profile.gear-bore.{bore_counter}"
             feature_ref = f"feature.gear-bore.{bore_counter}"
+            bore_ctx = resolve_face_context("+Z", body)
+            placement = _body_placement_payload(body)
+            bore_origin_offset = {
+                "x_mm": placement["x_mm"] + bore_ctx.origin_offset_mm.get("x_mm", 0.0) + 0.0,
+                "y_mm": placement["y_mm"] + bore_ctx.origin_offset_mm.get("y_mm", 0.0) + 0.0,
+                "z_mm": placement["z_mm"] + bore_ctx.origin_offset_mm.get("z_mm", 0.0) + 0.0,
+            }
             active_sketch_ref = sketch_ref
             active_profile_ref = profile_ref
 
@@ -246,7 +253,7 @@ def lower_validated_feature_plan_to_payload(validated: FeaturePlan) -> dict[str,
                             {
                                 "kind": "sketch",
                                 "plane": "XY",
-                                "origin_offset_mm": _body_placement_payload(body),
+                                "origin_offset_mm": bore_origin_offset,
                                 "body_ref": body.id,
                             }
                         ),
@@ -281,7 +288,7 @@ def lower_validated_feature_plan_to_payload(validated: FeaturePlan) -> dict[str,
                         "sketch_ref": sketch_ref,
                         "body_ref": body.id,
                         "plane": "XY",
-                        "origin_offset_mm": _body_placement_payload(body),
+                        "origin_offset_mm": bore_origin_offset,
                     },
                     {
                         "op": "ensure_profile",
@@ -310,6 +317,12 @@ def lower_validated_feature_plan_to_payload(validated: FeaturePlan) -> dict[str,
                         "result_ref": feature_ref,
                         "through_all": True,
                         "cut_direction": DEFAULT_ABSTRACT_CUT_DIRECTION,
+                        "sketch_plane": "XY",
+                        "origin_offset_mm": bore_origin_offset,
+                        "u_axis": [1.0, 0.0, 0.0],
+                        "v_axis": [0.0, 1.0, 0.0],
+                        "normal_vector": [0.0, 0.0, 1.0],
+                        "cut_vector": [0.0, 0.0, -1.0],
                     },
                 ]
             )
@@ -343,6 +356,7 @@ def lower_validated_feature_plan_to_payload(validated: FeaturePlan) -> dict[str,
                     feature,
                     feature_index,
                     _stable_fingerprint,
+                    target_body=target_body,
                 )
                 entities.extend(sweep_result.entities)
                 patches.extend(sweep_result.patches)
@@ -439,6 +453,10 @@ def lower_validated_feature_plan_to_payload(validated: FeaturePlan) -> dict[str,
                         base_body=target_body,
                         cut_direction=DEFAULT_ABSTRACT_CUT_DIRECTION,
                         sketch_plane=ctx.sketch_plane,
+                        origin_offset_mm=sketch_origin_offset,
+                        u_axis=ctx.u_axis,
+                        v_axis=ctx.v_axis,
+                        normal_vector=ctx.normal_vector,
                     ),
                 ]
             )
@@ -481,6 +499,8 @@ def lower_validated_feature_plan_to_payload(validated: FeaturePlan) -> dict[str,
         "metadata": {
             "source": "llm",
             "label": f"canonical feature plan: {validated.part.design_intent}"[:128],
+            "diagnostics": [d.to_dict() for d in validated.validation_diagnostics],
+            "defaults_applied": [d.to_dict() for d in validated.defaults_applied],
         },
         "export": {"formats": validated.artifact_policy.visible_formats()},
     }

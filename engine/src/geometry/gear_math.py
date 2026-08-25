@@ -1,4 +1,4 @@
-"""Parametric involute spur gear tooth profile geometry and analytical calculations.
+"""Parametric conceptual spur gear tooth outline geometry and analytical calculations.
 
 Invariants:
     1. Zero I/O Purity (NFR-1): Pure analytical math with zero disk/network I/O or COM imports.

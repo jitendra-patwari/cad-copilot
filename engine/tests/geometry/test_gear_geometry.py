@@ -1,4 +1,4 @@
-"""Unit and regression tests for parametric involute gear math and profile generators."""
+"""Unit and regression tests for deterministic conceptual spur gear outline geometry and analytical calculations."""
 
 from __future__ import annotations
 
@@ -73,7 +73,7 @@ class TestInvoluteMath:
 
 
 class TestSpurGearOutlinePoints:
-    """Verify 2D spur gear polyline outline generation and geometric invariants."""
+    """Verify 2D deterministic conceptual spur gear polyline outline generation and geometric invariants."""
 
     def test_outline_point_count_open_and_closed(self) -> None:
         tooth_count = 16

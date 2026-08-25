@@ -92,10 +92,10 @@ def _resolve_feature_target(
 
     selector_resolved_face: str | None = None
     selector_authoritative = target_selector in {"largest_face", "smallest_face"} or (
-        target_selector == "default_thickness_face" and isinstance(base_body, CylinderBaseBody | SphereBaseBody)
+        target_selector == "default_thickness_face" and isinstance(base_body, CylinderBaseBody)
     )
 
-    if selector_authoritative or (target_selector == "default_thickness_face" and target_face is None):
+    if selector_authoritative or (target_selector in {"default_thickness_face", "side_face"} and target_face is None):
         selector_resolved_face = _default_target_face_for_selector(
             target_selector,
             base_body=base_body,
@@ -115,6 +115,13 @@ def _resolve_feature_target(
 
     if target_face not in {"+Z", "-Z", "+X", "-X", "+Y", "-Y"}:
         _reject("UNSUPPORTED_TARGET_FACE", "Only +/-Z and rectangular-prism side faces are supported.", path=path)
+
+    if isinstance(base_body, SphereBaseBody) and target_face != "+Z":
+        _reject(
+            "UNSUPPORTED_SPHERE_FACE",
+            f"Only '+Z' polar apex tangent frame is supported on sphere base body, got '{target_face}'.",
+            path=path,
+        )
 
     if (
         target_face not in {"+Z", "-Z"}

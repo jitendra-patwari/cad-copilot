@@ -26,10 +26,12 @@ from geometry.plan_models import (
     CylinderBaseBody,
     FeaturePlanBaseBody,
     FeaturePlanFeature,
+    FeaturePlanValidationError,
     RectangularBaseBody,
     RevolvedShaftBaseBody,
     SphereBaseBody,
     SpurGearBaseBody,
+    ValidationDiagnostic,
 )
 
 
@@ -269,18 +271,17 @@ def resolve_face_context(
             relative_offset["z_mm"] = base_body.height_mm / 2.0
 
     elif isinstance(base_body, SphereBaseBody):
-        if target_face == "+Z":
-            relative_offset["z_mm"] = base_body.radius_mm
-        elif target_face == "-Z":
-            relative_offset["z_mm"] = -base_body.radius_mm
-        elif target_face == "+X":
-            relative_offset["x_mm"] = base_body.radius_mm
-        elif target_face == "-X":
-            relative_offset["x_mm"] = -base_body.radius_mm
-        elif target_face == "+Y":
-            relative_offset["y_mm"] = base_body.radius_mm
-        elif target_face == "-Y":
-            relative_offset["y_mm"] = -base_body.radius_mm
+        if target_face != "+Z":
+            raise FeaturePlanValidationError(
+                ValidationDiagnostic(
+                    severity="error",
+                    code="UNSUPPORTED_SPHERE_FACE",
+                    message=f"Only '+Z' polar apex tangent frame is supported for SphereBaseBody, got '{target_face}'.",
+                )
+            )
+        relative_offset["z_mm"] = base_body.radius_mm
+        half_extents_u = base_body.radius_mm
+        half_extents_v = base_body.radius_mm
 
     return FaceContext(
         target_face=target_face,
