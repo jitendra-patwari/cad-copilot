@@ -9,6 +9,7 @@ import pytest
 from geometry import (
     BodyPlacement,
     CylinderBaseBody,
+    FeaturePlanValidationError,
     RectangularBaseBody,
     RevolvedShaftBaseBody,
     SphereBaseBody,
@@ -123,6 +124,40 @@ class TestFaceCentroidAccuracy:
         ctx_front = resolve_face_context("-Y", body)
         assert ctx_front.project_uv_to_world(0.0, 0.0) == (0.0, -20.0, 3.0)
 
+    def test_rectangular_face_centroids_with_arbitrary_body_placement(self) -> None:
+        """Verify active coordinate convention: z=0 to z=t (top=p_z+t, bottom=p_z, side midline=p_z+t/2)."""
+        body = RectangularBaseBody(
+            id="body.main",
+            length_mm=80.0,
+            width_mm=40.0,
+            thickness_mm=20.0,
+            placement=BodyPlacement(x_mm=10.0, y_mm=20.0, z_mm=30.0),
+        )
+
+        # Top face (+Z): Centroid is (10, 20, 30 + 20) = (10, 20, 50)
+        ctx_top = resolve_face_context("+Z", body)
+        assert ctx_top.project_uv_to_world(0.0, 0.0, body.placement) == (10.0, 20.0, 50.0)
+
+        # Bottom face (-Z): Centroid is (10, 20, 30 + 0) = (10, 20, 30)
+        ctx_bot = resolve_face_context("-Z", body)
+        assert ctx_bot.project_uv_to_world(0.0, 0.0, body.placement) == (10.0, 20.0, 30.0)
+
+        # +X face: Centroid is (10 + 40, 20, 30 + 10) = (50, 20, 40)
+        ctx_right = resolve_face_context("+X", body)
+        assert ctx_right.project_uv_to_world(0.0, 0.0, body.placement) == (50.0, 20.0, 40.0)
+
+        # -X face: Centroid is (10 - 40, 20, 30 + 10) = (-30, 20, 40)
+        ctx_left = resolve_face_context("-X", body)
+        assert ctx_left.project_uv_to_world(0.0, 0.0, body.placement) == (-30.0, 20.0, 40.0)
+
+        # +Y face: Centroid is (10, 20 + 20, 30 + 10) = (10, 40, 40)
+        ctx_back = resolve_face_context("+Y", body)
+        assert ctx_back.project_uv_to_world(0.0, 0.0, body.placement) == (10.0, 40.0, 40.0)
+
+        # -Y face: Centroid is (10, 20 - 20, 30 + 10) = (10, 0, 40)
+        ctx_front = resolve_face_context("-Y", body)
+        assert ctx_front.project_uv_to_world(0.0, 0.0, body.placement) == (10.0, 0.0, 40.0)
+
 
 class TestBodyFaceResolutions:
     """Verify frame origin and axial extents across all primitive body families."""
@@ -206,7 +241,7 @@ class TestVectorProjections:
 
 
 def test_sphere_face_context_offsets() -> None:
-    """Verify face context offsets on SphereBaseBody across all 6 faces."""
+    """Verify face context supports only +Z polar apex tangent frame on SphereBaseBody."""
     sphere = SphereBaseBody(
         id="body.sphere",
         radius_mm=25.0,
@@ -215,18 +250,11 @@ def test_sphere_face_context_offsets() -> None:
 
     ctx_top = resolve_face_context("+Z", sphere)
     assert ctx_top.origin_offset_mm["z_mm"] == 25.0
+    assert ctx_top.half_extents_u == 25.0
+    assert ctx_top.half_extents_v == 25.0
 
-    ctx_bottom = resolve_face_context("-Z", sphere)
-    assert ctx_bottom.origin_offset_mm["z_mm"] == -25.0
-
-    ctx_right = resolve_face_context("+X", sphere)
-    assert ctx_right.origin_offset_mm["x_mm"] == 25.0
-
-    ctx_left = resolve_face_context("-X", sphere)
-    assert ctx_left.origin_offset_mm["x_mm"] == -25.0
-
-    ctx_back = resolve_face_context("+Y", sphere)
-    assert ctx_back.origin_offset_mm["y_mm"] == 25.0
-
-    ctx_front = resolve_face_context("-Y", sphere)
-    assert ctx_front.origin_offset_mm["y_mm"] == -25.0
+    # Non-+Z sphere faces must be rejected with FeaturePlanValidationError and UNSUPPORTED_SPHERE_FACE
+    for face in ["-Z", "+X", "-X", "+Y", "-Y"]:
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            resolve_face_context(face, sphere)
+        assert exc.value.diagnostic.code == "UNSUPPORTED_SPHERE_FACE"

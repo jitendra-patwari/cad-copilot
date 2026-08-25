@@ -205,6 +205,49 @@ def profile_cutout_polygon_points(
     return points
 
 
+def revolve_polygon_points(
+    feature: RevolvedProfileFeature,
+    *,
+    base_body: FeaturePlanBaseBody,
+) -> list[dict[str, float]]:
+    """Translate revolve profile vertices into 2D sketch plane wire coordinates."""
+    cx = feature.center_x_mm
+    cy = feature.center_y_mm
+    points: list[dict[str, float]] = []
+    for point in feature.profile_points:
+        u = point.x_mm + cx
+        v = point.y_mm + cy
+        xs, ys = map_face_uv_to_sketch_wire(u, v, feature.target_face, base_body)
+        points.append({"x_mm": xs, "y_mm": ys})
+    return points
+
+
+def revolve_axis_endpoints(
+    feature: RevolvedProfileFeature,
+    *,
+    base_body: FeaturePlanBaseBody,
+) -> dict[str, dict[str, float]]:
+    """Translate revolve axis start and end points into 2D sketch plane wire coordinates."""
+    cx = feature.center_x_mm
+    cy = feature.center_y_mm
+    start_xs, start_ys = map_face_uv_to_sketch_wire(
+        feature.axis_start.x_mm + cx,
+        feature.axis_start.y_mm + cy,
+        feature.target_face,
+        base_body,
+    )
+    end_xs, end_ys = map_face_uv_to_sketch_wire(
+        feature.axis_end.x_mm + cx,
+        feature.axis_end.y_mm + cy,
+        feature.target_face,
+        base_body,
+    )
+    return {
+        "start": {"x_mm": start_xs, "y_mm": start_ys},
+        "end": {"x_mm": end_xs, "y_mm": end_ys},
+    }
+
+
 def profile_payload_for_feature(
     feature: (
         CircularThroughHoleFeature
@@ -244,7 +287,7 @@ def profile_payload_for_feature(
         return {
             "kind": "polygon",
             "sketch_ref": sketch_ref,
-            "points": [{"x_mm": p.x_mm + 0.0, "y_mm": p.y_mm + 0.0} for p in feature.profile_points],
+            "points": revolve_polygon_points(feature, base_body=base_body),
             "close": True,
         }
     return {
@@ -291,7 +334,7 @@ def profile_geometry_for_feature(
     if isinstance(feature, RevolvedProfileFeature):
         return {
             "kind": "polygon",
-            "points": [{"x_mm": p.x_mm + 0.0, "y_mm": p.y_mm + 0.0} for p in feature.profile_points],
+            "points": revolve_polygon_points(feature, base_body=base_body),
             "close": True,
         }
     return {
@@ -330,10 +373,7 @@ def profile_feature_payload_for_feature(
             "kind": "revolve_profile",
             "body_ref": body_ref,
             "profile_ref": profile_ref,
-            "axis": {
-                "start": {"x_mm": feature.axis_start.x_mm + 0.0, "y_mm": feature.axis_start.y_mm + 0.0},
-                "end": {"x_mm": feature.axis_end.x_mm + 0.0, "y_mm": feature.axis_end.y_mm + 0.0},
-            },
+            "axis": revolve_axis_endpoints(feature, base_body=base_body),
             "angle_deg": float(feature.angle_deg) + 0.0,
         }
     through_all = _feature_cut_through_all(feature)
@@ -365,6 +405,11 @@ def profile_feature_patch_for_feature(
     base_body: FeaturePlanBaseBody,
     cut_direction: str = DEFAULT_ABSTRACT_CUT_DIRECTION,
     sketch_plane: str | None = None,
+    origin_offset_mm: dict[str, float] | None = None,
+    u_axis: tuple[float, float, float] | list[float] | None = None,
+    v_axis: tuple[float, float, float] | list[float] | None = None,
+    normal_vector: tuple[float, float, float] | list[float] | None = None,
+    cut_vector: tuple[float, float, float] | list[float] | None = None,
 ) -> dict[str, Any]:
     """Generate an execution patch for a standard profile feature operation."""
     if isinstance(feature, RectangularExtrudedPadFeature):
@@ -391,10 +436,7 @@ def profile_feature_patch_for_feature(
             "body_ref": body_ref,
             "profile_ref": profile_ref,
             "result_ref": feature.id,
-            "axis": {
-                "start": {"x_mm": feature.axis_start.x_mm + 0.0, "y_mm": feature.axis_start.y_mm + 0.0},
-                "end": {"x_mm": feature.axis_end.x_mm + 0.0, "y_mm": feature.axis_end.y_mm + 0.0},
-            },
+            "axis": revolve_axis_endpoints(feature, base_body=base_body),
             "angle_deg": float(feature.angle_deg) + 0.0,
         }
     through_all = _feature_cut_through_all(feature)
@@ -413,6 +455,22 @@ def profile_feature_patch_for_feature(
     }
     if sketch_plane is not None:
         payload["sketch_plane"] = sketch_plane
+    if origin_offset_mm is not None:
+        payload["origin_offset_mm"] = {k: float(v) + 0.0 for k, v in origin_offset_mm.items()}
+    if u_axis is not None:
+        payload["u_axis"] = [float(x) + 0.0 for x in u_axis]
+    if v_axis is not None:
+        payload["v_axis"] = [float(x) + 0.0 for x in v_axis]
+    if normal_vector is not None:
+        payload["normal_vector"] = [float(x) + 0.0 for x in normal_vector]
+    if cut_vector is not None:
+        payload["cut_vector"] = [float(x) + 0.0 for x in cut_vector]
+    elif normal_vector is not None:
+        payload["cut_vector"] = [
+            -float(normal_vector[0]) + 0.0,
+            -float(normal_vector[1]) + 0.0,
+            -float(normal_vector[2]) + 0.0,
+        ]
     if not through_all:
         payload["depth_mm"] = float(_feature_cut_depth_mm(base_body, feature)) + 0.0
     return payload
@@ -489,6 +547,8 @@ __all__ = [
     "profile_geometry_for_feature",
     "profile_human_label",
     "profile_payload_for_feature",
+    "revolve_axis_endpoints",
+    "revolve_polygon_points",
     "sketch_human_label",
     "slot_profile_center",
     "slot_profile_orientation_axis",

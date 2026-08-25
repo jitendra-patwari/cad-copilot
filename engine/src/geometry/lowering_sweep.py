@@ -33,7 +33,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from geometry.face_context import resolve_face_context
-from geometry.lowering_wire_mapping import normalize_target_face_alias
+from geometry.lowering_wire_mapping import (
+    map_face_uv_to_sketch_wire,
+    normalize_target_face_alias,
+)
 from geometry.plan_models import FeaturePlan, FeaturePlanBaseBody, SweptProtrusionFeature
 
 
@@ -154,17 +157,18 @@ def lower_swept_protrusion(
     feature: SweptProtrusionFeature,
     index: int,
     stable_fingerprint_fn: Callable[[object], str],
+    *,
+    target_body: FeaturePlanBaseBody,
 ) -> LoweredSweepResult:
     """Lower a SweptProtrusionFeature into semantic path/section sketches and a sweep patch."""
     entities: list[dict[str, Any]] = []
     patches: list[dict[str, Any]] = []
 
     target_face = normalize_target_face_alias(feature.target_face)
-    base_body = plan.base_body
-    ctx = resolve_face_context(target_face, base_body, feature)
+    ctx = resolve_face_context(target_face, target_body, feature)
     sketch_plane = ctx.sketch_plane
 
-    placement = _body_placement_origin_offset(base_body)
+    placement = _body_placement_origin_offset(target_body)
     sketch_origin_offset = {
         "x_mm": placement["x_mm"] + ctx.origin_offset_mm.get("x_mm", 0.0) + 0.0,
         "y_mm": placement["y_mm"] + ctx.origin_offset_mm.get("y_mm", 0.0) + 0.0,
@@ -208,25 +212,20 @@ def lower_swept_protrusion(
         }
     )
 
-    path_geom: dict[str, Any]
-    if feature.path.type == "full_circle":
-        path_geom = {
-            "kind": "circle",
-            "center": {
-                "x_mm": float(feature.center_x_mm) + 0.0,
-                "y_mm": float(feature.center_y_mm) + 0.0,
-            },
-            "radius_mm": float(feature.path.radius_mm) + 0.0,
-        }
-    else:
-        path_geom = {
-            "kind": "circle",
-            "center": {
-                "x_mm": float(feature.center_x_mm) + 0.0,
-                "y_mm": float(feature.center_y_mm) + 0.0,
-            },
-            "radius_mm": float(feature.path.radius_mm) + 0.0,
-        }
+    path_cx, path_cy = map_face_uv_to_sketch_wire(
+        feature.center_x_mm,
+        feature.center_y_mm,
+        feature.target_face,
+        target_body,
+    )
+    path_geom: dict[str, Any] = {
+        "kind": "circle",
+        "center": {
+            "x_mm": path_cx,
+            "y_mm": path_cy,
+        },
+        "radius_mm": float(feature.path.radius_mm) + 0.0,
+    }
 
     path_profile_payload = {
         **path_geom,
@@ -272,7 +271,7 @@ def lower_swept_protrusion(
             target_face=target_face,
             position=section.position,
             path_type=feature.path.type,
-            base_body=base_body,
+            base_body=target_body,
             feature=feature,
         )
 

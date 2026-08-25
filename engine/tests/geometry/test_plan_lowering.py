@@ -5,7 +5,7 @@ Invariants Verified:
     2. Deterministic SHA-256 Fingerprinting (NFR-2): JSON serialization with allow_nan=False and IEEE-754 signed zero normalization.
     3. 6-Face Coordinate Transformations: Rigorous 2D wire projection and 3D sketch origin offsets across all faces (+Z, -Z, +Y, -Y, +X, -X).
     4. Multi-Body CSG Context: Active body tracking across boolean union, subtract, and intersect chains.
-    5. Clean Modernization: Strict contract_version "1.0", zero vendor COM enums, and zero legacy fallback shims.
+    5. Clean Architecture: Strict contract_version "1.0", zero vendor COM enums, and decoupled pure geometry execution.
 """
 
 from __future__ import annotations
@@ -154,6 +154,19 @@ class TestSixFaceCoordinateTransforms:
         assert pp["geometry"]["center"]["x_mm"] == pytest.approx(expected_profile_center["x_mm"])
         assert pp["geometry"]["center"]["y_mm"] == pytest.approx(expected_profile_center["y_mm"])
         assert pp["geometry"]["radius_mm"] == 4.0
+
+        # Check cut_hole patch frame
+        cut_patches = [p for p in payload["patches"] if p["op"] == "cut_hole"]
+        assert len(cut_patches) == 1
+        cp = cut_patches[0]
+        assert cp["sketch_plane"] == expected_plane
+        assert cp["origin_offset_mm"]["x_mm"] == pytest.approx(px + expected_offset_rel["x_mm"])
+        assert cp["origin_offset_mm"]["y_mm"] == pytest.approx(py + expected_offset_rel["y_mm"])
+        assert cp["origin_offset_mm"]["z_mm"] == pytest.approx(pz + expected_offset_rel["z_mm"])
+        assert len(cp["u_axis"]) == 3
+        assert len(cp["v_axis"]) == 3
+        assert len(cp["normal_vector"]) == 3
+        assert cp["cut_vector"] == [-cp["normal_vector"][0], -cp["normal_vector"][1], -cp["normal_vector"][2]]
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +345,7 @@ class TestSpurGearBoreLowering:
             module_mm=2.0,
             face_width_mm=12.0,
             bore_diameter_mm=10.0,
-            placement=BodyPlacement(x_mm=0.0, y_mm=0.0, z_mm=0.0),
+            placement=BodyPlacement(x_mm=10.0, y_mm=20.0, z_mm=30.0),
         )
         plan = _make_plan(base_body=gear)
         payload = lower_validated_feature_plan_to_payload(plan)
@@ -342,12 +355,19 @@ class TestSpurGearBoreLowering:
         assert payload["patches"][0]["op"] == "ensure_primitive_body"
         assert payload["patches"][1]["op"] == "ensure_sketch"
         assert payload["patches"][1]["sketch_ref"] == "sketch.gear-bore.1"
+        assert payload["patches"][1]["origin_offset_mm"] == {"x_mm": 10.0, "y_mm": 20.0, "z_mm": 42.0}
         assert payload["patches"][2]["op"] == "ensure_profile"
         assert payload["patches"][2]["profile_ref"] == "profile.gear-bore.1"
         assert payload["patches"][2]["geometry"]["radius_mm"] == 5.0
         assert payload["patches"][3]["op"] == "cut_hole"
         assert payload["patches"][3]["through_all"] is True
         assert payload["patches"][3]["cut_direction"] == "into_solid"
+        assert payload["patches"][3]["sketch_plane"] == "XY"
+        assert payload["patches"][3]["origin_offset_mm"] == {"x_mm": 10.0, "y_mm": 20.0, "z_mm": 42.0}
+        assert payload["patches"][3]["u_axis"] == [1.0, 0.0, 0.0]
+        assert payload["patches"][3]["v_axis"] == [0.0, 1.0, 0.0]
+        assert payload["patches"][3]["normal_vector"] == [0.0, 0.0, 1.0]
+        assert payload["patches"][3]["cut_vector"] == [0.0, 0.0, -1.0]
 
     def test_multi_gear_bore_scoping_no_collisions(self) -> None:
         gear1 = SpurGearBaseBody(
@@ -465,6 +485,39 @@ class TestFeatureFamiliesLowering:
         assert revolve_patch["axis"]["start"] == {"x_mm": 0.0, "y_mm": 0.0}
         assert revolve_patch["axis"]["end"] == {"x_mm": 0.0, "y_mm": 1.0}
 
+    def test_revolved_profile_feature_with_face_projection_and_placement(self) -> None:
+        """Verify revolve profile points and axis endpoints are mapped to reference plane sketch coordinates."""
+        box = _make_box(length=100.0, width=80.0, thickness=20.0, px=10.0, py=20.0, pz=30.0)
+        revolve = RevolvedProfileFeature(
+            id="feature.revolve.2",
+            target_face="+Y",
+            center_x_mm=5.0,
+            center_y_mm=-2.0,
+            profile_points=(
+                ProfilePoint2D(x_mm=10.0, y_mm=0.0),
+                ProfilePoint2D(x_mm=20.0, y_mm=0.0),
+                ProfilePoint2D(x_mm=20.0, y_mm=15.0),
+                ProfilePoint2D(x_mm=10.0, y_mm=15.0),
+            ),
+            axis_start=ProfilePoint2D(x_mm=0.0, y_mm=0.0),
+            axis_end=ProfilePoint2D(x_mm=0.0, y_mm=10.0),
+            angle_deg=180.0,
+        )
+        plan = _make_plan(base_body=box, features=(revolve,))
+        payload = lower_validated_feature_plan_to_payload(plan)
+
+        # On +Y (XZ plane): xs = px - (u + cx), ys = pz + t/2 + (v + cy)
+        # Point (10, 0) -> u=15, v=-2 -> xs = 10 - 15 = -5, ys = 30 + 10 - 2 = 38
+        prof_patch = next(p for p in payload["patches"] if p["op"] == "ensure_profile")
+        assert prof_patch["geometry"]["points"][0] == {"x_mm": -5.0, "y_mm": 38.0}
+
+        revolve_patch = next(p for p in payload["patches"] if p["op"] == "revolve_profile")
+        assert revolve_patch["angle_deg"] == 180.0
+        # Axis start (0, 0) -> u=5, v=-2 -> xs = 10 - 5 = 5, ys = 30 + 10 - 2 = 38
+        assert revolve_patch["axis"]["start"] == {"x_mm": 5.0, "y_mm": 38.0}
+        # Axis end (0, 10) -> u=5, v=8 -> xs = 10 - 5 = 5, ys = 30 + 10 + 8 = 48
+        assert revolve_patch["axis"]["end"] == {"x_mm": 5.0, "y_mm": 48.0}
+
     def test_swept_protrusion_lowering(self) -> None:
         box = _make_box()
         sweep = SweptProtrusionFeature(
@@ -485,6 +538,80 @@ class TestFeatureFamiliesLowering:
         sweep_patch = next(p for p in payload["patches"] if p["op"] == "sweep_protrusion")
         assert sweep_patch["result_ref"] == "feature.sweep.1"
         assert sweep_patch["direction"] == "into_solid"
+
+    def test_swept_protrusion_lowering_on_side_face_maps_center(self) -> None:
+        """Verify sweep path circle center is mapped to 2D sketch plane wire coordinates on side faces."""
+        box = _make_box(length=100.0, width=80.0, thickness=20.0, px=10.0, py=20.0, pz=30.0)
+        sweep = SweptProtrusionFeature(
+            id="feature.sweep.side",
+            target_face="+Y",
+            center_x_mm=5.0,
+            center_y_mm=-4.0,
+            path=SweepPathSpec(type="full_circle", radius_mm=10.0),
+            cross_sections=(SweepCrossSectionSpec(type="circle", diameter_mm=3.0, position="start"),),
+        )
+        plan = _make_plan(base_body=box, features=(sweep,))
+        payload = lower_validated_feature_plan_to_payload(plan)
+
+        # On +Y (XZ plane): xs = px - u_c = 10 - 5 = 5, ys = pz + t/2 + v_c = 30 + 10 - 4 = 36
+        path_prof_patch = next(
+            p
+            for p in payload["patches"]
+            if p["op"] == "ensure_profile" and p.get("profile_ref") == "profile.sweep.path.1"
+        )
+        assert path_prof_patch["geometry"]["center"] == {"x_mm": 5.0, "y_mm": 36.0}
+
+        # Find path profile entity in canonical_state entities
+        path_prof_entity = next(
+            e
+            for e in payload["canonical_state"]["entities"]
+            if e.get("ref_id") == "profile.sweep.path.1"
+            or (isinstance(e.get("reference"), dict) and e["reference"].get("ref_id") == "profile.sweep.path.1")
+        )
+        assert (
+            path_prof_entity.get("kind") == "profile" or path_prof_entity.get("reference", {}).get("kind") == "profile"
+        )
+
+        # Check path sketch patch plane is XZ
+        path_sketch_patch = next(
+            p for p in payload["patches"] if p["op"] == "ensure_sketch" and p.get("sketch_ref") == "sketch.sweep.path.1"
+        )
+        assert path_sketch_patch["plane"] == "XZ"
+        assert path_sketch_patch["origin_offset_mm"] == {"x_mm": 10.0, "y_mm": 60.0, "z_mm": 40.0}
+
+    def test_swept_protrusion_lowering_on_secondary_primitive_body(self) -> None:
+        """Verify sweep lowering correctly targets secondary primitive body and uses its placement."""
+        body1 = _make_box(box_id="body.1", length=100.0, width=50.0, thickness=10.0)
+        body2 = CylinderBaseBody(
+            id="body.2",
+            radius_mm=20.0,
+            height_mm=40.0,
+            placement=BodyPlacement(x_mm=50.0, y_mm=60.0, z_mm=70.0),
+        )
+        sweep = SweptProtrusionFeature(
+            id="feature.sweep.2",
+            target_body_id="body.2",
+            target_face="+Z",
+            path=SweepPathSpec(type="full_circle", radius_mm=15.0),
+            cross_sections=(SweepCrossSectionSpec(type="circle", diameter_mm=4.0, position="start"),),
+        )
+        plan = _make_plan(
+            base_body=body1,
+            primitive_bodies=(body1, body2),
+            features=(sweep,),
+        )
+        payload = lower_validated_feature_plan_to_payload(plan)
+
+        # Verify path sketch uses body.2 placement (x=50, y=60, z=70 + 40 = 110)
+        path_sketch_patch = next(
+            p for p in payload["patches"] if p["op"] == "ensure_sketch" and p.get("sketch_ref") == "sketch.sweep.path.1"
+        )
+        assert path_sketch_patch["body_ref"] == "body.2"
+        assert path_sketch_patch["origin_offset_mm"] == {"x_mm": 50.0, "y_mm": 60.0, "z_mm": 110.0}
+
+        sweep_patch = next(p for p in payload["patches"] if p["op"] == "sweep_protrusion")
+        assert sweep_patch["body_ref"] == "body.2"
+        assert sweep_patch["result_ref"] == "feature.sweep.2"
 
 
 # ---------------------------------------------------------------------------
@@ -638,3 +765,47 @@ class TestContractInvariantsAndFacade:
         with pytest.raises(FeaturePlanValidationError) as exc_info:
             lower_validated_feature_plan_to_payload(plan)
         assert exc_info.value.diagnostic.code == "UNKNOWN_FEATURE_TARGET"
+
+    def test_metadata_envelope_includes_diagnostics_and_defaults(self) -> None:
+        payload_dict = {
+            "part": {"part_id": "test", "design_intent": "plate with slot"},
+            "base_body": {
+                "family": "rectangular_prism",
+                "dimensions_mm": {"length": 100, "width": 80, "thickness": 20},
+            },
+            "features": [
+                {
+                    "family": "slot_through_cutout",
+                    "placement": {"mode": "polar_offset"},
+                    "target": {"face": {"resolved_face": "+z"}},
+                    "dimensions_mm": {"length": 30, "width": 10},
+                }
+            ],
+        }
+        lowered = parse_and_lower_feature_plan(payload_dict)
+        meta = lowered["metadata"]
+        assert meta["source"] == "llm"
+        assert "canonical feature plan: plate with slot" in meta["label"]
+        assert "diagnostics" in meta
+        assert "defaults_applied" in meta
+        assert isinstance(meta["diagnostics"], list)
+        assert isinstance(meta["defaults_applied"], list)
+
+        # Verify exact fallback propagation into defaults_applied metadata
+        default_match = next(
+            (d for d in meta["defaults_applied"] if d.get("path") == "features[0].placement.mode"),
+            None,
+        )
+        assert default_match is not None
+        assert default_match["value"] == "face_local_center"
+        assert default_match["original_value"] == "polar_offset"
+        assert "fell back to 'face_local_center'" in default_match["reason"]
+
+        # Verify exact warning diagnostic propagation into diagnostics metadata
+        diag_match = next(
+            (d for d in meta["diagnostics"] if d.get("code") == "UNKNOWN_PLACEMENT_MODE"),
+            None,
+        )
+        assert diag_match is not None
+        assert diag_match["severity"] == "warning"
+        assert diag_match["path"] == "features[0].placement.mode"
