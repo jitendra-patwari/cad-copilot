@@ -1,0 +1,13 @@
+{
+  "name": "@cad-copilot/engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Python CAD engine workspace package for pnpm orchestration",
+  "scripts": {
+    "test": "uv run --extra dev pytest",
+    "test:cov": "uv run --extra dev pytest --cov=src --cov-report=term-missing",
+    "lint": "uv run --extra dev ruff check src tests && uv run --extra dev mypy --strict src",
+    "typecheck": "uv run --extra dev mypy --strict src",
+    "format": "uv run --extra dev ruff format src tests"
+  }
+}

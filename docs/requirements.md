@@ -71,7 +71,7 @@ This specification defines the functional, architectural, and quality requiremen
   - Point-in-polygon checks verifying that child features (holes, cutouts) are fully contained within parent face boundaries before CAD kernel dispatch.
   - Minimum edge clearance enforcement and sibling feature collision detection.
 - **STEP Sanity Verification (`step_checker.py` in `engine/src/geometry/`)**:
-  - Bounding box checks and non-manifold edge validation on exported STEP files.
+  - In-memory pure-domain structural envelope, topological entity presence (`MANIFOLD_SOLID_BREP`, `ADVANCED_FACE`), ISO 10303-41 length unit scale, and dimensional sanity validation on exported STEP Part 21 text.
 
 ---
 
@@ -98,4 +98,11 @@ This specification defines the functional, architectural, and quality requiremen
 1. `FaceContext` accurately transforms 2D sketch points to 3D global coordinates across arbitrary planes with inverse projection error $< 10^{-6}\text{ mm}$.
 2. `gear_math.py` generates valid, closed tooth polygons for standard modules and tooth counts.
 3. Containment validators detect and reject out-of-bounds features with descriptive diagnostics.
-4. Test suite in `engine/tests/geometry/` (unit, regression, fuzzing, schema validation) passes with 100% success rate.
+4. `step_checker.py` performs in-place $O(1)$-memory streaming bounding box and entity smoke validation with ISO 10303-41 unit scale detection.
+5. Test suite in `engine/tests/geometry/` (unit, regression, fuzzing, schema validation) passes with 100% success rate.
+
+### Milestone 3 Acceptance Criteria (Solid Edge Driver)
+1. `SolidEdgeRuntime` connects to active or fresh Solid Edge instances via standard Dispatch in STA single-threaded apartment mode.
+2. `SolidEdgeExecutor` verifies successful geometric recompute before reporting feature success.
+3. Driver verifies that active documents contain expected solid body counts and that bodies are 3D manifold solid bodies (not sheet/wire bodies).
+4. Exported STEP files are written atomically and pass `step_checker.py` sanity checks before export artifact records are finalized.
