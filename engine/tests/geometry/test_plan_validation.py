@@ -89,7 +89,7 @@ class TestTopLevelContractRejections:
 
     def test_unsupported_plan_version(self) -> None:
         plan = _load_example_fixture("accepted_example.json")
-        bad_plan = replace(plan, plan_version="cad_copilot.single_part_feature_plan.v0_legacy")
+        bad_plan = replace(plan, plan_version="cad_copilot.single_part_feature_plan.v0_unsupported")
         with pytest.raises(FeaturePlanValidationError) as exc:
             validate_feature_plan(bad_plan)
         assert exc.value.code == "UNSUPPORTED_PLAN_VERSION"
@@ -299,3 +299,121 @@ class TestGatePolicyModesAndRetryPolicy:
         # Safety policy and units violations are non-retryable
         assert should_retry_canonical_rejection("safety_or_policy") is False
         assert should_retry_canonical_rejection("unsupported_units") is False
+
+
+class TestParserFallbacksRejectionInStrictMode:
+    """Verify that mode-neutral parser fallback warnings are rejected when mode='strict'."""
+
+    def test_strict_mode_rejects_unknown_boolean_operation_fallback(self) -> None:
+        payload = {
+            "part": {"part_id": "test"},
+            "base_body": {"id": "body.1", "family": "cylinder", "dimensions_mm": {"radius": 10, "height": 20}},
+            "primitive_bodies": [
+                {"id": "body.1", "family": "cylinder", "dimensions_mm": {"radius": 10, "height": 20}},
+                {"id": "body.2", "family": "sphere", "dimensions_mm": {"radius": 5}},
+            ],
+            "boolean_operations": [
+                {"id": "b1", "operation": "bad_op", "target_body_id": "body.1", "tool_body_id": "body.2"}
+            ],
+            "features": [],
+        }
+        plan = feature_plan_from_dict(payload)
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            validate_feature_plan(plan, mode="strict")
+        assert exc.value.code == "UNKNOWN_BOOLEAN_OPERATION"
+
+    def test_strict_mode_rejects_unknown_face_alias_fallback(self) -> None:
+        payload = {
+            "part": {"part_id": "test"},
+            "base_body": {"family": "rectangular_prism", "dimensions_mm": {"length": 50, "width": 50, "thickness": 10}},
+            "features": [
+                {
+                    "family": "circular_through_hole",
+                    "target": {"face": {"resolved_face": "invalid_slant_face"}},
+                    "dimensions_mm": {"diameter": 10.0},
+                }
+            ],
+        }
+        plan = feature_plan_from_dict(payload)
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            validate_feature_plan(plan, mode="strict")
+        assert exc.value.code == "UNKNOWN_FACE_ALIAS"
+
+    @pytest.mark.parametrize("face_alias", ["top", "bottom", "+z", "-z", "right", "front"])
+    def test_strict_mode_accepts_clean_face_aliases(self, face_alias: str) -> None:
+        payload = {
+            "part": {"part_id": "test"},
+            "base_body": {"family": "rectangular_prism", "dimensions_mm": {"length": 50, "width": 50, "thickness": 10}},
+            "features": [
+                {
+                    "family": "circular_through_hole",
+                    "target": {"face": {"resolved_face": face_alias}},
+                    "dimensions_mm": {"diameter": 10.0},
+                }
+            ],
+        }
+        plan = feature_plan_from_dict(payload)
+        validated = validate_feature_plan(plan, mode="strict")
+        assert validated is not None
+        assert not any(d.severity == "warning" for d in validated.validation_diagnostics)
+
+    @pytest.mark.parametrize("op_alias", ["cut", "difference", "subtract", "union", "add", "intersect"])
+    def test_strict_mode_accepts_clean_boolean_operation_aliases(self, op_alias: str) -> None:
+        payload = {
+            "part": {"part_id": "test"},
+            "base_body": {"id": "body.1", "family": "cylinder", "dimensions_mm": {"radius": 10, "height": 20}},
+            "primitive_bodies": [
+                {"id": "body.1", "family": "cylinder", "dimensions_mm": {"radius": 10, "height": 20}},
+                {"id": "body.2", "family": "sphere", "dimensions_mm": {"radius": 5}},
+            ],
+            "boolean_operations": [
+                {"id": "b1", "operation": op_alias, "target_body_id": "body.1", "tool_body_id": "body.2"}
+            ],
+            "features": [],
+        }
+        plan = feature_plan_from_dict(payload)
+        validated = validate_feature_plan(plan, mode="strict")
+        assert validated is not None
+        assert not any(d.severity == "warning" for d in validated.validation_diagnostics)
+
+    def test_revolved_shaft_normalization_propagates_to_primitive_bodies(self) -> None:
+        points = (ProfilePoint2D(10.0, 0.0), ProfilePoint2D(-2.0, 10.0), ProfilePoint2D(5.0, 20.0))
+        shaft = RevolvedShaftBaseBody(id="body.shaft", radius_mm=10.0, height_mm=20.0, profile_points=points)
+        plan = FeaturePlan(
+            request_id="req.shaft",
+            part=PartMetadata(part_id="shaft_part"),
+            base_body=shaft,
+            primitive_bodies=(shaft,),
+        )
+        validated = validate_feature_plan(plan)
+        assert isinstance(validated.base_body, RevolvedShaftBaseBody)
+        assert validated.base_body.profile_points[1].x_mm == 0.0
+        assert len(validated.primitive_bodies) == 1
+        assert isinstance(validated.primitive_bodies[0], RevolvedShaftBaseBody)
+        assert validated.primitive_bodies[0].profile_points[1].x_mm == 0.0
+
+    def test_feature_id_colliding_with_body_id_rejected(self) -> None:
+        box = RectangularBaseBody(id="body.main", length_mm=100.0, width_mm=100.0, thickness_mm=10.0)
+        hole = CircularThroughHoleFeature(id="body.main", diameter_mm=10.0, target_body_id="body.main")
+        plan = FeaturePlan(
+            request_id="req.dup",
+            part=PartMetadata(part_id="dup_part"),
+            base_body=box,
+            features=(hole,),
+        )
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            validate_feature_plan(plan)
+        assert exc.value.code == "DUPLICATE_FEATURE_ID"
+
+    def test_feature_id_reserved_prefix_rejected(self) -> None:
+        box = RectangularBaseBody(id="body.main", length_mm=100.0, width_mm=100.0, thickness_mm=10.0)
+        hole = CircularThroughHoleFeature(id="sketch.hole.1", diameter_mm=10.0, target_body_id="body.main")
+        plan = FeaturePlan(
+            request_id="req.res",
+            part=PartMetadata(part_id="res_part"),
+            base_body=box,
+            features=(hole,),
+        )
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            validate_feature_plan(plan)
+        assert exc.value.code == "RESERVED_IDENTIFIER_PREFIX"

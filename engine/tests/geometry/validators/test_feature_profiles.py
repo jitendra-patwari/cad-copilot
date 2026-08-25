@@ -158,3 +158,47 @@ class TestPlanarProfileFitAndSeparation:
                 cutout, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]"
             )
         assert exc.value.code == "INVALID_GEOMETRY"
+
+    def test_profile_cutout_rejects_duplicate_consecutive_vertices(self) -> None:
+        body = RectangularBaseBody(id="b1", length_mm=80.0, width_mm=40.0, thickness_mm=6.0)
+        dup_points = (
+            ProfilePoint2D(0.0, 0.0),
+            ProfilePoint2D(0.0, 0.0),
+            ProfilePoint2D(10.0, 10.0),
+            ProfilePoint2D(0.0, 10.0),
+        )
+        cutout = ProfileCutoutFeature(id="pcut_dup", profile_points=dup_points, target_face="+Z")
+        diagnostics: list[ValidationDiagnostic] = []
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            _validate_profile_cutout_fit(
+                cutout, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]"
+            )
+        assert exc.value.code == "INVALID_GEOMETRY"
+
+    def test_profile_cutout_requires_at_least_three_points(self) -> None:
+        body = RectangularBaseBody(id="b1", length_mm=80.0, width_mm=40.0, thickness_mm=6.0)
+        two_points = (ProfilePoint2D(0.0, 0.0), ProfilePoint2D(10.0, 10.0))
+        cutout = ProfileCutoutFeature(id="pcut_two", profile_points=two_points, target_face="+Z")
+        diagnostics: list[ValidationDiagnostic] = []
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            _validate_profile_cutout_fit(
+                cutout, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]"
+            )
+        assert exc.value.code == "INVALID_PROFILE_POINTS"
+
+    def test_profile_cutout_rejects_explicitly_closed_duplicate_vertex(self) -> None:
+        body = RectangularBaseBody(id="b1", length_mm=80.0, width_mm=40.0, thickness_mm=6.0)
+        # Explicit duplicate closure: (0,0) -> (10,0) -> (0,10) -> (0,0) where last point duplicates first
+        closed_dup_points = (
+            ProfilePoint2D(0.0, 0.0),
+            ProfilePoint2D(10.0, 0.0),
+            ProfilePoint2D(0.0, 10.0),
+            ProfilePoint2D(0.0, 0.0),
+        )
+        cutout = ProfileCutoutFeature(id="pcut_closed_dup", profile_points=closed_dup_points, target_face="+Z")
+        diagnostics: list[ValidationDiagnostic] = []
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            _validate_profile_cutout_fit(
+                cutout, base_body=body, edge_margin_mm=0.0, diagnostics=diagnostics, path="features[0]"
+            )
+        assert exc.value.code == "INVALID_GEOMETRY"

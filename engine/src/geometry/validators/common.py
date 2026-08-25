@@ -8,14 +8,18 @@ Product Policy - Geometry Fit & Bounds Checks:
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from typing import NoReturn
 
 from geometry.gate_policy import GatePolicyMode, current_gate_policy_mode, relaxed_gate_warning
+from geometry.plan_geometry import polygon_area
 from geometry.plan_models import (
     DEFAULT_EDGE_MARGIN_MM,
     FeaturePlanValidationError,
+    ProfilePoint2D,
     ValidationDiagnostic,
 )
+from geometry.plan_parser import MAX_PROFILE_POINTS
 
 
 def _effective_edge_margin_mm(edge_margin_mm: float, *, mode: GatePolicyMode | None = None) -> float:
@@ -103,11 +107,59 @@ def _validate_circular_cross_section_profile_fit(
         )
 
 
+def _validate_polygon_profile_sanity(
+    points: Sequence[ProfilePoint2D],
+    *,
+    path: str,
+    max_points: int = MAX_PROFILE_POINTS,
+) -> None:
+    """Validate universal polygon profile sanity: count >= 3, finite coords, non-duplicate vertices, and non-zero area."""
+    if len(points) > max_points:
+        _reject(
+            "EXCESSIVE_PROFILE_POINT_COUNT",
+            f"Profile point count {len(points)} exceeds limit of {max_points}.",
+            path=path,
+        )
+
+    if len(points) < 3:
+        _reject(
+            "INVALID_PROFILE_POINTS",
+            "Polygon profile requires at least three vertices.",
+            path=path,
+        )
+
+    for i, point in enumerate(points):
+        _require_finite(point.x_mm, f"{path}[{i}].x_mm")
+        _require_finite(point.y_mm, f"{path}[{i}].y_mm")
+
+    n = len(points)
+    # Check for consecutive duplicate vertices including closing edge (n-1 -> 0)
+    for i in range(n):
+        curr_p = points[i]
+        next_p = points[(i + 1) % n]
+        if math.hypot(curr_p.x_mm - next_p.x_mm, curr_p.y_mm - next_p.y_mm) < 1e-6:
+            next_idx = (i + 1) % n
+            _reject(
+                "INVALID_GEOMETRY",
+                f"Polygon profile contains consecutive duplicate or coincident vertices at index {i} and {next_idx}.",
+                path=f"{path}[{i}]",
+            )
+
+    # Check non-zero Shoelace area
+    if polygon_area(points) <= 1e-6:
+        _reject(
+            "INVALID_GEOMETRY",
+            "Polygon profile must have non-zero area (vertices cannot be collinear or degenerate).",
+            path=path,
+        )
+
+
 __all__ = [
     "_effective_edge_margin_mm",
     "_reject",
     "_require_finite",
     "_require_positive",
     "_validate_circular_cross_section_profile_fit",
+    "_validate_polygon_profile_sanity",
     "_warn_allow_or_reject_geometry_fit",
 ]

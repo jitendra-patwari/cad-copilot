@@ -13,9 +13,14 @@ from geometry.validators.common import (
     _require_finite,
     _require_positive,
     _validate_circular_cross_section_profile_fit,
+    _validate_polygon_profile_sanity,
     _warn_allow_or_reject_geometry_fit,
 )
-from geometry.validators.composition import _validate_composition_layer
+from geometry.validators.composition import (
+    RESERVED_ID_PREFIXES,
+    _validate_composition_layer,
+    _validate_identifier_not_reserved,
+)
 from geometry.validators.feature_extents import _normalize_subtractive_extent
 from geometry.validators.feature_profiles import (
     _normalize_slot_orientation,
@@ -43,6 +48,7 @@ from geometry.validators.target_resolution import (
 )
 
 __all__ = [
+    "RESERVED_ID_PREFIXES",
     "_default_target_face_for_selector",
     "_effective_edge_margin_mm",
     "_normalize_revolved_axis_span",
@@ -62,6 +68,8 @@ __all__ = [
     "_validate_feature_supported_on_base_body",
     "_validate_hole_fit",
     "_validate_hole_separation",
+    "_validate_identifier_not_reserved",
+    "_validate_polygon_profile_sanity",
     "_validate_profile_cutout_fit",
     "_validate_rectangular_cutout_fit",
     "_validate_rectangular_pad_fit",
