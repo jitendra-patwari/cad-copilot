@@ -10,7 +10,12 @@ from geometry.plan_models import (
     SweptProtrusionFeature,
     ValidationDiagnostic,
 )
-from geometry.validators.common import _reject, _warn_allow_or_reject_geometry_fit
+from geometry.plan_parser import MAX_PROFILE_POINTS
+from geometry.validators.common import (
+    _reject,
+    _validate_polygon_profile_sanity,
+    _warn_allow_or_reject_geometry_fit,
+)
 
 
 def _validate_swept_protrusion(
@@ -65,12 +70,11 @@ def _validate_swept_protrusion(
                 )
             section_radius_mm = math.hypot(section.width_mm / 2.0, section.height_mm / 2.0)
         elif section.type == "polygon":
-            if len(section.profile_points) < 3:
-                _reject(
-                    "INVALID_SECTION_DIMENSIONS",
-                    "Polygon section requires at least 3 points.",
-                    path=f"{section_path}.profile_points",
-                )
+            _validate_polygon_profile_sanity(
+                section.profile_points,
+                path=f"{section_path}.profile_points",
+                max_points=MAX_PROFILE_POINTS,
+            )
             section_radius_mm = max(math.hypot(p.x_mm, p.y_mm) for p in section.profile_points)
 
         # Central-axis clearance invariant: r_section < R_path to avoid self-intersection

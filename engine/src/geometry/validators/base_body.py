@@ -12,7 +12,13 @@ from geometry.plan_models import (
     SpurGearBaseBody,
     ValidationDiagnostic,
 )
-from geometry.validators.common import _reject, _require_finite, _require_positive
+from geometry.plan_parser import MAX_PROFILE_POINTS
+from geometry.validators.common import (
+    _reject,
+    _require_finite,
+    _require_positive,
+    _validate_polygon_profile_sanity,
+)
 
 
 def _validate_base_body(
@@ -81,12 +87,11 @@ def _validate_base_body(
     if isinstance(base_body, RevolvedShaftBaseBody):
         _require_positive(base_body.radius_mm, "base_body.dimensions_mm.radius")
         _require_positive(base_body.height_mm, "base_body.dimensions_mm.height")
-        if not base_body.profile_points or len(base_body.profile_points) < 3:
-            _reject(
-                "INVALID_GEOMETRY",
-                "revolved_shaft profile must contain at least 3 points.",
-                path="base_body.dimensions_mm.profile_points",
-            )
+        _validate_polygon_profile_sanity(
+            base_body.profile_points,
+            path="base_body.dimensions_mm.profile_points",
+            max_points=MAX_PROFILE_POINTS,
+        )
         return
 
     _reject(

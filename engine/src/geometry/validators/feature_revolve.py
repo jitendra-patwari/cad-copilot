@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 
 from geometry.gate_policy import GatePolicyMode
@@ -19,6 +20,7 @@ from geometry.plan_parser import MAX_PROFILE_POINTS
 from geometry.validators.common import (
     _reject,
     _require_finite,
+    _validate_polygon_profile_sanity,
     _warn_allow_or_reject_geometry_fit,
 )
 
@@ -55,39 +57,33 @@ def _validate_revolved_profile(
             "Revolved profile features currently support explicit rectangular-prism side faces only.",
             path=path,
         )
-    if len(feature.profile_points) > MAX_PROFILE_POINTS:
-        _reject(
-            "EXCESSIVE_PROFILE_POINT_COUNT",
-            f"Profile point count {len(feature.profile_points)} exceeds limit of {MAX_PROFILE_POINTS}.",
-            path=f"{path}.profile.points",
-        )
-    if len(feature.profile_points) < 3:
-        _reject(
-            "INVALID_REVOLVE_PROFILE",
-            "Revolved profile requires at least three polygon points.",
-            path=f"{path}.profile.points",
-        )
+    _validate_polygon_profile_sanity(
+        feature.profile_points,
+        path=f"{path}.profile.points",
+        max_points=MAX_PROFILE_POINTS,
+    )
 
-    for point_index, point in enumerate(feature.profile_points):
-        _require_finite(point.x_mm, f"{path}.profile.points[{point_index}].x_mm")
-        _require_finite(point.y_mm, f"{path}.profile.points[{point_index}].y_mm")
     _require_finite(feature.axis_start.x_mm, f"{path}.revolve.axis.start.x_mm")
     _require_finite(feature.axis_start.y_mm, f"{path}.revolve.axis.start.y_mm")
     _require_finite(feature.axis_end.x_mm, f"{path}.revolve.axis.end.x_mm")
     _require_finite(feature.axis_end.y_mm, f"{path}.revolve.axis.end.y_mm")
 
-    vertical_axis = feature.axis_start.x_mm == feature.axis_end.x_mm
-    horizontal_axis = feature.axis_start.y_mm == feature.axis_end.y_mm
+    if (
+        math.hypot(feature.axis_start.x_mm - feature.axis_end.x_mm, feature.axis_start.y_mm - feature.axis_end.y_mm)
+        < 1e-6
+    ):
+        _reject(
+            "INVALID_REVOLVE_AXIS",
+            "Revolved profile axis start and end points must not be identical.",
+            path=f"{path}.revolve.axis",
+        )
+
+    vertical_axis = abs(feature.axis_start.x_mm - feature.axis_end.x_mm) < 1e-9
+    horizontal_axis = abs(feature.axis_start.y_mm - feature.axis_end.y_mm) < 1e-9
     if not vertical_axis and not horizontal_axis:
         _reject(
             "UNSUPPORTED_REVOLVE_AXIS",
             "Canonical revolved profile support currently accepts horizontal or vertical sketch-space axes only.",
-            path=f"{path}.revolve.axis",
-        )
-    if feature.axis_start == feature.axis_end:
-        _reject(
-            "INVALID_REVOLVE_AXIS",
-            "Revolved profile axis start and end points must not be identical.",
             path=f"{path}.revolve.axis",
         )
 

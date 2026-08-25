@@ -13,6 +13,19 @@ from geometry.plan_parser import MAX_BOOLEAN_OPERATIONS, MAX_PRIMITIVE_BODIES
 from geometry.validators.base_body import _validate_base_body
 from geometry.validators.common import _reject, _require_finite
 
+RESERVED_ID_PREFIXES = ("sketch.", "profile.", "patch.", "refplane.", "feature.gear-bore.")
+
+
+def _validate_identifier_not_reserved(identifier: str, path: str) -> None:
+    """Validate that a user-supplied identifier does not start with a reserved system prefix."""
+    for prefix in RESERVED_ID_PREFIXES:
+        if identifier.startswith(prefix):
+            _reject(
+                "RESERVED_IDENTIFIER_PREFIX",
+                f"Identifier '{identifier}' starts with reserved system prefix '{prefix}'.",
+                path=path,
+            )
+
 
 def _validate_composition_layer(
     plan: FeaturePlan,
@@ -40,6 +53,7 @@ def _validate_composition_layer(
 
     body_ids: set[str] = set()
     for index, body in enumerate(primitive_bodies):
+        _validate_identifier_not_reserved(body.id, f"primitive_bodies[{index}].id")
         if body.id in body_ids:
             _reject(
                 "DUPLICATE_BODY_ID",
@@ -61,17 +75,27 @@ def _validate_composition_layer(
 
     active_body_ids: set[str] = set(body_ids)
     consumed_body_ids: set[str] = set()
-    operation_ids: set[str] = set()
+    declared_ids: set[str] = set(body_ids)
 
     for index, operation in enumerate(boolean_operations):
         path = f"boolean_operations[{index}]"
-        if operation.id in operation_ids:
+        _validate_identifier_not_reserved(operation.id, f"{path}.id")
+        _validate_identifier_not_reserved(operation.result_body_id, f"{path}.result_body_id")
+        if operation.id in declared_ids:
             _reject(
                 "DUPLICATE_BOOLEAN_OPERATION_ID",
-                f"Boolean operation id '{operation.id}' is duplicated.",
+                f"Boolean operation id '{operation.id}' is duplicated across composition entity IDs.",
                 path=f"{path}.id",
             )
-        operation_ids.add(operation.id)
+        declared_ids.add(operation.id)
+
+        if operation.result_body_id in declared_ids:
+            _reject(
+                "DUPLICATE_BOOLEAN_RESULT_BODY",
+                f"Boolean operation '{operation.id}' result body '{operation.result_body_id}' already exists across composition entity IDs.",
+                path=f"{path}.result_body_id",
+            )
+        declared_ids.add(operation.result_body_id)
 
         if operation.operation not in {"union", "subtract", "intersect"}:
             _reject(
@@ -115,13 +139,6 @@ def _validate_composition_layer(
                 path=f"{path}.tool_body_id",
             )
 
-        if operation.result_body_id in active_body_ids or operation.result_body_id in consumed_body_ids:
-            _reject(
-                "DUPLICATE_BOOLEAN_RESULT_BODY",
-                f"Boolean operation '{operation.id}' result body '{operation.result_body_id}' already exists.",
-                path=f"{path}.result_body_id",
-            )
-
         # Update B-Rep lifecycle state
         active_body_ids.remove(operation.target_body_id)
         consumed_body_ids.add(operation.target_body_id)
@@ -133,5 +150,7 @@ def _validate_composition_layer(
 
 
 __all__ = [
+    "RESERVED_ID_PREFIXES",
     "_validate_composition_layer",
+    "_validate_identifier_not_reserved",
 ]

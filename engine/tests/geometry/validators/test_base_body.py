@@ -7,6 +7,7 @@ import pytest
 from geometry.plan_models import (
     CylinderBaseBody,
     FeaturePlanValidationError,
+    ProfilePoint2D,
     RectangularBaseBody,
     RevolvedShaftBaseBody,
     SphereBaseBody,
@@ -81,6 +82,17 @@ class TestBaseBodyValidators:
     def test_revolved_shaft_requires_at_least_three_points(self) -> None:
         with pytest.raises(FeaturePlanValidationError) as exc:
             _validate_base_body(RevolvedShaftBaseBody(id="sh1", radius_mm=10.0, height_mm=50.0, profile_points=()))
+        assert exc.value.code == "INVALID_PROFILE_POINTS"
+
+    def test_revolved_shaft_rejects_collinear_zero_area_profile(self) -> None:
+        collinear_points = (
+            ProfilePoint2D(0.0, 0.0),
+            ProfilePoint2D(1.0, 1.0),
+            ProfilePoint2D(2.0, 2.0),
+        )
+        body = RevolvedShaftBaseBody(id="sh1", radius_mm=10.0, height_mm=50.0, profile_points=collinear_points)
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            _validate_base_body(body)
         assert exc.value.code == "INVALID_GEOMETRY"
 
     def test_rectangular_prism_face_by_area(self) -> None:

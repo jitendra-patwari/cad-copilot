@@ -6,7 +6,6 @@ import math
 
 from geometry.face_context import resolve_face_context
 from geometry.gate_policy import GatePolicyMode
-from geometry.plan_geometry import polygon_area
 from geometry.plan_models import (
     CircularThroughHoleFeature,
     CylinderBaseBody,
@@ -27,6 +26,7 @@ from geometry.validators.common import (
     _reject,
     _require_finite,
     _validate_circular_cross_section_profile_fit,
+    _validate_polygon_profile_sanity,
     _warn_allow_or_reject_geometry_fit,
 )
 
@@ -216,30 +216,11 @@ def _validate_profile_cutout_fit(
     _require_finite(feature.center_x_mm, f"{path}.placement.center_uv_mm.u")
     _require_finite(feature.center_y_mm, f"{path}.placement.center_uv_mm.v")
 
-    if len(feature.profile_points) > MAX_PROFILE_POINTS:
-        _reject(
-            "EXCESSIVE_PROFILE_POINT_COUNT",
-            f"Profile point count {len(feature.profile_points)} exceeds limit of {MAX_PROFILE_POINTS}.",
-            path=f"{path}.profile.points",
-        )
-
-    if len(feature.profile_points) < 3:
-        _reject(
-            "INVALID_PROFILE_POINTS",
-            "Profile cutout requires at least three polygon points.",
-            path=f"{path}.profile.points",
-        )
-
-    if polygon_area(feature.profile_points) <= 1e-6:
-        _reject(
-            "INVALID_GEOMETRY",
-            "Profile cutout polygon must have non-zero area (points cannot be collinear or degenerate).",
-            path=f"{path}.profile.points",
-        )
-
-    for point_index, point in enumerate(feature.profile_points):
-        _require_finite(point.x_mm, f"{path}.profile.points[{point_index}].x_mm")
-        _require_finite(point.y_mm, f"{path}.profile.points[{point_index}].y_mm")
+    _validate_polygon_profile_sanity(
+        feature.profile_points,
+        path=f"{path}.profile.points",
+        max_points=MAX_PROFILE_POINTS,
+    )
 
     if isinstance(base_body, CylinderBaseBody | SphereBaseBody):
         if feature.target_face != "+Z":
@@ -472,6 +453,7 @@ __all__ = [
     "_validate_feature_supported_on_base_body",
     "_validate_hole_fit",
     "_validate_hole_separation",
+    "_validate_polygon_profile_sanity",
     "_validate_profile_cutout_fit",
     "_validate_rectangular_cutout_fit",
     "_validate_rectangular_pad_fit",

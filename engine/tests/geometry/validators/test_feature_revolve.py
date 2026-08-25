@@ -113,3 +113,53 @@ class TestRevolvedAndShaftValidators:
         with pytest.raises(FeaturePlanValidationError) as exc:
             _validate_revolved_shaft_profile(body, path="base_body")
         assert exc.value.code == "INVALID_GEOMETRY"
+
+    def test_revolved_profile_rejects_identical_axis_endpoints(self) -> None:
+        body = RectangularBaseBody(id="b1", length_mm=80.0, width_mm=40.0, thickness_mm=10.0)
+        points = (ProfilePoint2D(5.0, 0.0), ProfilePoint2D(15.0, 0.0), ProfilePoint2D(10.0, 20.0))
+        revolve = RevolvedProfileFeature(
+            id="rev_axis_ident",
+            profile_points=points,
+            axis_start=ProfilePoint2D(0.0, 5.0),
+            axis_end=ProfilePoint2D(0.0, 5.0),  # Identical
+            angle_deg=360.0,
+            target_face="+X",
+        )
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            _validate_revolved_profile(revolve, base_body=body, edge_margin_mm=0.0, path="features[0]")
+        assert exc.value.code == "INVALID_REVOLVE_AXIS"
+
+    def test_revolved_profile_rejects_diagonal_axis(self) -> None:
+        body = RectangularBaseBody(id="b1", length_mm=80.0, width_mm=40.0, thickness_mm=10.0)
+        points = (ProfilePoint2D(5.0, 0.0), ProfilePoint2D(15.0, 0.0), ProfilePoint2D(10.0, 20.0))
+        revolve = RevolvedProfileFeature(
+            id="rev_axis_diag",
+            profile_points=points,
+            axis_start=ProfilePoint2D(0.0, 0.0),
+            axis_end=ProfilePoint2D(10.0, 10.0),  # Diagonal
+            angle_deg=360.0,
+            target_face="+X",
+        )
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            _validate_revolved_profile(revolve, base_body=body, edge_margin_mm=0.0, path="features[0]")
+        assert exc.value.code == "UNSUPPORTED_REVOLVE_AXIS"
+
+    def test_revolved_profile_rejects_duplicate_consecutive_vertices(self) -> None:
+        body = RectangularBaseBody(id="b1", length_mm=80.0, width_mm=40.0, thickness_mm=10.0)
+        points = (
+            ProfilePoint2D(5.0, 0.0),
+            ProfilePoint2D(5.0, 0.0),  # Duplicate
+            ProfilePoint2D(15.0, 0.0),
+            ProfilePoint2D(10.0, 20.0),
+        )
+        revolve = RevolvedProfileFeature(
+            id="rev_dup_pts",
+            profile_points=points,
+            axis_start=ProfilePoint2D(0.0, 0.0),
+            axis_end=ProfilePoint2D(0.0, 20.0),
+            angle_deg=360.0,
+            target_face="+X",
+        )
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            _validate_revolved_profile(revolve, base_body=body, edge_margin_mm=0.0, path="features[0]")
+        assert exc.value.code == "INVALID_GEOMETRY"

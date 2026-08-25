@@ -15,6 +15,7 @@ from geometry.plan_models import (
     CircularThroughHoleFeature,
     DefaultApplied,
     FeaturePlan,
+    FeaturePlanBaseBody,
     FeaturePlanFeature,
     ProfileCutoutFeature,
     RectangularExtrudedPadFeature,
@@ -44,6 +45,7 @@ from geometry.validators import (
     _validate_feature_supported_on_base_body,
     _validate_hole_fit,
     _validate_hole_separation,
+    _validate_identifier_not_reserved,
     _validate_profile_cutout_fit,
     _validate_rectangular_cutout_fit,
     _validate_rectangular_pad_fit,
@@ -111,6 +113,7 @@ def validate_feature_plan(
             path="lowering_strategy",
         )
 
+    _validate_identifier_not_reserved(plan.base_body.id, "base_body.id")
     _validate_base_body(plan.base_body, diagnostics=diagnostics, mode=active_mode)
     base_body = plan.base_body
     if isinstance(base_body, RevolvedShaftBaseBody):
@@ -122,16 +125,40 @@ def validate_feature_plan(
         diagnostics=diagnostics,
         mode=active_mode,
     )
+
+    # Ensure normalized shaft geometry is preserved in primitive_bodies for lowering
+    normalized_primitive_bodies: list[FeaturePlanBaseBody] = []
+    for idx, body in enumerate(primitive_bodies):
+        if body.id == base_body.id and isinstance(base_body, RevolvedShaftBaseBody):
+            normalized_primitive_bodies.append(base_body)
+        elif isinstance(body, RevolvedShaftBaseBody):
+            norm_body = _normalize_revolved_shaft_profile(body, defaults=defaults, path=f"primitive_bodies[{idx}]")
+            _validate_revolved_shaft_profile(
+                norm_body, path=f"primitive_bodies[{idx}]", diagnostics=diagnostics, mode=active_mode
+            )
+            normalized_primitive_bodies.append(norm_body)
+        else:
+            normalized_primitive_bodies.append(body)
+    primitive_bodies = tuple(normalized_primitive_bodies)
+
     primitive_body_by_id = {body.id: body for body in primitive_bodies}
     normalized_features: list[FeaturePlanFeature] = []
     hole_specs: list[tuple[str, str, str, float, float, float]] = []
-    seen_feature_ids: set[str] = set()
+
+    seen_entity_ids: set[str] = {body.id for body in primitive_bodies}
+    seen_entity_ids.update(op.id for op in boolean_operations)
+    seen_entity_ids.update(op.result_body_id for op in boolean_operations)
 
     for index, feature in enumerate(plan.features):
         path = f"features[{index}]"
-        if feature.id in seen_feature_ids:
-            _reject("DUPLICATE_FEATURE_ID", f"Feature id '{feature.id}' is duplicated.", path=f"{path}.id")
-        seen_feature_ids.add(feature.id)
+        _validate_identifier_not_reserved(feature.id, f"{path}.id")
+        if feature.id in seen_entity_ids:
+            _reject(
+                "DUPLICATE_FEATURE_ID",
+                f"Feature id '{feature.id}' is duplicated across plan entities.",
+                path=f"{path}.id",
+            )
+        seen_entity_ids.add(feature.id)
 
         if not isinstance(
             feature,
@@ -351,6 +378,11 @@ def validate_feature_plan(
                 ),
             )
         )
+
+    if active_mode == "strict":
+        for diag in diagnostics:
+            if diag.severity == "warning":
+                _reject(diag.code, diag.message, path=diag.path)
 
     return replace(
         plan,

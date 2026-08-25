@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from geometry.plan_models import (
     FeaturePlanValidationError,
+    ProfilePoint2D,
     RectangularBaseBody,
     SweepCrossSectionSpec,
     SweepPathSpec,
@@ -68,3 +71,62 @@ class TestSweptProtrusionValidators:
         with pytest.raises(FeaturePlanValidationError) as exc:
             _validate_swept_protrusion(sweep, base_body=body, edge_margin_mm=0.0, path="features[0]", mode="strict")
         assert exc.value.code == "SWEEP_SELF_INTERSECTS"
+
+    def test_swept_protrusion_polygon_section_rejects_duplicate_points(self) -> None:
+        points = (
+            ProfilePoint2D(0.0, 0.0),
+            ProfilePoint2D(0.0, 0.0),
+            ProfilePoint2D(5.0, 5.0),
+            ProfilePoint2D(0.0, 5.0),
+        )
+        sweep = SweptProtrusionFeature(
+            id="sw_poly_dup",
+            path=SweepPathSpec(type="full_circle", radius_mm=50.0),
+            cross_sections=(SweepCrossSectionSpec(type="polygon", profile_points=points),),
+        )
+        body = RectangularBaseBody(id="b1", length_mm=100.0, width_mm=100.0, thickness_mm=20.0)
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            _validate_swept_protrusion(sweep, base_body=body, edge_margin_mm=0.0, path="features[0]")
+        assert exc.value.code == "INVALID_GEOMETRY"
+
+    def test_swept_protrusion_polygon_section_requires_at_least_three_points(self) -> None:
+        points = (ProfilePoint2D(0.0, 0.0), ProfilePoint2D(5.0, 5.0))
+        sweep = SweptProtrusionFeature(
+            id="sw_poly_two",
+            path=SweepPathSpec(type="full_circle", radius_mm=50.0),
+            cross_sections=(SweepCrossSectionSpec(type="polygon", profile_points=points),),
+        )
+        body = RectangularBaseBody(id="b1", length_mm=100.0, width_mm=100.0, thickness_mm=20.0)
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            _validate_swept_protrusion(sweep, base_body=body, edge_margin_mm=0.0, path="features[0]")
+        assert exc.value.code == "INVALID_PROFILE_POINTS"
+
+    def test_swept_protrusion_polygon_section_accepts_129_and_512_points(self) -> None:
+        # Generate 129-point circle approximation
+        n = 129
+        points = tuple(
+            ProfilePoint2D(5.0 * math.cos(2 * math.pi * i / n), 5.0 * math.sin(2 * math.pi * i / n)) for i in range(n)
+        )
+        sweep = SweptProtrusionFeature(
+            id="sw_poly_129",
+            path=SweepPathSpec(type="full_circle", radius_mm=50.0),
+            cross_sections=(SweepCrossSectionSpec(type="polygon", profile_points=points),),
+        )
+        body = RectangularBaseBody(id="b1", length_mm=100.0, width_mm=100.0, thickness_mm=20.0)
+        _validate_swept_protrusion(sweep, base_body=body, edge_margin_mm=0.0, path="features[0]")
+
+    def test_swept_protrusion_polygon_section_rejects_exceeding_512_points(self) -> None:
+        # Generate 513 points
+        n = 513
+        points = tuple(
+            ProfilePoint2D(5.0 * math.cos(2 * math.pi * i / n), 5.0 * math.sin(2 * math.pi * i / n)) for i in range(n)
+        )
+        sweep = SweptProtrusionFeature(
+            id="sw_poly_513",
+            path=SweepPathSpec(type="full_circle", radius_mm=50.0),
+            cross_sections=(SweepCrossSectionSpec(type="polygon", profile_points=points),),
+        )
+        body = RectangularBaseBody(id="b1", length_mm=100.0, width_mm=100.0, thickness_mm=20.0)
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            _validate_swept_protrusion(sweep, base_body=body, edge_margin_mm=0.0, path="features[0]")
+        assert exc.value.code == "EXCESSIVE_PROFILE_POINT_COUNT"
