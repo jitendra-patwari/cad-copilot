@@ -18,6 +18,7 @@ We are committed to providing a welcoming, inclusive, and harassment-free enviro
 - **pnpm**: `>=9`
 - **Rust**: `>=1.78` (with `cargo` for Tauri v2 desktop application builds)
 - **Siemens Solid Edge®**: (Optional — local development and testing on macOS/Linux can use `CAD_MOCK_MODE=1` without Solid Edge)
+- **uv** (Optional): Fast Python package manager
 
 ### Initializing the Workspace
 ```bash
@@ -28,8 +29,17 @@ cd cad-copilot
 # Install Node/TypeScript frontend dependencies
 pnpm install
 
+# Create and activate a Python virtual environment
+python -m venv .venv
+# On Windows:
+.venv\Scripts\activate
+# On Linux/macOS:
+source .venv/bin/activate
+
 # Install Python engine developer tooling (in editable mode)
 pip install -e "engine[dev]"
+# Or with uv:
+# uv pip install -e "engine[dev]"
 ```
 
 ---

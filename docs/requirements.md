@@ -55,21 +55,37 @@ This specification defines the functional, architectural, and quality requiremen
 
 ### FR-4: Planar Coordinate Mapping & Feature Lowering (Milestone 2)
 - **Planar Coordinate Projection (`FaceContext` in `engine/src/geometry/`)**:
-  - Bidirectional coordinate mapping between 2D sketch plane coordinates $(u, v)$ on arbitrary 3D planar faces and global Cartesian $(x, y, z)$ space.
-  - Handles planar origin offsets, face normal vectors, and orthonormal reference axes for sketch plane alignment.
+  - Bidirectional coordinate mapping between 2D sketch plane coordinates $(u, v)$ on canonical planar faces and global Cartesian $(x, y, z)$ space.
+  - Supports canonical rectangular prism faces (`+Z`, `-Z`, `+X`, `-X`, `+Y`, `-Y`), cylinder and sphere default axial `+Z` faces, and spur gear `+Z` faces.
+  - Complete 6-face origin matrix conforming to base body placement ($p_x, p_y, p_z$) and thickness $t$ ($+Z \to p_z + t$, $-Z \to p_z$, $\pm X/\pm Y \to p_z + t/2$).
+  - Full execution cut frame generation including explicit origin offset (`origin_offset_mm`), orthonormal $U/V$ sketch axes, face normal vector, and inward cut vector $\mathbf{c} = -\mathbf{n}$.
 - **Feature Plan AST & Domain Models**:
-  - Strongly typed domain models for parametric feature primitives (`BaseExtrusion`, `Cutout`, `Hole`, `Revolve`, `Fillet`, `Chamfer`).
-  - AST parsing and lowering pipeline translating declarative JSON/YAML feature plans into ordered geometric primitives.
+  - Strongly typed domain models for concrete parametric primitives:
+    - Base bodies: `RectangularBaseBody` (`rectangular_prism`), `CylinderBaseBody` (`cylinder`), `SphereBaseBody` (`sphere`), `SpurGearBaseBody` (`spur_gear`), `RevolvedShaftBaseBody` (`revolved_shaft`).
+    - Features: `CircularThroughHoleFeature` (`circular_through_hole`), `RectangularThroughCutoutFeature` (`rectangular_through_cutout`), `SlotThroughCutoutFeature` (`slot_through_cutout`), `RectangularExtrudedPadFeature` (`rectangular_extruded_pad`), `RevolvedProfileFeature` (`revolved_profile`), `ProfileCutoutFeature` (`profile_cutout`), `SweptProtrusionFeature` (`swept_protrusion`).
+  - AST parsing and lowering pipeline translating declarative JSON feature plans into ordered geometric primitives.
+  - Mode-neutral parser recognizing clean operation, face, and axis aliases without spurious warnings, while explicitly tracking domain fallback diagnostics with original input values.
+  - Multi-primitive composition and B-Rep boolean lifecycle state tracking with unified global identifier namespace and reserved prefix protection (`RESERVED_IDENTIFIER_PREFIX`).
 
 ### FR-5: Parametric Spur Gear Geometry (Milestone 2)
-- **Involute Profile Generation (`gear_math.py` in `engine/src/geometry/`)**:
-  - Analytical computation of standard 2D involute gear tooth profiles based on module ($m$), tooth count ($z$), pressure angle ($\alpha$), and bore parameters.
-  - Generates closed polyline vertex sequences representing the complete gear profile with optional keyed center bore.
+- **Deterministic Conceptual Spur Gear Outline (`gear_math.py` in `engine/src/geometry/`)**:
+  - Analytical computation of deterministic conceptual 2D spur gear tooth outlines based on module ($m$), tooth count ($z$), pressure angle ($\alpha$), and root/tip bounds with 6-point-per-tooth polygon discretization.
+  - Generates closed polyline vertex sequences representing the complete gear profile with optional axial center bore.
+  - Automatic $+Z$ elevation sketch and cut frame generation aligned with gear face width and placement.
 
-### FR-6: Spatial Boundary & Containment Validation (Milestone 2)
+### FR-6: Spatial Boundary, Containment & Warning Propagation (Milestone 2)
 - **Pre-Execution Boundary Checking (`engine/src/geometry/validators/`)**:
-  - Point-in-polygon checks verifying that child features (holes, cutouts) are fully contained within parent face boundaries before CAD kernel dispatch.
+  - Universal polygon sanity validation ($3 \le N \le 512$, finite coordinates, non-duplicate vertices across all edges including closing edge $N-1 \to 0$, and non-zero Shoelace area $> 10^{-6}\text{ mm}^2$) across profile cutouts, revolved features, revolved shafts, and swept cross-sections.
+  - Point-in-polygon containment checks verifying child features (holes, cutouts) are fully contained within parent face boundaries before CAD kernel dispatch.
   - Minimum edge clearance enforcement and sibling feature collision detection.
+- **Warning & Fallback Diagnostic Propagation Protocol**:
+  - **Parser Fallbacks**: When the parser encounters an unrecognized domain value, it emits a `ValidationDiagnostic(severity="warning", code=..., message=..., path=...)` and records a `DefaultApplied(path=..., value=..., reason=..., original_value=...)` preserving the raw unparsed input.
+  - **Boundary Margin Relaxation**: When geometric fit or edge margins are relaxed under capability-first mode, validators emit a soft warning `ValidationDiagnostic(severity="warning", code="GATE_POLICY_RELAXED", message=..., path=...)` without mutating values.
+  - **Gate Policy Modes**:
+    - `capability_first`: Preserves warnings as soft non-fatal diagnostics, allowing valid geometry to proceed to execution.
+    - `strict`: Hard-rejects any accumulated fallback or margin warnings with `FeaturePlanValidationError`.
+  - **Lowering IR Propagation**: Lowered execution payloads carry accumulated `diagnostics` and `defaults_applied` within the top-level `metadata` dictionary.
+  - **Execution Interface Exposure**: Domain response and failure models (`ExecutionSuccess`, `ExecutionFailure`) expose `warnings: list[dict[str, str]]` across driver and RPC boundaries.
 - **STEP Sanity Verification (`step_checker.py` in `engine/src/geometry/`)**:
   - In-memory pure-domain structural envelope, topological entity presence (`MANIFOLD_SOLID_BREP`, `ADVANCED_FACE`), ISO 10303-41 length unit scale, and dimensional sanity validation on exported STEP Part 21 text.
 
@@ -95,11 +111,13 @@ This specification defines the functional, architectural, and quality requiremen
 4. `engine/src/interfaces/` exposes `CADRuntimeABC`, `CADExecutorABC`, and the exception hierarchy with complete type annotations.
 
 ### Milestone 2 Acceptance Criteria
-1. `FaceContext` accurately transforms 2D sketch points to 3D global coordinates across arbitrary planes with inverse projection error $< 10^{-6}\text{ mm}$.
-2. `gear_math.py` generates valid, closed tooth polygons for standard modules and tooth counts.
+1. `FaceContext` accurately transforms 2D sketch points to 3D global coordinates across supported canonical faces with inverse projection error $< 10^{-6}\text{ mm}$ and exact 6-face origin offsets.
+2. `gear_math.py` generates valid, closed tooth polygons for standard modules and tooth counts with automatic $+Z$ bore elevation frames.
 3. Containment validators detect and reject out-of-bounds features with descriptive diagnostics.
-4. `step_checker.py` performs in-place $O(1)$-memory streaming bounding box and entity smoke validation with ISO 10303-41 unit scale detection.
-5. Test suite in `engine/tests/geometry/` (unit, regression, fuzzing, schema validation) passes with 100% success rate.
+4. Universal polygon profile sanity enforces $3 \le N \le 512$, finite coordinates, non-duplicate vertices (including closing edge $N-1 \to 0$), and non-zero Shoelace area $> 10^{-6}\text{ mm}^2$.
+5. Composition validator enforces unified global identifier namespace and reserved system prefix protection.
+6. `step_checker.py` performs in-place $O(1)$-memory streaming bounding box and entity smoke validation with ISO 10303-41 unit scale detection.
+7. Test suite in `engine/tests/` (unit, regression, schema validation) passes with 100% success rate (365/365 tests passing).
 
 ### Milestone 3 Acceptance Criteria (Solid Edge Driver)
 1. `SolidEdgeRuntime` connects to active or fresh Solid Edge instances via standard Dispatch in STA single-threaded apartment mode.
