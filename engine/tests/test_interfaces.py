@@ -381,8 +381,10 @@ def test_execution_result_union_polymorphism() -> None:
         message="Failed to cut hole",
         phase="modeling",
         details={"step_index": 2},
+        warnings=[{"code": "WARN_2", "message": "Near boundary"}],
     )
     assert isinstance(failure, ExecutionFailure)
     assert failure.message == "Failed to cut hole"
     assert failure.phase == "modeling"
     assert failure.details == {"step_index": 2}
+    assert failure.warnings == [{"code": "WARN_2", "message": "Near boundary"}]
