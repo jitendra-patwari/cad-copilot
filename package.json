@@ -5,8 +5,13 @@
   "description": "Root workspace for CAD Copilot desktop application and CAD engine",
   "scripts": {
     "test": "pnpm -r test",
-    "build": "pnpm -r build",
-    "lint": "pnpm -r lint"
+    "test:engine": "pnpm --filter @cad-copilot/engine test",
+    "lint": "pnpm -r lint",
+    "lint:engine": "pnpm --filter @cad-copilot/engine lint",
+    "typecheck": "pnpm -r typecheck",
+    "typecheck:engine": "pnpm --filter @cad-copilot/engine typecheck",
+    "format": "pnpm -r format",
+    "build": "pnpm -r build"
   },
   "devDependencies": {}
 }
