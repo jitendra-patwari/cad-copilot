@@ -11,8 +11,8 @@
   },
   "output_root": "C:/my_cad_parts/output",
   "operation": {
-    "type": "export",
-    "formats": ["step", "stl", "parasolid", "jt", "iges", "3mf"]
+    "type": "export_3d",
+    "formats": ["step", "stl"]
   },
   "options": {
     "continue_on_error": true,

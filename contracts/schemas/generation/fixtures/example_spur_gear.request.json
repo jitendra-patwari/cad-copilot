@@ -1,0 +1,11 @@
+{
+  "contract_version": "1.0",
+  "request_id": "example-spur-gear-001",
+  "kind": "example_plan",
+  "unit": "mm",
+  "example_id": "spur_gear",
+  "metadata": {
+    "source": "cad_copilot",
+    "label": "deterministic spur gear example"
+  }
+}

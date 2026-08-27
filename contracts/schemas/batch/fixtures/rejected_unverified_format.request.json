@@ -1,19 +1,18 @@
 {
   "contract_version": "1.0",
-  "request_id": "batch-003",
+  "request_id": "rejected-format-001",
   "kind": "batch_operation",
   "input": {
     "root": "C:/my_cad_parts",
     "files": [
-      "../secret/part.par"
+      "part1.par"
     ]
   },
   "output_root": "C:/my_cad_parts/output",
   "operation": {
     "type": "export_3d",
-    "formats": ["step"]
-  },
-  "metadata": {
-    "source": "desktop_app"
+    "formats": [
+      "parasolid"
+    ]
   }
 }

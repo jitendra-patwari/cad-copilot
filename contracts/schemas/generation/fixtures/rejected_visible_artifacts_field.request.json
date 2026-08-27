@@ -1,0 +1,12 @@
+{
+  "contract_version": "1.0",
+  "request_id": "rejected-artifacts-001",
+  "kind": "prompt_to_cad",
+  "unit": "mm",
+  "prompt": "Create a 20mm cylinder.",
+  "visible_artifacts": {
+    "formats": [
+      "step"
+    ]
+  }
+}

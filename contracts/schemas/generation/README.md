@@ -1,19 +1,19 @@
-# Generation Domain: Public IPC & REST API Contract
+# Generation Domain: Public IPC Contract
 
-The `generation` domain defines the wire protocol and contract schemas used by client applications (Tauri Desktop GUI, CLI, and REST API) to request prompt-to-CAD 3D parametric generation from the CAD engine.
+The `generation` domain defines the wire protocol and contract schemas used by client applications (Tauri Desktop GUI and local CLI) to request 3D parametric generation from the CAD engine.
 
-The client application owns UI/UX, user prompt entry, 3D viewport rendering, and transport orchestration. The CAD engine owns multimodal prompt interpretation, geometric planning, Solid Edge parametric execution, and artifact generation.
+The client application owns UI/UX, user prompt entry, example plan selection, and process execution. The CAD engine owns prompt interpretation, geometric planning, Solid Edge parametric execution, and guaranteed artifact generation.
 
 ---
 
 ## Process Contract
 
-- **Input**: Caller sends one UTF-8 JSON request object conforming to `generation-request.schema.json` via `stdin` (for stdio IPC) or HTTP POST `/api/v1/generate` (for REST).
-- **Output**: The engine writes exactly one UTF-8 JSON response object conforming to `generation-response.schema.json` to `stdout` (or HTTP response body), followed by a newline.
+- **Input**: Caller sends one UTF-8 JSON request object conforming to `generation-request.schema.json` via `stdin` (stdio IPC).
+- **Output**: The engine writes exactly one UTF-8 JSON response object conforming to `generation-response.schema.json` to `stdout`, followed by a newline.
 - **Diagnostics**: Non-contract runtime diagnostics and progress logs are written to `stderr` only.
 - **Exit Status**: Handled `accepted`, `rejected`, and `failed` requests all return status code `0` on IPC when the subprocess completes normally.
 
-The IPC launcher is `engine/scripts/generate.cmd` (or CLI entrypoint `cad-copilot-generate`).
+The planned IPC launcher for Milestone 4 is `engine/scripts/generate.cmd` (or CLI entrypoint `cad-copilot-generate`).
 
 ---
 
@@ -28,23 +28,25 @@ The IPC launcher is `engine/scripts/generate.cmd` (or CLI entrypoint `cad-copilo
 
 Canonical schema: `generation-request.schema.json` (`$id: "https://cad-copilot.dev/schemas/generation-request.schema.json"`, Draft 2020-12).
 
-### Required Fields
+The request schema supports two explicit variants via `oneOf`:
+
+### Variant 1: Natural Language (`prompt_to_cad`)
 - `contract_version`: must be `"1.0"`
-- `request_id`: 1-96 characters, restricted to `^[A-Za-z0-9._-]+$`
+- `request_id`: 1–96 characters, restricted to `^[A-Za-z0-9._-]+$`
 - `kind`: must be `"prompt_to_cad"`
 - `unit`: must be `"mm"`
-- `prompt`: non-empty natural language CAD modeling prompt (1-8000 characters)
+- `prompt`: non-empty natural language CAD modeling prompt (1–8000 characters)
+- `metadata`: optional object with `source`, `label`, `job_id`
 
-### Optional Fields
-- `visible_artifacts.formats`: array of format strings from `["par", "step", "jpg", "stl"]`.
-  - Default when omitted: `["step", "jpg"]`
-  - Solid Edge generates native `.par` parts directly. STEP and STL exports are flexible and optional.
-- `image`: multimodal reference image with `base64_data` and `mime_type` (`"image/png"` or `"image/jpeg"`).
-- `qa_policy`: `"vision_off"`, `"vision_warning"`, or `"strict_vision"`.
-- `vision_qa_model_id`: specific vision model identifier for visual inspection.
-- `metadata.source`: `"desktop_app"`, `"cad_copilot"`, or `"local_agent"`.
-- `metadata.label`: caller label, up to 128 characters.
-- `metadata.job_id`: caller job identifier.
+### Variant 2: Deterministic Example Plan (`example_plan`)
+- `contract_version`: must be `"1.0"`
+- `request_id`: 1–96 characters, restricted to `^[A-Za-z0-9._-]+$`
+- `kind`: must be `"example_plan"`
+- `unit`: must be `"mm"`
+- `example_id`: verified guaranteed example identifier (`"spur_gear"`)
+- `metadata`: optional object with `source`, `label`, `job_id`
+
+> **Note on Outputs**: Generation outputs are **not** caller-selectable. Successful generation always guarantees the creation of the native Solid Edge part (`.par`), exchange geometry (`step`), and 3D print mesh (`stl`). A preview snapshot (`jpg`) is generated on a best-effort basis.
 
 ---
 
@@ -55,16 +57,16 @@ Canonical schema: `generation-response.schema.json` (`$id: "https://cad-copilot.
 All responses include `contract_version: "1.0"`, `request_id`, and `status`.
 
 ### Status: `accepted`
-Returned when prompt interpretation, feature planning, CAD execution, and artifact generation complete successfully.
-- `data.artifacts`: array of produced artifact records (`native_part`, `geometry_step`, `preview_image`, `mesh_stl`) with `origin: "cad_copilot"`.
-- `warnings`: array of nonfatal diagnostic strings (e.g., preview degradation, model fallback).
+Returned when geometric planning, CAD execution, and required artifact export complete successfully.
+- `data.artifacts`: array of produced artifact records. Must contain at least 3 records (`native_part` / `.par`, `geometry_step` / `.step`, `mesh_stl` / `.stl`), with optional 4th record (`preview_image` / `.jpg`).
+- `warnings`: array of nonfatal diagnostic strings (e.g. preview generation unavailable).
 
 ### Status: `rejected`
-Returned when the request is syntactically or semantically invalid before entering CAD execution (e.g., schema validation failure, unsupported format).
+Returned when the request is syntactically or semantically invalid before entering CAD execution (e.g. schema validation failure, legacy field present).
 - `errors`: array of error records with `code`, `message`, and optional `field`.
 
 ### Status: `failed`
-Returned when request validation succeeds, but prompt interpretation, geometry lowering, Solid Edge execution, or artifact export encounters an unrecoverable error.
+Returned when request validation succeeds, but prompt interpretation, geometry lowering, Solid Edge execution, or required artifact export encounters an unrecoverable error.
 - `errors`: array of error records with `code` and `message`.
 
 ---
@@ -80,19 +82,15 @@ Returned when request validation succeeds, but prompt interpretation, geometry l
 
 Standardized error codes:
 - `INVALID_SCHEMA` - Malformed JSON or schema constraint violation
-- `UNSUPPORTED_REQUEST` - Unsupported request configuration or invalid format
-- `PROMPT_INTERPRETATION_FAILED` - LLM could not parse or lower the prompt into geometry
+- `UNSUPPORTED_REQUEST` - Unsupported request configuration
+- `PROMPT_INTERPRETATION_FAILED` - AI adapter could not parse or lower the prompt into geometry
 - `CAD_PLAN_REJECTED` - Feature plan violates spatial containment or topology rules
 - `CAD_EXECUTION_FAILED` - Solid Edge COM kernel execution error
-- `ARTIFACT_EXPORT_FAILED` - Failure exporting requested artifact (STEP, STL, JPG)
+- `ARTIFACT_EXPORT_FAILED` - Failure exporting required artifact (STEP, STL)
 - `OUTPUT_PATH_NOT_ALLOWED` - Output path escaped allowed directory boundary
 - `INTERNAL_ERROR` - Unhandled engine exception
 - `NATIVE_QA_BLOCKED` - Solid Edge native physical property inspection failed
-- `VISION_QA_BLOCKED` - Screenshot Vision QA evaluator rejected the output
-- `CLOUD_AUTH_FAILED` - Cloud API authentication failure
-- `CLOUD_UNAVAILABLE` - AI provider service unavailable
 - `PAYLOAD_TOO_LARGE` - Request payload exceeds size limits
-- `VISION_QA_SYSTEM_ERROR` - Vision evaluation infrastructure failure
 
 ---
 
@@ -100,28 +98,15 @@ Standardized error codes:
 
 Golden request and response fixtures are maintained in `fixtures/`:
 
-### Standard & Format Variants
-- `prompt_default_artifacts.request.json` - Prompt omitting `visible_artifacts` (relies on default formats)
-- `accepted_default_step_jpg.response.json` - Default response producing STEP and JPG artifacts
-- `requested_step.request.json` - Request explicitly selecting STEP format only
-- `accepted_step.response.json` - Accepted response returning STEP artifact
-- `requested_step_jpg.request.json` - Request explicitly selecting STEP and JPG formats
-- `accepted_step_jpg.response.json` - Accepted response returning STEP and JPG artifacts
-- `requested_jpg_only.request.json` - Fast preview request without STEP export overhead
-- `accepted_jpg_only.response.json` - Accepted fast preview response returning JPG artifact
-- `requested_par_only.request.json` - Native-only request returning native Solid Edge `.par` model
-- `accepted_par_only.response.json` - Accepted native response returning `.par` artifact
-- `requested_par_jpg.request.json` - Native-first primary workflow request with `.par` and fast preview `.jpg`
-- `accepted_par_jpg.response.json` - Accepted response returning `.par` and `.jpg` artifacts
-- `requested_stl.request.json` - 3D print mesh export request selecting STL format
-- `accepted_stl.response.json` - Accepted response returning STL mesh artifact
+### Positive Fixtures
+- `prompt_default_artifacts.request.json` - Standard prompt-to-CAD request
+- `example_spur_gear.request.json` - Deterministic example plan request (`spur_gear`)
+- `accepted_default_step_jpg.response.json` - Standard accepted response returning `.par`, `step`, `stl`, and `jpg`
+- `accepted_no_preview.response.json` - Accepted response returning `.par`, `step`, and `stl` with a non-fatal preview warning
 
-### Multimodal Sketch-to-CAD
-- `prompt_image_sketch.request.json` - Multimodal generation request with embedded PNG reference sketch
-- `accepted_image_sketch.response.json` - Accepted sketch-to-CAD response with `.par` and `.jpg` artifacts
-
-### Negative & Failure Tests
-- `unsupported_visible_artifact.request.json` - Request payload with invalid format string
-- `rejected_unsupported_visible_artifact.response.json` - Schema rejection response with `INVALID_SCHEMA`
-- `failed_missing_step.response.json` - Runtime export failure response with `ARTIFACT_EXPORT_FAILED`
-- `failed_output_path_escape.response.json` - Path containment security failure with `OUTPUT_PATH_NOT_ALLOWED`
+### Negative & Failure Fixtures
+- `rejected_image_field.request.json` - Negative test verifying rejection of legacy `image` field
+- `rejected_visible_artifacts_field.request.json` - Negative test verifying rejection of legacy `visible_artifacts` selector
+- `rejected_unknown_example.request.json` - Negative test verifying rejection of unknown `example_id`
+- `failed_missing_step.response.json` - Export failure response with `ARTIFACT_EXPORT_FAILED`
+- `failed_output_path_escape.response.json` - Security failure response with `OUTPUT_PATH_NOT_ALLOWED`

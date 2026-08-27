@@ -1,14 +1,14 @@
 {
   "contract_version": "1.0",
-  "request_id": "batch-001",
-  "status": "completed",
+  "request_id": "batch-cancelled-001",
+  "status": "cancelled",
   "summary": {
-    "total": 2,
+    "total": 4,
     "accepted": 1,
     "partial": 0,
-    "failed": 1,
-    "unprocessed": 0,
-    "cancelled": 0
+    "failed": 0,
+    "unprocessed": 1,
+    "cancelled": 2
   },
   "results": [
     {
@@ -25,16 +25,13 @@
         }
       ],
       "warnings": []
-    },
-    {
-      "input": "subfolder/part2.par",
-      "status": "failed",
-      "errors": [
-        {
-          "code": "ARTIFACT_EXPORT_FAILED",
-          "message": "Could not export subfolder/part2.par"
-        }
-      ]
     }
+  ],
+  "unprocessed_files": [
+    "part2.par"
+  ],
+  "cancelled_files": [
+    "part3.par",
+    "part4.par"
   ]
 }

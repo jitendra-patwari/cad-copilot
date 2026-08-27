@@ -1,10 +1,16 @@
-# Edit Domain: Public Parametric Edit Session Contract
+# Edit Domain: Future Parametric Edit Contract (Non-Runtime / Deferred)
 
-The `edit` domain defines the wire protocol and contract schemas used by client applications (Tauri Desktop GUI, CLI, and REST API) to request prompt-driven parametric modifications to an active CAD Copilot edit session.
-
-Unlike `generation` (which creates a new CAD model from scratch) or `batch` (which operates on collections of files), `edit` operates interactively on a live, stateful parametric feature session with optimistic revision control.
+> [!IMPORTANT]
+> **Non-Runtime / Deferred Notice (Milestone 3–6 Scope)**
+> The `edit` domain contracts and schemas in this directory are non-runtime design documents preserved for future milestone architecture. Interactive prompt-driven parametric editing is deferred to Milestone 7B, where it will be implemented via a clean manifest-based revision model rather than a stateful in-memory database.
+>
+> Neither the CAD engine nor desktop application will expose or bind to these legacy edit schemas during initial v0.1.0 releases.
+>
+> **Notice on Historical Content Below**: The process contracts, session state models, request shapes, and error codes documented below reflect early prototype designs (including stateful sessions, REST bindings, image references, and selectable output lists) and are preserved strictly as non-authoritative historical reference.
 
 ---
+
+## Historical Specification & Architecture Reference (Non-Authoritative)
 
 ## Process Contract
 

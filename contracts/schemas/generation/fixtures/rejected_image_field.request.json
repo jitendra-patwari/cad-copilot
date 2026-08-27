@@ -1,0 +1,11 @@
+{
+  "contract_version": "1.0",
+  "request_id": "rejected-image-001",
+  "kind": "prompt_to_cad",
+  "unit": "mm",
+  "prompt": "Create a bracket based on sketch.",
+  "image": {
+    "base64_data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    "mime_type": "image/png"
+  }
+}

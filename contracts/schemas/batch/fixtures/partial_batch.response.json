@@ -1,0 +1,58 @@
+{
+  "contract_version": "1.0",
+  "request_id": "batch-partial-001",
+  "status": "completed",
+  "summary": {
+    "total": 3,
+    "accepted": 1,
+    "partial": 1,
+    "failed": 1,
+    "unprocessed": 0,
+    "cancelled": 0
+  },
+  "results": [
+    {
+      "input": "part1.par",
+      "status": "accepted",
+      "artifacts": [
+        {
+          "format": "step",
+          "path": "C:/my_cad_parts/output/part1.step"
+        },
+        {
+          "format": "stl",
+          "path": "C:/my_cad_parts/output/part1.stl"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "input": "part2.par",
+      "status": "partial",
+      "artifacts": [
+        {
+          "format": "step",
+          "path": "C:/my_cad_parts/output/part2.step"
+        }
+      ],
+      "errors": [
+        {
+          "code": "ARTIFACT_EXPORT_FAILED",
+          "message": "Failed to generate STL mesh output for part2.par"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "input": "corrupt.par",
+      "status": "failed",
+      "errors": [
+        {
+          "code": "DOCUMENT_OPEN_FAILED",
+          "message": "File format unreadable or corrupt: corrupt.par"
+        }
+      ],
+      "warnings": []
+    }
+  ]
+}
