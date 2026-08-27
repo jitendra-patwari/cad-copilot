@@ -8,7 +8,7 @@
   },
   "output_root": "C:/my_cad_parts/output",
   "operation": {
-    "type": "export",
+    "type": "export_3d",
     "formats": ["step"]
   },
   "metadata": {

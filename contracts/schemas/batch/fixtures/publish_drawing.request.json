@@ -1,0 +1,25 @@
+{
+  "contract_version": "1.0",
+  "request_id": "batch-drawing-001",
+  "kind": "batch_operation",
+  "input": {
+    "root": "C:/my_cad_drawings",
+    "files": [
+      "drawing1.dft",
+      "subfolder/drawing2.dft"
+    ]
+  },
+  "output_root": "C:/my_cad_drawings/output",
+  "operation": {
+    "type": "publish_drawing",
+    "formats": ["pdf", "dxf"]
+  },
+  "options": {
+    "continue_on_error": true,
+    "max_files": 100
+  },
+  "metadata": {
+    "source": "desktop_app",
+    "label": "publish drawings batch"
+  }
+}

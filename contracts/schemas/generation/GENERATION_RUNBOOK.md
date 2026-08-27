@@ -1,6 +1,6 @@
 # CAD Copilot Generation Integration Runbook
 
-This runbook guides client integration (Tauri Desktop App, REST clients, and CLI agents) with the CAD Copilot prompt-to-CAD `generation` domain subprocess boundary.
+This runbook guides client integration (Tauri Desktop App and local CLI) with the CAD Copilot prompt-to-CAD `generation` domain subprocess boundary.
 
 ---
 
@@ -20,8 +20,9 @@ engine\scripts\generate.cmd
 
 ---
 
-## Example PowerShell Invocation
+## Example Invocations
 
+### 1. Natural Language Prompt Request
 ```powershell
 $env:CAD_OUTPUT_ROOT = "E:\cad-output"
 @'
@@ -31,13 +32,28 @@ $env:CAD_OUTPUT_ROOT = "E:\cad-output"
   "kind": "prompt_to_cad",
   "unit": "mm",
   "prompt": "Create a 40 mm cube with a centered 12 mm through hole.",
-  "visible_artifacts": {
-    "formats": ["par", "step", "jpg"]
-  },
   "metadata": {
     "source": "desktop_app",
     "label": "User job 001",
     "job_id": "job-cube-001"
+  }
+}
+'@ | engine\scripts\generate.cmd
+```
+
+### 2. Deterministic Example Plan Request
+```powershell
+$env:CAD_OUTPUT_ROOT = "E:\cad-output"
+@'
+{
+  "contract_version": "1.0",
+  "request_id": "example-spur-gear-001",
+  "kind": "example_plan",
+  "unit": "mm",
+  "example_id": "spur_gear",
+  "metadata": {
+    "source": "desktop_app",
+    "label": "Spur gear example"
   }
 }
 '@ | engine\scripts\generate.cmd
@@ -49,55 +65,31 @@ $env:CAD_OUTPUT_ROOT = "E:\cad-output"
 
 ### Required Environment Variables
 - `CAD_OUTPUT_ROOT`: Base output directory for generated CAD artifacts.
-- `GOOGLE_GENAI_API_KEY` / `OPENAI_API_KEY`: API keys for foundation model providers (or set `CAD_MOCK_MODE=1` for offline mock simulation on macOS/Linux).
-- `CAD_LLM_PROVIDER`: Active provider (`google`, `openai`, `mock`).
-- `CAD_LLM_MODEL`: Active model identifier (e.g. `gemini-3.7-flash`, `gemini-2.5-flash`, `gpt-4o`).
+- `GOOGLE_GENAI_API_KEY`: API key for Gemini foundation model (required for `prompt_to_cad` mode; optional for `example_plan` mode).
+- `CAD_LLM_MODEL`: Configurable model identifier.
 
 ### System Requirements
-- Windows 10/11 x64 (for live Solid Edge COM automation).
-- Python 3.11+ virtual environment (`.venv\Scripts\python.exe`).
-- Siemens Solid Edge (2020+) installed and licensed (or `CAD_MOCK_MODE=1` for synthetic preview generation).
-
----
-
-## Timeout Boundaries & Latency Budgets
-
-Recommended timeout budgets for prompt-to-CAD tasks:
-
-| Execution Phase | Timeout | Description |
-| :--- | :--- | :--- |
-| **LLM Inference & Planning** | **30 seconds** | Multimodal reasoning, AST generation, and fallback model retry |
-| **Solid Edge Attach / Warmup** | **15 seconds** | Connecting to running instance or spawning STA process |
-| **CAD Feature Lowering** | **30 seconds** | Sketch extrusion, holes, cutouts, coordinate mapping |
-| **Artifact Export & Verification** | **15 seconds** | Exporting requested formats (STEP, STL, JPG) and property QA |
-| **Total Subprocess Limit** | **120 seconds** | Hard timeout for total job lifecycle before process kill |
+- Windows 10/11 x64.
+- Python 3.14.3 virtual environment (`.venv\Scripts\python.exe`); other Python minors are not claimed until separately verified.
+- Siemens Solid Edge® installed and licensed.
 
 ---
 
 ## Response Handling Strategy
 
 ### 1. Status: `accepted`
-- Read produced artifacts from `data.artifacts`.
-- Load the preview JPG or 3D mesh directly into the Three.js viewport.
-- If native `.par` was generated, preserve the file path for subsequent parametric edit sessions (`edit/` domain).
-- Surface nonfatal `warnings` in the UI log console.
+- Read produced artifacts from `data.artifacts` (contains `.par`, `step`, and `stl`, plus optional `jpg`).
+- Display the preview image or status in the desktop UI.
+- Surface nonfatal `warnings` in the diagnostic log.
 
 ### 2. Status: `rejected`
 - The request was rejected before CAD execution (e.g. `INVALID_SCHEMA`, `UNSUPPORTED_REQUEST`).
-- Non-retryable without altering request parameters.
 - Display `errors[].message` to the user.
 
 ### 3. Status: `failed`
 - The request passed schema checks but execution failed (e.g. `CAD_PLAN_REJECTED`, `CAD_EXECUTION_FAILED`, `OUTPUT_PATH_NOT_ALLOWED`).
 - Log diagnostic trace from `stderr` for developer support.
 
----
-
-## Retry Guidelines
-
-* **Safe to Retry**:
-  - Transient provider rate-limits (HTTP 429) or quota errors.
-  - Solid Edge warm-attach timeout (subsequent run will attach cleanly).
 * **Do Not Retry**:
   - `INVALID_SCHEMA` or `UNSUPPORTED_REQUEST`.
   - Geometric contradictions or impossible prompts (`CAD_PLAN_REJECTED`).

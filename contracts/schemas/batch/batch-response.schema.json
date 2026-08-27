@@ -11,19 +11,41 @@
         "contract_version": { "const": "1.0" },
         "request_id": { "$ref": "#/$defs/requestId" },
         "status": { "const": "completed" },
-        "summary": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["total", "accepted", "failed"],
-          "properties": {
-            "total": { "type": "integer", "minimum": 0 },
-            "accepted": { "type": "integer", "minimum": 0 },
-            "failed": { "type": "integer", "minimum": 0 }
-          }
-        },
+        "summary": { "$ref": "#/$defs/summaryRecord" },
         "results": {
           "type": "array",
           "items": { "$ref": "#/$defs/fileResult" }
+        },
+        "unprocessed_files": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "cancelled_files": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "status", "summary", "results"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "status": { "const": "cancelled" },
+        "summary": { "$ref": "#/$defs/summaryRecord" },
+        "results": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fileResult" }
+        },
+        "unprocessed_files": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "cancelled_files": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
         }
       }
     },
@@ -65,6 +87,19 @@
       "maxLength": 96,
       "pattern": "^[A-Za-z0-9._-]+$"
     },
+    "summaryRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "accepted", "partial", "failed", "unprocessed", "cancelled"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "accepted": { "type": "integer", "minimum": 0 },
+        "partial": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "unprocessed": { "type": "integer", "minimum": 0 },
+        "cancelled": { "type": "integer", "minimum": 0 }
+      }
+    },
     "fileResult": {
       "oneOf": [
         {
@@ -76,7 +111,31 @@
             "status": { "const": "accepted" },
             "artifacts": {
               "type": "array",
+              "minItems": 1,
               "items": { "$ref": "#/$defs/artifactRecord" }
+            },
+            "warnings": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/errorRecord" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["input", "status", "artifacts", "errors"],
+          "properties": {
+            "input": { "type": "string", "minLength": 1 },
+            "status": { "const": "partial" },
+            "artifacts": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/artifactRecord" }
+            },
+            "errors": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/errorRecord" }
             },
             "warnings": {
               "type": "array",
@@ -95,6 +154,10 @@
               "type": "array",
               "minItems": 1,
               "items": { "$ref": "#/$defs/errorRecord" }
+            },
+            "warnings": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/errorRecord" }
             }
           }
         }
@@ -110,19 +173,8 @@
           "enum": [
             "step",
             "stl",
-            "parasolid",
-            "jt",
-            "iges",
-            "3mf",
             "pdf",
-            "dwg",
-            "dxf",
-            "json",
-            "csv",
-            "par",
-            "psm",
-            "asm",
-            "dft"
+            "dxf"
           ]
         },
         "path": {

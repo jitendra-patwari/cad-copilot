@@ -5,9 +5,21 @@
   "data": {
     "artifacts": [
       {
+        "type": "native_part",
+        "format": "par",
+        "path": "{{OUTPUT_ROOT}}/fixture-cube-default/fixture-cube-default.par",
+        "origin": "cad_copilot"
+      },
+      {
         "type": "geometry_step",
         "format": "step",
         "path": "{{OUTPUT_ROOT}}/fixture-cube-default/fixture-cube-default.step",
+        "origin": "cad_copilot"
+      },
+      {
+        "type": "mesh_stl",
+        "format": "stl",
+        "path": "{{OUTPUT_ROOT}}/fixture-cube-default/fixture-cube-default.stl",
         "origin": "cad_copilot"
       },
       {

@@ -72,13 +72,7 @@ def test_generation_request_fixtures_conformance() -> None:
 
     positive_fixtures = [
         "prompt_default_artifacts.request.json",
-        "prompt_image_sketch.request.json",
-        "requested_jpg_only.request.json",
-        "requested_par_jpg.request.json",
-        "requested_par_only.request.json",
-        "requested_step.request.json",
-        "requested_step_jpg.request.json",
-        "requested_stl.request.json",
+        "example_spur_gear.request.json",
     ]
 
     for fname in positive_fixtures:
@@ -87,12 +81,18 @@ def test_generation_request_fixtures_conformance() -> None:
         payload = _load_json(fixture_path)
         validator.validate(payload)
 
-    # Intentional negative fixture: unsupported format must fail schema validation
-    negative_fixture = fixtures_dir / "unsupported_visible_artifact.request.json"
-    assert negative_fixture.is_file(), "Missing negative fixture unsupported_visible_artifact.request.json"
-    bad_payload = _load_json(negative_fixture)
-    with pytest.raises(jsonschema.ValidationError):
-        validator.validate(bad_payload)
+    # Intentional negative fixtures: legacy/unsupported inputs must fail schema validation
+    negative_fixtures = [
+        "rejected_image_field.request.json",
+        "rejected_visible_artifacts_field.request.json",
+        "rejected_unknown_example.request.json",
+    ]
+    for fname in negative_fixtures:
+        fixture_path = fixtures_dir / fname
+        assert fixture_path.is_file(), f"Missing negative fixture: {fname}"
+        bad_payload = _load_json(fixture_path)
+        with pytest.raises(jsonschema.ValidationError):
+            validator.validate(bad_payload)
 
 
 def test_generation_response_fixtures_conformance() -> None:
@@ -102,11 +102,81 @@ def test_generation_response_fixtures_conformance() -> None:
     fixtures_dir = SCHEMAS_ROOT / "generation" / "fixtures"
 
     response_fixtures = list(fixtures_dir.glob("*.response.json"))
-    assert len(response_fixtures) >= 10, f"Expected at least 10 response fixtures, found {len(response_fixtures)}"
+    assert len(response_fixtures) == 4, f"Expected exactly 4 response fixtures, found {len(response_fixtures)}"
 
     for fixture_path in response_fixtures:
         payload = _load_json(fixture_path)
         validator.validate(payload)
+
+
+def test_generation_response_schema_rejects_invalid_artifact_combinations() -> None:
+    """Proves that accepted generation responses strictly require one par, one step, and one stl."""
+    res_schema = _load_json(SCHEMAS_ROOT / "generation" / "generation-response.schema.json")
+    validator = Draft202012Validator(res_schema)
+
+    base_response: dict[str, Any] = {
+        "contract_version": "1.0",
+        "request_id": "test-req-001",
+        "status": "accepted",
+        "warnings": [],
+    }
+
+    # Case 1: Missing STL (only par and step) -> Must fail
+    missing_stl = {
+        **base_response,
+        "data": {
+            "artifacts": [
+                {"type": "native_part", "format": "par", "path": "p.par", "origin": "cad_copilot"},
+                {"type": "geometry_step", "format": "step", "path": "p.step", "origin": "cad_copilot"},
+            ]
+        },
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(missing_stl)
+
+    # Case 2: Three PAR records (missing step and stl) -> Must fail
+    three_pars = {
+        **base_response,
+        "data": {
+            "artifacts": [
+                {"type": "native_part", "format": "par", "path": "1.par", "origin": "cad_copilot"},
+                {"type": "native_part", "format": "par", "path": "2.par", "origin": "cad_copilot"},
+                {"type": "native_part", "format": "par", "path": "3.par", "origin": "cad_copilot"},
+            ]
+        },
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(three_pars)
+
+    # Case 3: Duplicate STEP (two step, one par, one stl -> total 4, but duplicate step and missing jpg) -> Must fail
+    duplicate_step = {
+        **base_response,
+        "data": {
+            "artifacts": [
+                {"type": "native_part", "format": "par", "path": "p.par", "origin": "cad_copilot"},
+                {"type": "geometry_step", "format": "step", "path": "p1.step", "origin": "cad_copilot"},
+                {"type": "geometry_step", "format": "step", "path": "p2.step", "origin": "cad_copilot"},
+                {"type": "mesh_stl", "format": "stl", "path": "p.stl", "origin": "cad_copilot"},
+            ]
+        },
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(duplicate_step)
+
+    # Case 4: Missing PAR (step, stl, jpg) -> Must fail
+    missing_par = {
+        **base_response,
+        "data": {
+            "artifacts": [
+                {"type": "geometry_step", "format": "step", "path": "p.step", "origin": "cad_copilot"},
+                {"type": "mesh_stl", "format": "stl", "path": "p.stl", "origin": "cad_copilot"},
+                {"type": "preview_image", "format": "jpg", "path": "p.jpg", "origin": "cad_copilot"},
+            ]
+        },
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(missing_par)
+
 
 
 # ---------------------------------------------------------------------------
@@ -123,20 +193,31 @@ def test_batch_request_and_response_fixtures_conformance() -> None:
     fixtures_dir = SCHEMAS_ROOT / "batch" / "fixtures"
 
     # Positive request fixtures
-    for fname in ["basic_export.request.json", "rejected_unsafe_path.request.json"]:
+    positive_requests = [
+        "basic_export.request.json",
+        "publish_drawing.request.json",
+        "rejected_unsafe_path.request.json",
+    ]
+    for fname in positive_requests:
         fixture_path = fixtures_dir / fname
         assert fixture_path.is_file(), f"Missing batch fixture: {fname}"
         req_validator.validate(_load_json(fixture_path))
 
-    # Negative request fixture: empty files array must fail validation
-    empty_files_fixture = fixtures_dir / "rejected_no_files.request.json"
-    assert empty_files_fixture.is_file()
-    with pytest.raises(jsonschema.ValidationError):
-        req_validator.validate(_load_json(empty_files_fixture))
+    # Negative request fixtures: must fail schema validation
+    negative_requests = [
+        "rejected_no_files.request.json",
+        "rejected_legacy_operation.request.json",
+        "rejected_unverified_format.request.json",
+    ]
+    for fname in negative_requests:
+        fixture_path = fixtures_dir / fname
+        assert fixture_path.is_file(), f"Missing negative fixture: {fname}"
+        with pytest.raises(jsonschema.ValidationError):
+            req_validator.validate(_load_json(fixture_path))
 
     # Response fixtures
     response_fixtures = list(fixtures_dir.glob("*.response.json"))
-    assert len(response_fixtures) >= 4, f"Expected at least 4 batch response fixtures, found {len(response_fixtures)}"
+    assert len(response_fixtures) == 6, f"Expected exactly 6 batch response fixtures, found {len(response_fixtures)}"
     for fixture_path in response_fixtures:
         res_validator.validate(_load_json(fixture_path))
 
@@ -213,7 +294,7 @@ def test_batch_request_schema_rejects_excessive_files() -> None:
         },
         "output_root": "C:/cad/output",
         "operation": {
-            "type": "export",
+            "type": "export_3d",
             "formats": ["step"],
         },
     }
@@ -238,7 +319,7 @@ def test_batch_request_schema_rejects_oversized_path() -> None:
         },
         "output_root": "C:/cad/output",
         "operation": {
-            "type": "export",
+            "type": "export_3d",
             "formats": ["step"],
         },
     }
@@ -247,69 +328,51 @@ def test_batch_request_schema_rejects_oversized_path() -> None:
     assert any("root" in str(e.path) for e in errors)
 
 
-def test_batch_request_schema_rejects_oversized_property_names() -> None:
-    """Verifies batch-request.schema.json rejects custom property names exceeding 128 characters."""
+def test_batch_request_schema_rejects_empty_formats() -> None:
+    """Verifies batch-request.schema.json rejects operations with empty format lists."""
     schema = _load_json(SCHEMAS_ROOT / "batch" / "batch-request.schema.json")
     validator = jsonschema.Draft202012Validator(schema)
 
-    oversized_key = "k" * 129
-
-    # 1. Oversized outer property key
-    payload_outer = {
-        "contract_version": "1.0",
-        "request_id": "req-batch-oversized-prop-outer",
-        "kind": "batch_operation",
-        "input": {"root": "C:/cad", "files": ["part_1.par"]},
-        "output_root": "C:/cad/out",
-        "operation": {
-            "type": "write_properties",
-            "save_in_place": True,
-            "confirm_modify": True,
-            "properties": {
-                oversized_key: {"Author": "Engine"},
-            },
-        },
-    }
-    assert not validator.is_valid(payload_outer)
-
-    # 2. Oversized inner property key
-    payload_inner = {
-        "contract_version": "1.0",
-        "request_id": "req-batch-oversized-prop-inner",
-        "kind": "batch_operation",
-        "input": {"root": "C:/cad", "files": ["part_1.par"]},
-        "output_root": "C:/cad/out",
-        "operation": {
-            "type": "write_properties",
-            "save_in_place": True,
-            "confirm_modify": True,
-            "properties": {
-                "part_1.par": {oversized_key: "Engine"},
-            },
-        },
-    }
-    assert not validator.is_valid(payload_inner)
-
-
-def test_batch_request_schema_rejects_oversized_property_value() -> None:
-    """Verifies batch-request.schema.json rejects custom property string values exceeding 1024 characters."""
-    schema = _load_json(SCHEMAS_ROOT / "batch" / "batch-request.schema.json")
-    validator = jsonschema.Draft202012Validator(schema)
-
-    oversized_value = "v" * 1025
     payload = {
         "contract_version": "1.0",
-        "request_id": "req-batch-oversized-val",
+        "request_id": "req-batch-empty-formats",
         "kind": "batch_operation",
-        "input": {"root": "C:/cad", "files": ["part_1.par"]},
-        "output_root": "C:/cad/out",
-        "operation": {
-            "type": "write_properties",
-            "save_in_place": True,
-            "confirm_modify": True,
-            "properties": {
-                "part_1.par": {"Description": oversized_value},
-            },
+        "input": {
+            "root": "C:/cad/models",
+            "files": ["part_1.par"],
         },
+        "output_root": "C:/cad/output",
+        "operation": {
+            "type": "export_3d",
+            "formats": [],
+        },
+    }
+    assert not validator.is_valid(payload)
+
+
+def test_batch_response_schema_rejects_incomplete_summary() -> None:
+    """Verifies batch-response.schema.json requires all 6 summary count fields."""
+    schema = _load_json(SCHEMAS_ROOT / "batch" / "batch-response.schema.json")
+    validator = jsonschema.Draft202012Validator(schema)
+
+    # Missing 'cancelled' and 'unprocessed' in summary
+    payload = {
+        "contract_version": "1.0",
+        "request_id": "batch-001",
+        "status": "completed",
+        "summary": {
+            "total": 1,
+            "accepted": 1,
+            "partial": 0,
+            "failed": 0,
+        },
+        "results": [
+            {
+                "input": "part1.par",
+                "status": "accepted",
+                "artifacts": [{"format": "step", "path": "p.step"}],
+                "warnings": [],
+            }
+        ],
     }
     assert not validator.is_valid(payload)

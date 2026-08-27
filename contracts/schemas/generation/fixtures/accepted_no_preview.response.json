@@ -1,0 +1,30 @@
+{
+  "contract_version": "1.0",
+  "request_id": "fixture-cube-no-preview",
+  "status": "accepted",
+  "data": {
+    "artifacts": [
+      {
+        "type": "native_part",
+        "format": "par",
+        "path": "{{OUTPUT_ROOT}}/fixture-cube-no-preview/fixture-cube-no-preview.par",
+        "origin": "cad_copilot"
+      },
+      {
+        "type": "geometry_step",
+        "format": "step",
+        "path": "{{OUTPUT_ROOT}}/fixture-cube-no-preview/fixture-cube-no-preview.step",
+        "origin": "cad_copilot"
+      },
+      {
+        "type": "mesh_stl",
+        "format": "stl",
+        "path": "{{OUTPUT_ROOT}}/fixture-cube-no-preview/fixture-cube-no-preview.stl",
+        "origin": "cad_copilot"
+      }
+    ]
+  },
+  "warnings": [
+    "Preview image generation was skipped or unavailable; CAD geometry exported successfully."
+  ]
+}
