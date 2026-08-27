@@ -1,3 +1,3 @@
 # CAD Copilot Engine
 
-Prompt-first CAD engine, geometric AST lowering, Solid Edge COM bridge, offline simulation, and local API server.
+Prompt-first CAD engine, geometry lowering, Solid Edge COM driver, and local batch automation.
