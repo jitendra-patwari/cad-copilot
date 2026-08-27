@@ -25,5 +25,5 @@ We take the security of CAD Copilot seriously. If you discover a potential secur
 ## Secret Handling & Local-First Isolation
 
 CAD Copilot is designed with a **100% local-first, zero-login architecture**:
-- API keys (Google GenAI, OpenAI) supplied in local `.env` files or in-app settings are stored exclusively on the user's local machine and are never transmitted to external telemetry servers.
+- Gemini API keys are read from a local environment variable or session-only UI entry. CAD Copilot never persists them, logs them, or sends them to telemetry; they are provided only to Google Gemini when the user explicitly requests live AI generation.
 - When running in automated environments or CI/CD pipelines, ensure sensitive environment variables are populated using encrypted repository secrets.

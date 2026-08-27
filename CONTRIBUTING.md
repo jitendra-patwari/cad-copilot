@@ -13,15 +13,14 @@ We are committed to providing a welcoming, inclusive, and harassment-free enviro
 ## Development Setup
 
 ### Prerequisites
-- **Python**: `>=3.11` (Python 3.11, 3.12, or 3.13)
+- **Python**: `>=3.14.3,<3.15` (tested baseline: Python 3.14.3)
 - **Node.js**: `>=20` (Node 20 or 22 LTS)
 - **pnpm**: `>=9`
 - **Rust**: `>=1.78` (with `cargo` for Tauri v2 desktop application builds)
-- **Siemens Solid Edge®**: (Optional — local development and testing on macOS/Linux can use `CAD_MOCK_MODE=1` without Solid Edge)
-- **uv** (Optional): Fast Python package manager
+- **Operating System**: Windows 10/11 x64 with Siemens Solid Edge® (CAD generation and batch automation require a local Solid Edge installation; offline geometric unit tests run cross-platform with `-m "not com"`)
 
 ### Initializing the Workspace
-```bash
+```powershell
 # Clone the repository
 git clone https://github.com/jitendra-patwari/cad-copilot.git
 cd cad-copilot
@@ -31,15 +30,10 @@ pnpm install
 
 # Create and activate a Python virtual environment
 python -m venv .venv
-# On Windows:
 .venv\Scripts\activate
-# On Linux/macOS:
-source .venv/bin/activate
 
 # Install Python engine developer tooling (in editable mode)
 pip install -e "engine[dev]"
-# Or with uv:
-# uv pip install -e "engine[dev]"
 ```
 
 ---
@@ -73,14 +67,11 @@ We enforce the **Conventional Commits** standard combined with **Functional Requ
 * `engine`: Core Python engine workspace and tooling
 * `interfaces`: Abstract domain ports (`CADExecutorABC`, `CADRuntimeABC`)
 * `geometry`: Pure deterministic geometry math, UV transforms, spur gear algorithms
-* `drivers`: Solid Edge COM automation and offline mock drivers
-* `session`: Semantic part state store and revision timeline
-* `editor`: Natural language parametric edit pipeline
-* `ai`: Foundation model pipelines (Gemini/OpenAI), vision QA evaluators
+* `drivers`: Solid Edge COM automation driver
+* `ai`: Foundation model adapter and geometry plan generator
 * `ipc`: Stdio JSON-RPC protocol server for desktop bridge
-* `batch`: High-throughput batch processing and DXF flattening
-* `api`: Local FastAPI REST service
-* `contracts`: Public JSON-Schema contracts and golden plan fixtures
+* `batch`: High-throughput batch processing and drawing publication
+* `contracts`: Public JSON-Schema contracts and golden fixtures
 
 ### Requirements Traceability (`<FR-ID>`)
 Every commit must cite the corresponding **Functional Requirement ID** from [`docs/requirements.md`](docs/requirements.md) (e.g. `[FR-1]`, `[FR-2]`, `[FR-3]`, `[FR-4]`, `[FR-5]`, `[FR-6]`). For infrastructure or root maintenance, use `[FR-1]` or `[INFRA]`.
@@ -98,16 +89,16 @@ Every commit must cite the corresponding **Functional Requirement ID** from [`do
 
 All submitted code must pass strict static analysis and testing before review:
 
-```bash
+```powershell
 # Python Linting & Type Checking (from repo root)
-ruff check engine
-mypy --strict engine/src
+ruff check engine/src engine/tests
+mypy --config-file engine/mypy.ini --strict engine/src
 
-# Python Unit & Contract Tests (from repo root)
-pytest engine
+# Python Unit & Contract Tests (offline, non-COM)
+pytest engine/tests -m "not com"
 
-# Frontend Formatting & Unit Tests (from repo root)
-pnpm -r test
+# Workspace Build Gate
+pnpm run build
 ```
 
 ---
@@ -117,7 +108,7 @@ pnpm -r test
 1. **User-Furnished Solid Edge® License**:
    * CAD Copilot does **not** provide, bypass, crack, or redistribute Siemens software licenses.
    * Live CAD execution requires the user to have a valid, legally acquired license for Siemens Solid Edge® installed locally on their Windows workstation.
-   * Contributors on macOS, Linux, or systems without Solid Edge must develop against `CAD_MOCK_MODE=1` (offline simulation mode).
+   * Pure geometry, AST lowering, contract verification, and test suites run completely offline without COM access via `-m "not com"`.
 
 2. **No Proprietary Binaries**:
    * Do not commit Siemens binary files (`*.par`, `*.psm`, `*.asm`, `*.dft`), typelib headers (`*.tlb`), or SDK DLLs.

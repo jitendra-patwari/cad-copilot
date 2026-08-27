@@ -53,7 +53,12 @@ src-tauri/gen/
 *.dft
 *.pwd
 *.chm
+*.tlb
+*.step
+*.stp
+*.stl
 outputs/
+output/
 
 # IDE & Editor Metadata
 .idea/
