@@ -1,5 +1,5 @@
 line-length = 120
-target-version = "py311"
+target-version = "py314"
 
 [lint]
 select = [
@@ -13,6 +13,8 @@ select = [
 
 ignore = [
     "E501",  # Line too long
+    "UP040", # Retain explicit TypeAlias declarations; modernization is a separate refactor
+    "UP047", # Retain current TypeVar generics; modernization is a separate refactor
 ]
 
 [lint.per-file-ignores]

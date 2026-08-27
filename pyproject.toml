@@ -7,12 +7,12 @@ name = "cad-copilot-workspace"
 version = "0.1.0"
 description = "CAD Copilot root development workspace"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14.3,<3.15"
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.5.0",
-    "mypy>=1.10.0",
+    "ruff>=0.16.4",
+    "mypy>=2.3.1",
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
     "jsonschema>=4.20.0",
