@@ -17,12 +17,15 @@ from interfaces import (
     CADExecutorABC,
     CADExportError,
     CADRuntimeABC,
+    CADRuntimeBusyError,
     CADRuntimeError,
+    CADRuntimeUnavailableError,
     ExecutionFailure,
     ExecutionResult,
     ExecutionSuccess,
     FeatureRef,
     PhysicalProperties,
+    RuntimeDiagnostics,
     StandardInspectionReport,
 )
 
@@ -37,10 +40,26 @@ class ConcreteCADRuntime(CADRuntimeABC):
     def __init__(self) -> None:
         self.connected = False
         self.open_docs: list[Path] = []
+        self.created_docs: list[str] = []
 
     def connect_application(self) -> Any:
         self.connected = True
         return "mock_app_handle"
+
+    def get_diagnostics(self) -> RuntimeDiagnostics:
+        return RuntimeDiagnostics(
+            ownership="owned" if self.connected else "unknown",
+            attachment_mode="spawned_new" if self.connected else "unspecified",
+            visibility="visible" if self.connected else "unknown",
+            process_id=1234 if self.connected else None,
+            version_build="226.00.00.00" if self.connected else None,
+            is_healthy=self.connected,
+        )
+
+    def create_part_document(self, application: Any) -> Any:
+        doc_id = f"mock_part_doc_{len(self.created_docs) + 1}"
+        self.created_docs.append(doc_id)
+        return doc_id
 
     def open_document(self, application: Any, path: Path) -> Any:
         self.open_docs.append(path)
@@ -49,7 +68,7 @@ class ConcreteCADRuntime(CADRuntimeABC):
     def close_document(self, doc_handle: Any) -> None:
         pass
 
-    def teardown(self, force_kill_on_failure: bool) -> None:
+    def teardown(self, force_kill_on_failure: bool = False) -> None:
         self.connected = False
 
     def is_healthy(self) -> bool:
@@ -164,10 +183,26 @@ def test_concrete_cad_runtime_lifecycle() -> None:
     assert runtime.is_healthy() is False
     assert runtime.connected is False
 
+    diag_initial = runtime.get_diagnostics()
+    assert diag_initial.ownership == "unknown"
+    assert diag_initial.is_healthy is False
+
     app = runtime.connect_application()
     assert app == "mock_app_handle"
     assert runtime.connected is True
     assert runtime.is_healthy() is True
+
+    diag_connected = runtime.get_diagnostics()
+    assert diag_connected.ownership == "owned"
+    assert diag_connected.attachment_mode == "spawned_new"
+    assert diag_connected.visibility == "visible"
+    assert diag_connected.process_id == 1234
+    assert diag_connected.version_build == "226.00.00.00"
+    assert diag_connected.is_healthy is True
+
+    part_doc = runtime.create_part_document(app)
+    assert part_doc == "mock_part_doc_1"
+    assert runtime.created_docs == ["mock_part_doc_1"]
 
     doc = runtime.open_document(app, Path("test.par"))
     assert doc == "mock_doc_handle:test.par"
@@ -252,6 +287,8 @@ def test_concrete_cad_executor_methods_and_defaults() -> None:
     [
         (CADError, "CAD_ERROR"),
         (CADRuntimeError, "RUNTIME_ATTACH_FAILED"),
+        (CADRuntimeUnavailableError, "RUNTIME_UNAVAILABLE"),
+        (CADRuntimeBusyError, "RUNTIME_BUSY_TIMEOUT"),
         (CADExecutionError, "EXECUTION_FAILED"),
         (CADDocumentError, "DOCUMENT_IO_FAILED"),
         (CADExportError, "EXPORT_FAILED"),
@@ -388,3 +425,32 @@ def test_execution_result_union_polymorphism() -> None:
     assert failure.phase == "modeling"
     assert failure.details == {"step_index": 2}
     assert failure.warnings == [{"code": "WARN_2", "message": "Near boundary"}]
+
+
+def test_runtime_diagnostics_dataclass() -> None:
+    """Verifies RuntimeDiagnostics default values and custom assignments."""
+    default_diag = RuntimeDiagnostics()
+    assert default_diag.ownership == "unknown"
+    assert default_diag.attachment_mode == "unspecified"
+    assert default_diag.visibility == "unknown"
+    assert default_diag.process_id is None
+    assert default_diag.version_build is None
+    assert default_diag.is_healthy is False
+    assert default_diag.warnings == []
+
+    custom_diag = RuntimeDiagnostics(
+        ownership="borrowed",
+        attachment_mode="attached_existing",
+        visibility="visible",
+        process_id=5678,
+        version_build="226.00.01.03",
+        is_healthy=True,
+        warnings=[{"code": "WARN_SE", "message": "Addin warning"}],
+    )
+    assert custom_diag.ownership == "borrowed"
+    assert custom_diag.attachment_mode == "attached_existing"
+    assert custom_diag.visibility == "visible"
+    assert custom_diag.process_id == 5678
+    assert custom_diag.version_build == "226.00.01.03"
+    assert custom_diag.is_healthy is True
+    assert len(custom_diag.warnings) == 1

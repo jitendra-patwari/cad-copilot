@@ -178,7 +178,6 @@ def test_generation_response_schema_rejects_invalid_artifact_combinations() -> N
         validator.validate(missing_par)
 
 
-
 # ---------------------------------------------------------------------------
 # 3. Batch Contract Fixtures Conformance Tests
 # ---------------------------------------------------------------------------

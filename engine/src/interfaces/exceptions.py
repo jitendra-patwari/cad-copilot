@@ -24,6 +24,18 @@ class CADRuntimeError(CADError):
     error_code: str = "RUNTIME_ATTACH_FAILED"
 
 
+class CADRuntimeUnavailableError(CADRuntimeError):
+    """Raised when a Solid Edge application session cannot be acquired or launched."""
+
+    error_code: str = "RUNTIME_UNAVAILABLE"
+
+
+class CADRuntimeBusyError(CADRuntimeError):
+    """Raised when COM calls repeatedly fail due to an unresolvable busy or rejected server state."""
+
+    error_code: str = "RUNTIME_BUSY_TIMEOUT"
+
+
 class CADExecutionError(CADError):
     """Raised when geometric modeling, sketch creation, or feature execution fails."""
 
@@ -54,5 +66,7 @@ __all__ = [
     "CADError",
     "CADExecutionError",
     "CADExportError",
+    "CADRuntimeBusyError",
     "CADRuntimeError",
+    "CADRuntimeUnavailableError",
 ]

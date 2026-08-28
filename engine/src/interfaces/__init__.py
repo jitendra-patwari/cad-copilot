@@ -8,7 +8,9 @@ from .exceptions import (
     CADError,
     CADExecutionError,
     CADExportError,
+    CADRuntimeBusyError,
     CADRuntimeError,
+    CADRuntimeUnavailableError,
 )
 from .executor_abc import CADExecutorABC
 from .models import (
@@ -19,6 +21,7 @@ from .models import (
     ExecutionSuccess,
     FeatureRef,
     PhysicalProperties,
+    RuntimeDiagnostics,
     StandardInspectionReport,
 )
 from .runtime_abc import CADRuntimeABC
@@ -33,11 +36,14 @@ __all__ = [
     "CADExecutorABC",
     "CADExportError",
     "CADRuntimeABC",
+    "CADRuntimeBusyError",
     "CADRuntimeError",
+    "CADRuntimeUnavailableError",
     "ExecutionFailure",
     "ExecutionResult",
     "ExecutionSuccess",
     "FeatureRef",
     "PhysicalProperties",
+    "RuntimeDiagnostics",
     "StandardInspectionReport",
 ]

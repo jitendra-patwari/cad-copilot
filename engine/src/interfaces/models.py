@@ -66,6 +66,19 @@ class ExecutionFailure:
     warnings: list[dict[str, str]] = field(default_factory=list)
 
 
+@dataclass
+class RuntimeDiagnostics:
+    """Diagnostic metadata describing the connected CAD runtime session."""
+
+    ownership: str = "unknown"
+    attachment_mode: str = "unspecified"
+    visibility: str = "unknown"
+    process_id: int | None = None
+    version_build: str | None = None
+    is_healthy: bool = False
+    warnings: list[dict[str, str]] = field(default_factory=list)
+
+
 ExecutionResult: TypeAlias = ExecutionSuccess | ExecutionFailure
 
 __all__ = [
@@ -76,5 +89,6 @@ __all__ = [
     "ExecutionSuccess",
     "FeatureRef",
     "PhysicalProperties",
+    "RuntimeDiagnostics",
     "StandardInspectionReport",
 ]
