@@ -23,6 +23,7 @@ from geometry.lowering_sweep import lower_swept_protrusion
 from geometry.lowering_wire_mapping import (
     DEFAULT_ABSTRACT_CUT_DIRECTION,
     feature_human_label,
+    map_face_uv_to_sketch_wire,
     profile_feature_patch_for_feature,
     profile_feature_payload_for_feature,
     profile_geometry_for_feature,
@@ -231,10 +232,13 @@ def lower_validated_feature_plan_to_payload(validated: FeaturePlan) -> dict[str,
             active_sketch_ref = sketch_ref
             active_profile_ref = profile_ref
 
+            bore_center_xs, bore_center_ys = map_face_uv_to_sketch_wire(0.0, 0.0, "+Z", body)
+            bore_center = {"x_mm": bore_center_xs, "y_mm": bore_center_ys}
+
             bore_profile_payload = {
                 "kind": "circle",
                 "sketch_ref": sketch_ref,
-                "center": {"x_mm": 0.0, "y_mm": 0.0},
+                "center": bore_center,
                 "radius_mm": (body.bore_diameter_mm / 2.0) + 0.0,
             }
             bore_feature_payload = {
@@ -301,7 +305,7 @@ def lower_validated_feature_plan_to_payload(validated: FeaturePlan) -> dict[str,
                         "sketch_ref": sketch_ref,
                         "geometry": {
                             "kind": "circle",
-                            "center": {"x_mm": 0.0, "y_mm": 0.0},
+                            "center": bore_center,
                             "radius_mm": (body.bore_diameter_mm / 2.0) + 0.0,
                         },
                     },

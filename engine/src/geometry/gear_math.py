@@ -123,15 +123,14 @@ def spur_gear_outline_points(
 
     for tooth_index in range(tooth_count):
         base_angle = tooth_index * tooth_angle
-        # Six points per tooth maintains geometric stability in CAD kernels
-        # while keeping vertex count compact.
+        # Five unique points per tooth (omitting redundant +0.50 root endpoint
+        # which is provided by the next tooth's -0.50 root start).
         tooth_points = (
             (-0.50, root_radius),
             (-0.32, pitch_flank_radius),
             (-0.18, outer_radius),
             (0.18, outer_radius),
             (0.32, pitch_flank_radius),
-            (0.50, root_radius),
         )
         for angle_fraction, radius in tooth_points:
             angle = base_angle + angle_fraction * tooth_angle

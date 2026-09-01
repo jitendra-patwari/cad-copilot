@@ -6,16 +6,26 @@ Windows COM HRESULTs and low-level kernel errors.
 
 from __future__ import annotations
 
+from typing import Any
+
 
 class CADError(Exception):
     """Base domain exception for all CAD operations."""
 
     error_code: str = "CAD_ERROR"
+    details: dict[str, Any]
 
-    def __init__(self, message: str, *, error_code: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_code: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         if error_code is not None:
             self.error_code = error_code
+        self.details = details or {}
 
 
 class CADRuntimeError(CADError):

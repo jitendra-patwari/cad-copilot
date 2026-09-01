@@ -1,12 +1,14 @@
 # CAD Copilot Generation Integration Runbook
 
-This runbook guides client integration (Tauri Desktop App and local CLI) with the CAD Copilot prompt-to-CAD `generation` domain subprocess boundary.
+This runbook specifies the planned M4 generation subprocess integration for a later Tauri desktop client or local CLI.
+
+**Status (28 August 2026):** `engine/scripts/generate.cmd` and the generation service do not exist in the current M3.1 baseline. Commands below are future integration examples, not runnable setup instructions or evidence of generated artifacts.
 
 ---
 
 ## Subprocess Invocation
 
-From the monorepo root or engine directory, invoke the standard Windows execution launcher:
+After the M4 launcher is implemented, the intended invocation from the monorepo root is:
 
 ```powershell
 engine\scripts\generate.cmd

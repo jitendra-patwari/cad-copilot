@@ -85,7 +85,7 @@ def register_message_filter(pythoncom: Any) -> SEMessageFilter | None:
     filter_inst = SEMessageFilter()
     if hasattr(pythoncom, "CoRegisterMessageFilter"):
         try:
-            import win32com.server.util  # type: ignore[import-untyped]
+            import win32com.server.util
 
             iid = getattr(pythoncom, "IID_IMessageFilter", None)
             wrapped_filter = (

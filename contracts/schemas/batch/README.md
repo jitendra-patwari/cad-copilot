@@ -2,7 +2,9 @@
 
 The `batch` domain defines the wire protocol and contract schemas used by client applications (Tauri Desktop GUI and local CLI) to request bulk 3D model translation and 2D drawing publication from the CAD engine.
 
-The client application owns UI/UX, file selection, and process orchestration. The CAD engine owns local Solid Edge automation, multi-format artifact export, and per-file error handling.
+The planned client application owns UI/UX, file selection, and process orchestration. The planned batch engine owns local Solid Edge automation, multi-format artifact export, and per-file error handling.
+
+**Status (28 August 2026):** Schemas and fixtures exist; the M5 batch engine, launcher, and desktop client do not. The process and safety rules below are requirements for that future implementation, not verified runtime behavior.
 
 ---
 
@@ -38,16 +40,16 @@ Canonical schema: `batch-request.schema.json` (`$id: "https://cad-copilot.dev/sc
 
 ### Optional Fields
 - `options.continue_on_error`: boolean, defaults to `true`.
-- `options.max_files`: integer, defaults to `500`.
+- `options.max_files`: integer from 1 to 500; approved normal default is `100`, with `500` as the hard maximum. The schema's `default` is an annotation, not automatic insertion or enforcement of a per-request limit; the M5 runtime must apply the default and enforce the effective limit before COM work.
 - `metadata`: optional object with `source`, `label`, `job_id`.
 
 ---
 
 ## Source Immutability & Safety Policy
 
-1. **Source Immutability**: Batch translation is strictly read-only on source files. The engine opens documents with `SaveChanges=False` on close.
+1. **Source Immutability**: Batch translation must not save source files. Open explicit request-owned handles, leave existing modeling modes unchanged, and close with `Close(False)`; unrelated documents and borrowed applications remain protected.
 2. **Input Path Safety**: All paths in `input.files` must be relative to `input.root`. Any path containing `..` traversal segments is immediately rejected with `INPUT_PATH_NOT_ALLOWED`.
-3. **Output Directory Mirroring**: Output artifacts are organized predictably under `output_root`.
+3. **Output Directory Mirroring**: Mirror each input's source-relative parent directory beneath `output_root`. Never silently replace an existing target.
 
 ---
 
@@ -87,7 +89,7 @@ Standardized error codes:
 - `INPUT_PATH_NOT_ALLOWED` - Unsafe relative path or path traversal attempt
 - `INPUT_FILE_NOT_FOUND` - Source CAD file does not exist
 - `OUTPUT_ROOT_UNAVAILABLE` - Cannot create or access `output_root`
-- `TARGET_ALREADY_EXISTS` - Destination output file already exists and overwrite was not approved
+- `TARGET_ALREADY_EXISTS` - Destination output file already exists; the initial batch contract has no overwrite option
 - `SOLID_EDGE_UNAVAILABLE` - Cannot acquire Solid Edge COM application session
 - `DOCUMENT_OPEN_FAILED` - Cannot open source CAD document
 - `ARTIFACT_EXPORT_FAILED` - Failure exporting specific format artifact

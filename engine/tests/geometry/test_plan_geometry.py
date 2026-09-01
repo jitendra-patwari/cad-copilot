@@ -83,7 +83,7 @@ class TestASTShapeAndDepthHelpers:
         assert shape["type"] == "extruded_profile"
         assert shape["profile_family"] == "spur_gear_concept"
         assert shape["height_mm"] == 12.0
-        assert len(shape["points"]) == 20 * 6
+        assert len(shape["points"]) == 20 * 5
         assert _base_body_through_depth_mm(body) == 12.0
 
     def test_revolved_shaft_base_body_shape_and_depth(self) -> None:

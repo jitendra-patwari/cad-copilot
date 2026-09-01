@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextlib
+import dataclasses
 import gc
 import queue
 import sys
@@ -16,6 +17,7 @@ from typing import Any, TypeVar
 
 from interfaces.exceptions import (
     CADDocumentError,
+    CADExecutionError,
     CADRuntimeError,
     CADRuntimeUnavailableError,
 )
@@ -61,12 +63,43 @@ def _load_pywin32_modules() -> tuple[Any, Any]:
     if sys.platform != "win32":
         return None, None
     try:
-        import pythoncom  # type: ignore[import-untyped]
-        import win32com.client  # type: ignore[import-untyped]
+        import pythoncom
+        import win32com.client
 
         return pythoncom, win32com.client
     except ImportError:
         return None, None
+
+
+def _validate_pure_task_result(
+    result: Any,
+    raw_doc: Any,
+    worker: Any,
+    _visited: set[int] | None = None,
+) -> None:
+    """Validate that document task results do not leak raw COM objects or STA worker references."""
+    if _visited is None:
+        _visited = set()
+    obj_id = id(result)
+    if obj_id in _visited:
+        return
+    _visited.add(obj_id)
+
+    if result is raw_doc or result is worker:
+        raise CADExecutionError("Document task returned raw COM document or worker reference")
+    if hasattr(result, "_oleobj_") or hasattr(result, "_dispobj_"):
+        raise CADExecutionError("Document task returned raw COM object reference")
+
+    if dataclasses.is_dataclass(result) and not isinstance(result, type):
+        for f in dataclasses.fields(result):
+            _validate_pure_task_result(getattr(result, f.name), raw_doc, worker, _visited)
+    elif isinstance(result, (list, tuple, set)):
+        for elem in result:
+            _validate_pure_task_result(elem, raw_doc, worker, _visited)
+    elif isinstance(result, dict):
+        for k, v in result.items():
+            _validate_pure_task_result(k, raw_doc, worker, _visited)
+            _validate_pure_task_result(v, raw_doc, worker, _visited)
 
 
 class STAThreadWorker(threading.Thread):
@@ -467,6 +500,73 @@ class SolidEdgeRuntime(CADRuntimeABC):
             if isinstance(exc, TimeoutError):
                 self._is_poisoned = True
             describe_exception(exc, f"Error closing document handle {handle_id}")
+            raise
+
+    def run_document_task(
+        self,
+        doc_handle: SolidEdgePartDocumentHandle,
+        task: Callable[[Any, STAThreadWorker], T],
+        timeout: float = 120.0,
+    ) -> T:
+        """Driver-internal seam to execute a modeling task against an explicit tracked Part document on the STA thread.
+
+        Args:
+            doc_handle: The explicit request-owned SolidEdgePartDocumentHandle.
+            task: Callable receiving `(raw_doc, worker)` and executing entirely on the STA worker thread.
+            timeout: Bounded timeout in seconds for the entire document task (default 120s).
+
+        Returns:
+            The pure Python return value from `task`.
+
+        Raises:
+            CADRuntimeError: If runtime is poisoned, uninitialized, or worker is not running.
+            CADDocumentError: If doc_handle is invalid, untracked, wrong type, or closed.
+            TimeoutError: If task execution exceeds timeout, poisoning the runtime.
+        """
+        if self._is_poisoned:
+            raise CADRuntimeError("Cannot execute document task: Solid Edge runtime is poisoned from a prior timeout")
+
+        worker = self._worker
+        if worker is None or not worker.is_alive():
+            raise CADRuntimeError("Cannot execute document task: STA worker thread is not running")
+
+        if not isinstance(doc_handle, SolidEdgePartDocumentHandle):
+            handle_type = type(doc_handle).__name__
+            raise CADDocumentError(
+                f"Invalid document handle type: expected SolidEdgePartDocumentHandle, got {handle_type}"
+            )
+
+        if not doc_handle.handle_id:
+            raise CADDocumentError("Invalid document handle: missing handle_id")
+
+        tracked_handle = self._open_document_handles.get(doc_handle.handle_id)
+        if tracked_handle is None:
+            raise CADDocumentError(f"Untracked or closed document handle: {doc_handle.handle_id}")
+
+        if not isinstance(tracked_handle, SolidEdgePartDocumentHandle):
+            tracked_type = type(tracked_handle).__name__
+            raise CADDocumentError(
+                f"Tracked document handle is not a Part document: expected SolidEdgePartDocumentHandle, got {tracked_type}"
+            )
+
+        handle_id = doc_handle.handle_id
+
+        def _wrapped_task() -> T:
+            raw_doc = worker._document_registry.get(handle_id)
+            if raw_doc is None:
+                raise CADDocumentError(f"Document object not found in STA worker registry for handle {handle_id}")
+            result = task(raw_doc, worker)
+            _validate_pure_task_result(result, raw_doc, worker)
+            return result
+
+        try:
+            return worker.call(_wrapped_task, timeout=timeout)
+        except TimeoutError:
+            self._is_poisoned = True
+            describe_exception(
+                TimeoutError(f"Document task timed out after {timeout}s on handle {handle_id}"),
+                "Document task timeout",
+            )
             raise
 
     def is_healthy(self) -> bool:

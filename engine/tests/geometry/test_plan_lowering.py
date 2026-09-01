@@ -358,6 +358,7 @@ class TestSpurGearBoreLowering:
         assert payload["patches"][1]["origin_offset_mm"] == {"x_mm": 10.0, "y_mm": 20.0, "z_mm": 42.0}
         assert payload["patches"][2]["op"] == "ensure_profile"
         assert payload["patches"][2]["profile_ref"] == "profile.gear-bore.1"
+        assert payload["patches"][2]["geometry"]["center"] == {"x_mm": 10.0, "y_mm": 20.0}
         assert payload["patches"][2]["geometry"]["radius_mm"] == 5.0
         assert payload["patches"][3]["op"] == "cut_hole"
         assert payload["patches"][3]["through_all"] is True
@@ -394,8 +395,59 @@ class TestSpurGearBoreLowering:
         assert "sketch.gear-bore.1" in sketches
         assert "sketch.gear-bore.2" in sketches
 
+        profiles = {
+            p["profile_ref"]: p["geometry"]["center"] for p in payload["patches"] if p["op"] == "ensure_profile"
+        }
+        assert profiles["profile.gear-bore.1"] == {"x_mm": 0.0, "y_mm": 0.0}
+        assert profiles["profile.gear-bore.2"] == {"x_mm": 60.0, "y_mm": 0.0}
+
         idempotency_keys = [p["replay_policy"]["idempotency_key"] for p in payload["patches"]]
         assert len(set(idempotency_keys)) == len(idempotency_keys), "Found duplicate idempotency keys!"
+
+    def test_spur_gear_bore_fingerprint_placement_sensitivity_and_determinism(self) -> None:
+        """Verify that translated gear bores have placement-sensitive, deterministic entity fingerprints."""
+        gear_origin = SpurGearBaseBody(
+            id="body.gear",
+            tooth_count=20,
+            module_mm=2.0,
+            face_width_mm=10.0,
+            bore_diameter_mm=8.0,
+            placement=BodyPlacement(x_mm=0.0, y_mm=0.0, z_mm=0.0),
+        )
+        gear_translated = SpurGearBaseBody(
+            id="body.gear",
+            tooth_count=20,
+            module_mm=2.0,
+            face_width_mm=10.0,
+            bore_diameter_mm=8.0,
+            placement=BodyPlacement(x_mm=25.0, y_mm=50.0, z_mm=10.0),
+        )
+
+        p_orig_1 = lower_validated_feature_plan_to_payload(_make_plan(base_body=gear_origin))
+        p_orig_2 = lower_validated_feature_plan_to_payload(_make_plan(base_body=gear_origin))
+        p_trans_1 = lower_validated_feature_plan_to_payload(_make_plan(base_body=gear_translated))
+        p_trans_2 = lower_validated_feature_plan_to_payload(_make_plan(base_body=gear_translated))
+
+        # Bitwise determinism
+        assert p_orig_1 == p_orig_2
+        assert p_trans_1 == p_trans_2
+
+        # Extract bore profile entity fingerprints
+        fp_orig_prof = next(
+            e["reference"]["fingerprint"]
+            for e in p_orig_1["canonical_state"]["entities"]
+            if e["reference"]["ref_id"] == "profile.gear-bore.1"
+        )
+        fp_trans_prof = next(
+            e["reference"]["fingerprint"]
+            for e in p_trans_1["canonical_state"]["entities"]
+            if e["reference"]["ref_id"] == "profile.gear-bore.1"
+        )
+
+        # Placement sensitivity
+        assert fp_orig_prof != fp_trans_prof
+        assert len(fp_orig_prof) == 64
+        assert len(fp_trans_prof) == 64
 
 
 # ---------------------------------------------------------------------------

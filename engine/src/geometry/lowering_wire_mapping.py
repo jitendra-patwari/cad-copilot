@@ -413,7 +413,7 @@ def profile_feature_patch_for_feature(
 ) -> dict[str, Any]:
     """Generate an execution patch for a standard profile feature operation."""
     if isinstance(feature, RectangularExtrudedPadFeature):
-        return {
+        pad_payload: dict[str, Any] = {
             "op": "extrude_profile",
             "patch_id": f"patch.extrude.{index}",
             "replay_policy": {
@@ -424,7 +424,19 @@ def profile_feature_patch_for_feature(
             "profile_ref": profile_ref,
             "result_ref": feature.id,
             "distance_mm": float(feature.distance_mm) + 0.0,
+            "face": feature.target_face or "+Z",
         }
+        if sketch_plane is not None:
+            pad_payload["sketch_plane"] = sketch_plane
+        if origin_offset_mm is not None:
+            pad_payload["origin_offset_mm"] = {k: float(v) + 0.0 for k, v in origin_offset_mm.items()}
+        if u_axis is not None:
+            pad_payload["u_axis"] = [float(x) + 0.0 for x in u_axis]
+        if v_axis is not None:
+            pad_payload["v_axis"] = [float(x) + 0.0 for x in v_axis]
+        if normal_vector is not None:
+            pad_payload["normal_vector"] = [float(x) + 0.0 for x in normal_vector]
+        return pad_payload
     if isinstance(feature, RevolvedProfileFeature):
         return {
             "op": "revolve_profile",

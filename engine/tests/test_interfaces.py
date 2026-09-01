@@ -24,6 +24,7 @@ from interfaces import (
     ExecutionResult,
     ExecutionSuccess,
     FeatureRef,
+    OperationResult,
     PhysicalProperties,
     RuntimeDiagnostics,
     StandardInspectionReport,
@@ -336,7 +337,8 @@ def test_catch_all_via_cad_error() -> None:
 
 
 def test_standard_inspection_report_dataclass() -> None:
-    """Verifies StandardInspectionReport attributes."""
+    """Verifies StandardInspectionReport attributes and fail-closed topology defaults."""
+    # Test with unmeasured/default topology counts
     report = StandardInspectionReport(
         volume_mm3=25000.5,
         mass_kg=0.195,
@@ -347,6 +349,72 @@ def test_standard_inspection_report_dataclass() -> None:
     assert report.mass_kg == 0.195
     assert report.feature_count == 12
     assert report.body_count == 1
+    assert report.solid_body_count is None
+    assert report.sheet_body_count is None
+    assert report.wire_body_count is None
+
+    # Test with explicit measured topology counts
+    measured_report = StandardInspectionReport(
+        volume_mm3=1500.0,
+        mass_kg=1.17,
+        feature_count=4,
+        body_count=1,
+        solid_body_count=1,
+        sheet_body_count=0,
+        wire_body_count=0,
+    )
+    assert measured_report.solid_body_count == 1
+    assert measured_report.sheet_body_count == 0
+    assert measured_report.wire_body_count == 0
+
+
+def test_operation_result_dataclass() -> None:
+    """Verifies OperationResult attributes, literal reference_kind, and frozen immutability."""
+    op_body = OperationResult(
+        patch_id="patch.body.1",
+        operation="ensure_primitive_body",
+        reference_id="body.main",
+        reference_kind="body",
+    )
+    assert op_body.patch_id == "patch.body.1"
+    assert op_body.operation == "ensure_primitive_body"
+    assert op_body.reference_id == "body.main"
+    assert op_body.reference_kind == "body"
+
+    op_feat = OperationResult(
+        patch_id="patch.cut_hole.1",
+        operation="cut_hole",
+        reference_id="feature.hole.1",
+        reference_kind="feature",
+    )
+    assert op_feat.reference_kind == "feature"
+
+    # Verify frozen immutability
+    with pytest.raises(AttributeError):
+        op_body.operation = "mutated"  # type: ignore[misc]
+
+
+def test_execution_success_positional_compatibility() -> None:
+    """Proves that ExecutionSuccess preserves legacy positional parameter constructor binding."""
+    # Positional instantiation with 1, 2, and 3 arguments
+    success_1 = ExecutionSuccess(5)
+    assert success_1.operations_executed == 5
+    assert success_1.exported_artifacts == []
+    assert success_1.warnings == []
+    assert success_1.operation_results == []
+    assert success_1.inspection_report is None
+
+    success_2 = ExecutionSuccess(3, ["out.par", "out.step"])
+    assert success_2.operations_executed == 3
+    assert success_2.exported_artifacts == ["out.par", "out.step"]
+    assert success_2.warnings == []
+
+    success_3 = ExecutionSuccess(2, ["part.step"], [{"code": "WARN_01", "message": "Notice"}])
+    assert success_3.operations_executed == 2
+    assert success_3.exported_artifacts == ["part.step"]
+    assert success_3.warnings == [{"code": "WARN_01", "message": "Notice"}]
+    assert success_3.operation_results == []
+    assert success_3.inspection_report is None
 
 
 def test_physical_properties_dataclass_defaults_and_custom() -> None:
@@ -404,15 +472,43 @@ def test_artifact_record_schema_compliance() -> None:
 
 
 def test_execution_result_union_polymorphism() -> None:
-    """Verifies ExecutionResult discriminated union behavior."""
+    """Verifies ExecutionResult discriminated union behavior and M3.2 fields."""
+    report = StandardInspectionReport(
+        volume_mm3=1000.0,
+        mass_kg=0.078,
+        feature_count=2,
+        body_count=1,
+    )
+    op_results = [
+        OperationResult(
+            patch_id="patch.body.1",
+            operation="ensure_primitive_body",
+            reference_id="body.main",
+            reference_kind="body",
+        ),
+        OperationResult(
+            patch_id="patch.cut_hole.1",
+            operation="cut_hole",
+            reference_id="feature.hole.1",
+            reference_kind="feature",
+        ),
+    ]
     success: ExecutionResult = ExecutionSuccess(
-        operations_executed=3,
-        exported_artifacts=["out.par", "out.step"],
+        operations_executed=2,
+        operation_results=op_results,
+        inspection_report=report,
+        exported_artifacts=[],
         warnings=[{"code": "WARN_1", "message": "Low clearance"}],
     )
     assert isinstance(success, ExecutionSuccess)
-    assert success.operations_executed == 3
-    assert len(success.exported_artifacts) == 2
+    assert success.operations_executed == 2
+    assert len(success.operation_results) == 2
+    assert success.operation_results[0].reference_id == "body.main"
+    assert success.operation_results[1].reference_id == "feature.hole.1"
+    assert success.inspection_report is not None
+    assert success.inspection_report.volume_mm3 == 1000.0
+    assert success.exported_artifacts == []
+    assert success.warnings == [{"code": "WARN_1", "message": "Low clearance"}]
 
     failure: ExecutionResult = ExecutionFailure(
         message="Failed to cut hole",

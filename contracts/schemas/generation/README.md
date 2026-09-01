@@ -2,7 +2,9 @@
 
 The `generation` domain defines the wire protocol and contract schemas used by client applications (Tauri Desktop GUI and local CLI) to request 3D parametric generation from the CAD engine.
 
-The client application owns UI/UX, user prompt entry, example plan selection, and process execution. The CAD engine owns prompt interpretation, geometric planning, Solid Edge parametric execution, and guaranteed artifact generation.
+The planned client application owns UI/UX, user prompt entry, example plan selection, and process execution. The planned application/driver path owns prompt interpretation, geometric planning, Solid Edge execution, and required artifact generation.
+
+**Status (28 August 2026):** Schemas and fixtures exist. M3.1 provides runtime/lifecycle only; the M3.2 executor, M3.3 artifact layer, and M4 generation service/launcher are not implemented. The process and output descriptions below define the target contract, not currently available end-to-end behavior.
 
 ---
 
@@ -43,7 +45,7 @@ The request schema supports two explicit variants via `oneOf`:
 - `request_id`: 1–96 characters, restricted to `^[A-Za-z0-9._-]+$`
 - `kind`: must be `"example_plan"`
 - `unit`: must be `"mm"`
-- `example_id`: verified guaranteed example identifier (`"spur_gear"`)
+- `example_id`: schema-allowed example identifier (`"spur_gear"`); live execution is not established by schema acceptance.
 - `metadata`: optional object with `source`, `label`, `job_id`
 
 > **Note on Outputs**: Generation outputs are **not** caller-selectable. Successful generation always guarantees the creation of the native Solid Edge part (`.par`), exchange geometry (`step`), and 3D print mesh (`stl`). A preview snapshot (`jpg`) is generated on a best-effort basis.
@@ -86,7 +88,7 @@ Standardized error codes:
 - `PROMPT_INTERPRETATION_FAILED` - AI adapter could not parse or lower the prompt into geometry
 - `CAD_PLAN_REJECTED` - Feature plan violates spatial containment or topology rules
 - `CAD_EXECUTION_FAILED` - Solid Edge COM kernel execution error
-- `ARTIFACT_EXPORT_FAILED` - Failure exporting required artifact (STEP, STL)
+- `ARTIFACT_EXPORT_FAILED` - Failure exporting a required artifact (`.par`, STEP, STL)
 - `OUTPUT_PATH_NOT_ALLOWED` - Output path escaped allowed directory boundary
 - `INTERNAL_ERROR` - Unhandled engine exception
 - `NATIVE_QA_BLOCKED` - Solid Edge native physical property inspection failed

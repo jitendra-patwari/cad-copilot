@@ -14,10 +14,11 @@ We are committed to providing a welcoming, inclusive, and harassment-free enviro
 
 ### Prerequisites
 - **Python**: `>=3.14.3,<3.15` (tested baseline: Python 3.14.3)
-- **Node.js**: `>=20` (Node 20 or 22 LTS)
-- **pnpm**: `>=9`
-- **Rust**: `>=1.78` (with `cargo` for Tauri v2 desktop application builds)
-- **Operating System**: Windows 10/11 x64 with Siemens Solid Edge® (CAD generation and batch automation require a local Solid Edge installation; offline geometric unit tests run cross-platform with `-m "not com"`)
+- **Node.js / pnpm**: Node.js `>=20` and pnpm `>=9` for workspace scripts; the desktop package and frontend dependencies are not yet implemented.
+- **Rust**: Not required for the current Python/runtime baseline. Tauri/Rust setup belongs to the later desktop milestone.
+- **Operating System**: Windows 10/11 x64 with licensed Siemens Solid Edge® for live COM automation. Pure geometry and contract checks do not require COM; some offline driver tests use Windows process APIs. Exclude live tests explicitly with `-m "not com"`.
+
+M3.1 runtime/lifecycle is implemented; M3.2 execution handlers, M3.3 artifacts, generation/batch launchers, and the desktop UI remain planned. See [engine status](engine/README.md).
 
 ### Initializing the Workspace
 ```powershell
@@ -25,8 +26,8 @@ We are committed to providing a welcoming, inclusive, and harassment-free enviro
 git clone https://github.com/jitendra-patwari/cad-copilot.git
 cd cad-copilot
 
-# Install Node/TypeScript frontend dependencies
-pnpm install
+# Install the current workspace lockfile (no implemented frontend package yet)
+pnpm install --frozen-lockfile
 
 # Create and activate a Python virtual environment
 python -m venv .venv
@@ -62,6 +63,8 @@ We enforce the **Conventional Commits** standard combined with **Functional Requ
 * `ci`: GitHub Actions or CI/CD workflow changes
 
 ### Standard Scopes (Domain Architecture)
+
+Scopes include planned domains; listing a scope does not mean its package or runtime is implemented.
 * `root`: Monorepo root workspace, pnpm, and top-level configs
 * `desktop`: Tauri v2 host and React 19 frontend UI
 * `engine`: Core Python engine workspace and tooling
@@ -69,8 +72,8 @@ We enforce the **Conventional Commits** standard combined with **Functional Requ
 * `geometry`: Pure deterministic geometry math, UV transforms, spur gear algorithms
 * `drivers`: Solid Edge COM automation driver
 * `ai`: Foundation model adapter and geometry plan generator
-* `ipc`: Stdio JSON-RPC protocol server for desktop bridge
-* `batch`: High-throughput batch processing and drawing publication
+* `ipc`: One-request/one-response JSON stdio boundary for the desktop bridge (no REST or JSON-RPC server)
+* `batch`: Sequential local native-file export and drawing publication
 * `contracts`: Public JSON-Schema contracts and golden fixtures
 
 ### Requirements Traceability (`<FR-ID>`)
@@ -97,9 +100,11 @@ mypy --config-file engine/mypy.ini --strict engine/src
 # Python Unit & Contract Tests (offline, non-COM)
 pytest engine/tests -m "not com"
 
-# Workspace Build Gate
+# Workspace Build Gate (runs only scripts that currently exist)
 pnpm run build
 ```
+
+A successful recursive build with `--if-present` is not evidence of a desktop build while `desktop/` is absent. Offline checks are not live COM evidence. Run `com`-marked tests only with explicit authorization and a suitable Windows/Solid Edge session; the marker alone does not exclude them from a default pytest invocation.
 
 ---
 
@@ -108,7 +113,7 @@ pnpm run build
 1. **User-Furnished Solid Edge® License**:
    * CAD Copilot does **not** provide, bypass, crack, or redistribute Siemens software licenses.
    * Live CAD execution requires the user to have a valid, legally acquired license for Siemens Solid Edge® installed locally on their Windows workstation.
-   * Pure geometry, AST lowering, contract verification, and test suites run completely offline without COM access via `-m "not com"`.
+   * Pure geometry, AST lowering, and contract verification do not require COM. Use `-m "not com"` for offline selection; this does not make Windows-specific driver/process tests portable.
 
 2. **No Proprietary Binaries**:
    * Do not commit Siemens binary files (`*.par`, `*.psm`, `*.asm`, `*.dft`), typelib headers (`*.tlb`), or SDK DLLs.

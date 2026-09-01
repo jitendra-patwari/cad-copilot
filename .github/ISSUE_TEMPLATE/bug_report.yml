@@ -23,15 +23,15 @@ body:
       options:
         - Windows 11
         - Windows 10
-        - macOS (Mock / Offline Mode)
-        - Linux (Mock / Offline Mode)
+        - macOS (Pure geometry / contract checks only)
+        - Linux (Pure geometry / contract checks only)
     validations:
       required: true
   - type: input
     id: cad_version
     attributes:
       label: Solid Edge Version
-      description: If applicable, what version of Siemens Solid Edge is installed? (or N/A for Mock Mode)
+      description: For live COM issues, provide the installed Solid Edge version/build. Use N/A for non-COM issues; CAD Copilot has no mock CAD mode.
       placeholder: "Solid Edge 2026 / N/A"
   - type: textarea
     id: description
@@ -46,10 +46,10 @@ body:
       label: Steps to Reproduce
       description: Step-by-step instructions to reproduce the issue.
       placeholder: |
-        1. Launch CAD Copilot
-        2. Enter prompt: "..."
-        3. Click "Generate"
-        4. See error
+        1. Identify the commit and affected module or test.
+        2. Provide the exact command and sanitized input.
+        3. Describe the expected and observed behavior.
+        4. For live COM issues, state whether the session was borrowed or owned.
     validations:
       required: true
   - type: textarea

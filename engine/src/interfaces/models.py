@@ -6,10 +6,20 @@ This is a pure leaf module with zero runtime or abstract class dependencies.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, NewType, TypeAlias
+from typing import Any, Literal, NewType, TypeAlias
 
 BodyRef = NewType("BodyRef", str)
 FeatureRef = NewType("FeatureRef", str)
+
+
+@dataclass(frozen=True)
+class OperationResult:
+    """Frozen record of a semantic body or feature mutation created during execution."""
+
+    patch_id: str
+    operation: str
+    reference_id: str
+    reference_kind: Literal["body", "feature"]
 
 
 @dataclass
@@ -20,6 +30,9 @@ class StandardInspectionReport:
     mass_kg: float
     feature_count: int
     body_count: int
+    solid_body_count: int | None = None
+    sheet_body_count: int | None = None
+    wire_body_count: int | None = None
 
 
 @dataclass
@@ -54,6 +67,8 @@ class ExecutionSuccess:
     operations_executed: int = 0
     exported_artifacts: list[str] = field(default_factory=list)
     warnings: list[dict[str, str]] = field(default_factory=list)
+    operation_results: list[OperationResult] = field(default_factory=list)
+    inspection_report: StandardInspectionReport | None = None
 
 
 @dataclass
@@ -88,6 +103,7 @@ __all__ = [
     "ExecutionResult",
     "ExecutionSuccess",
     "FeatureRef",
+    "OperationResult",
     "PhysicalProperties",
     "RuntimeDiagnostics",
     "StandardInspectionReport",

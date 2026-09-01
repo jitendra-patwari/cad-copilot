@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "cad-copilot-workspace"
 version = "0.1.0"
 description = "CAD Copilot root development workspace"
-readme = "README.md"
+readme = "engine/README.md"
 requires-python = ">=3.14.3,<3.15"
 
 [project.optional-dependencies]
