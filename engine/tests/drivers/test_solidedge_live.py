@@ -6,14 +6,23 @@ a licensed Siemens Solid Edge installation.
 
 from __future__ import annotations
 
+import contextlib
 import math
 import sys
 import time
 from collections.abc import Generator
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+from artifacts.pipeline import finalize_request_artifacts
+from artifacts.validation import (
+    validate_jpg_artifact,
+    validate_par_artifact,
+    validate_step_artifact,
+    validate_stl_artifact,
+)
 from drivers.solidedge import (
     OwnershipMode,
     SolidEdgePartDocumentHandle,
@@ -32,11 +41,13 @@ from drivers.solidedge.builders import (
     draw_slot_profile,
     resolve_or_create_reference_plane,
 )
+from drivers.solidedge.errors import describe_exception
 from drivers.solidedge.executor import SolidEdgeExecutor
 from drivers.solidedge.units import m3_to_mm3
 from geometry.plan_models import (
     BodyPlacement,
     CircularThroughHoleFeature,
+    CylinderBaseBody,
     FeaturePlan,
     PartMetadata,
     ProfileCutoutFeature,
@@ -47,8 +58,18 @@ from geometry.plan_models import (
     SlotThroughCutoutFeature,
     SpurGearBaseBody,
 )
-from interfaces.exceptions import CADExecutionError
-from interfaces.models import ExecutionFailure, ExecutionSuccess
+from interfaces.exceptions import (
+    CADDocumentError,
+    CADError,
+    CADExecutionError,
+    CADExportError,
+)
+from interfaces.models import (
+    ArtifactFormat,
+    ArtifactRecord,
+    ExecutionFailure,
+    ExecutionSuccess,
+)
 
 pytestmark = [pytest.mark.com]
 
@@ -885,3 +906,708 @@ def test_live_m32_08b_owned_session_graceful_lifecycle() -> None:
     finally:
         # This verification path deliberately never enables force cleanup.
         owned_runtime.teardown(force_kill_on_failure=False)
+
+
+# ---------------------------------------------------------------------------
+# M3.3 Artifact Export & Publication Live Characterization Gates
+# ---------------------------------------------------------------------------
+
+
+def test_live_m33_01_export_characterization_and_staging_rename(
+    live_runtime: SolidEdgeRuntime,
+    tmp_path: Path,
+) -> None:
+    """M33-LIVE-01: Characterize public Solid Edge export calls, identity stability, and atomic directory rename."""
+    print("\n[M33-LIVE-01] Connecting to Solid Edge for export characterization...", flush=True)
+    handle = live_runtime.connect_application()
+    assert handle is not None
+
+    diag = live_runtime.get_diagnostics()
+    assert diag.version_build is not None and len(diag.version_build) > 0
+    print(f"[M33-LIVE-01] Solid Edge Version/Build: {diag.version_build}", flush=True)
+
+    staging_dir = tmp_path / ".staging-test-req-001"
+    final_dir = tmp_path / "test-req-001"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+
+    doc_handle = live_runtime.create_part_document(handle)
+    print(f"[M33-LIVE-01] Created disposable request part document {doc_handle.handle_id}", flush=True)
+    doc_closed = False
+
+    try:
+
+        def _characterize_exports(raw_doc: Any, worker: Any) -> dict[str, Any]:
+            # Model base geometry
+            create_primitive_cuboid(raw_doc, worker, length_mm=30.0, width_mm=20.0, height_mm=10.0)
+            worker._invoke_com(lambda: raw_doc.Recompute())
+
+            initial_name = str(worker._invoke_com(lambda: getattr(raw_doc, "Name", "")))
+
+            # 1. Native PAR export via SaveCopyAs
+            par_file = staging_dir / "model.par"
+            worker._invoke_com(lambda: raw_doc.SaveCopyAs(str(par_file)))
+            name_after_par = str(worker._invoke_com(lambda: getattr(raw_doc, "Name", "")))
+
+            # 2. STEP export via SaveCopyAs
+            step_file = staging_dir / "model.step"
+            worker._invoke_com(lambda: raw_doc.SaveCopyAs(str(step_file)))
+            name_after_step = str(worker._invoke_com(lambda: getattr(raw_doc, "Name", "")))
+
+            # 3. STL export via SaveCopyAs
+            stl_file = staging_dir / "model.stl"
+            worker._invoke_com(lambda: raw_doc.SaveCopyAs(str(stl_file)))
+            name_after_stl = str(worker._invoke_com(lambda: getattr(raw_doc, "Name", "")))
+
+            # 4. Preview capture bound to request-owned document window
+            jpg_file = staging_dir / "preview.jpg"
+            preview_method = "none"
+            preview_ok = False
+            try:
+                # Resolve window strictly from the request document's own Windows collection
+                windows = worker._invoke_com(lambda: getattr(raw_doc, "Windows", None))
+                win_count = worker._invoke_com(lambda: getattr(windows, "Count", 0)) if windows is not None else 0
+                target_win = None
+                if win_count > 0:
+                    target_win = worker._invoke_com(lambda: windows.Item(1))
+                else:
+                    preview_method = "no_document_window"
+
+                if target_win is not None:
+                    view = worker._invoke_com(lambda: getattr(target_win, "View", None))
+                    if view is not None:
+                        worker._invoke_com(lambda: view.SaveAsImage(str(jpg_file), 800, 600))
+                        if jpg_file.is_file() and jpg_file.stat().st_size > 0:
+                            preview_ok = True
+                            preview_method = "request_doc_view.SaveAsImage"
+                        else:
+                            preview_method = "preview_file_missing_after_save"
+            except Exception as exc:
+                # Post-failure health probe: distinguish localized preview failure from broader fatal document loss
+                try:
+                    probe_name = worker._invoke_com(lambda: getattr(raw_doc, "Name", None))
+                    if not probe_name:
+                        raise CADDocumentError("Document unseated during preview capture", error_code="DOCUMENT_LOST")
+                except Exception as probe_exc:
+                    raise CADDocumentError(
+                        f"Fatal document loss during preview capture: {describe_exception(probe_exc)}",
+                        error_code="DOCUMENT_LOST",
+                    ) from exc
+
+                # Underlying document and worker remain healthy; failure is localized to preview API
+                preview_method = f"localized_failure: {type(exc).__name__}"
+
+            return {
+                "initial_name": initial_name,
+                "name_after_par": name_after_par,
+                "name_after_step": name_after_step,
+                "name_after_stl": name_after_stl,
+                "preview_ok": preview_ok,
+                "preview_method": preview_method,
+            }
+
+        results = live_runtime.run_document_task(doc_handle, _characterize_exports)
+        print(f"[M33-LIVE-01] Export characterization results: {results}", flush=True)
+
+        # Invariant 1: Document identity is strictly preserved (SaveCopyAs does not mutate doc name)
+        assert results["initial_name"] == results["name_after_par"]
+        assert results["initial_name"] == results["name_after_step"]
+        assert results["initial_name"] == results["name_after_stl"]
+
+        # Invariant 2: Required outputs exist and are non-empty
+        par_out = staging_dir / "model.par"
+        step_out = staging_dir / "model.step"
+        stl_out = staging_dir / "model.stl"
+
+        assert par_out.is_file() and par_out.stat().st_size > 0
+        assert step_out.is_file() and step_out.stat().st_size > 0
+        assert stl_out.is_file() and stl_out.stat().st_size > 0
+
+        # Invariant 3: STEP header contains standard ISO-10303-21 signature
+        step_text = step_out.read_text(encoding="utf-8", errors="replace")[:1024]
+        assert "ISO-10303-21" in step_text
+
+        # Invariant 4: Preview image (if supported) is a valid JPEG
+        jpg_out = staging_dir / "preview.jpg"
+        if results["preview_ok"]:
+            assert jpg_out.is_file(), "Preview was reported as OK but preview.jpg is missing from disk"
+            jpg_bytes = jpg_out.read_bytes()
+            assert len(jpg_bytes) > 0
+            assert jpg_bytes.startswith(b"\xff\xd8\xff")
+            print(f"[M33-LIVE-01] Preview snapshot verified: {len(jpg_bytes)} bytes", flush=True)
+
+        # Invariant 5: Terminal close releases all COM locks
+        print("[M33-LIVE-01] Closing request document to release file handles...", flush=True)
+        live_runtime.close_document(doc_handle)
+        doc_closed = True
+
+        # Invariant 6: Atomic directory rename succeeds cleanly without Windows locking errors
+        print(f"[M33-LIVE-01] Renaming staging directory {staging_dir.name} -> {final_dir.name}...", flush=True)
+        staging_dir.rename(final_dir)
+        assert final_dir.is_dir()
+        assert not staging_dir.exists()
+        assert (final_dir / "model.par").is_file()
+        assert (final_dir / "model.step").is_file()
+        assert (final_dir / "model.stl").is_file()
+
+        # Invariant 7: Artifact outputs satisfy Step 4 strict validators
+        print("[M33-LIVE-01] Validating published artifacts with Step 4 validators...", flush=True)
+        step_size = validate_step_artifact(final_dir / "model.step")
+        stl_size = validate_stl_artifact(final_dir / "model.stl")
+        assert step_size > 0
+        assert stl_size > 0
+        if (final_dir / "preview.jpg").exists():
+            jpg_size = validate_jpg_artifact(final_dir / "preview.jpg")
+            assert jpg_size > 0
+        print(
+            f"[M33-LIVE-01] Artifact validation passed! step={step_size}B, stl={stl_size}B. Characterization complete.",
+            flush=True,
+        )
+
+    finally:
+        if not doc_closed:
+            with contextlib.suppress(Exception):
+                live_runtime.close_document(doc_handle)
+
+
+# ---------------------------------------------------------------------------
+# M3.3 Step 8: End-to-End Pipeline Smoke Matrix & Failure Gates
+# ---------------------------------------------------------------------------
+
+
+def _make_cuboid_plan(req_id: str) -> FeaturePlan:
+    return FeaturePlan(
+        plan_version="cad_copilot.single_part_feature_plan.v1",
+        request_id=req_id,
+        part=PartMetadata(part_id="part.smoke.cuboid", design_intent="live smoke cuboid"),
+        base_body=RectangularBaseBody(
+            id="body.cuboid",
+            length_mm=40.0,
+            width_mm=30.0,
+            thickness_mm=10.0,
+        ),
+        primitive_bodies=(
+            RectangularBaseBody(
+                id="body.cuboid",
+                length_mm=40.0,
+                width_mm=30.0,
+                thickness_mm=10.0,
+            ),
+        ),
+    )
+
+
+def _make_cylinder_plan(req_id: str) -> FeaturePlan:
+    return FeaturePlan(
+        plan_version="cad_copilot.single_part_feature_plan.v1",
+        request_id=req_id,
+        part=PartMetadata(part_id="part.smoke.cylinder", design_intent="live smoke cylinder"),
+        base_body=CylinderBaseBody(
+            id="body.cylinder",
+            radius_mm=15.0,
+            height_mm=30.0,
+        ),
+        primitive_bodies=(
+            CylinderBaseBody(
+                id="body.cylinder",
+                radius_mm=15.0,
+                height_mm=30.0,
+            ),
+        ),
+    )
+
+
+def _make_plate_cut_plan(req_id: str) -> FeaturePlan:
+    return FeaturePlan(
+        plan_version="cad_copilot.single_part_feature_plan.v1",
+        request_id=req_id,
+        part=PartMetadata(part_id="part.smoke.plate_cut", design_intent="live smoke plate cut"),
+        base_body=RectangularBaseBody(
+            id="body.main",
+            length_mm=60.0,
+            width_mm=40.0,
+            thickness_mm=15.0,
+        ),
+        primitive_bodies=(
+            RectangularBaseBody(
+                id="body.main",
+                length_mm=60.0,
+                width_mm=40.0,
+                thickness_mm=15.0,
+            ),
+        ),
+        features=(
+            CircularThroughHoleFeature(
+                id="feat.hole",
+                target_body_id="body.main",
+                diameter_mm=12.0,
+                center_x_mm=0.0,
+                center_y_mm=0.0,
+                target_face="+Z",
+            ),
+        ),
+    )
+
+
+def _make_sequential_plan(req_id: str) -> FeaturePlan:
+    return FeaturePlan(
+        plan_version="cad_copilot.single_part_feature_plan.v1",
+        request_id=req_id,
+        part=PartMetadata(part_id="part.smoke.seq", design_intent="live smoke sequential"),
+        base_body=RectangularBaseBody(
+            id="body.main",
+            length_mm=100.0,
+            width_mm=80.0,
+            thickness_mm=30.0,
+        ),
+        primitive_bodies=(
+            RectangularBaseBody(
+                id="body.main",
+                length_mm=100.0,
+                width_mm=80.0,
+                thickness_mm=30.0,
+            ),
+        ),
+        features=(
+            CircularThroughHoleFeature(
+                id="feat.hole",
+                diameter_mm=12.0,
+                center_x_mm=-25.0,
+                center_y_mm=0.0,
+                target_face="+Z",
+            ),
+            RectangularThroughCutoutFeature(
+                id="feat.rect_cut",
+                width_mm=16.0,
+                height_mm=16.0,
+                center_x_mm=0.0,
+                center_y_mm=15.0,
+                target_face="+Z",
+            ),
+            SlotThroughCutoutFeature(
+                id="feat.slot_cut",
+                length_mm=20.0,
+                width_mm=8.0,
+                center_x_mm=0.0,
+                center_y_mm=-15.0,
+                target_face="+Z",
+            ),
+            RectangularExtrudedPadFeature(
+                id="feat.pad",
+                width_mm=20.0,
+                height_mm=20.0,
+                distance_mm=10.0,
+                center_x_mm=25.0,
+                center_y_mm=0.0,
+                target_face="+Z",
+            ),
+        ),
+    )
+
+
+def _make_gear_plan(req_id: str) -> FeaturePlan:
+    return FeaturePlan(
+        plan_version="cad_copilot.single_part_feature_plan.v1",
+        request_id=req_id,
+        part=PartMetadata(part_id="part.smoke.gear", design_intent="live smoke gear"),
+        base_body=SpurGearBaseBody(
+            id="body.gear",
+            tooth_count=24,
+            module_mm=2.0,
+            face_width_mm=15.0,
+            pressure_angle_deg=20.0,
+            bore_diameter_mm=12.0,
+            placement=BodyPlacement(x_mm=0.0, y_mm=0.0, z_mm=0.0),
+        ),
+        primitive_bodies=(
+            SpurGearBaseBody(
+                id="body.gear",
+                tooth_count=24,
+                module_mm=2.0,
+                face_width_mm=15.0,
+                pressure_angle_deg=20.0,
+                bore_diameter_mm=12.0,
+                placement=BodyPlacement(x_mm=0.0, y_mm=0.0, z_mm=0.0),
+            ),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("case_id", "plan_factory"),
+    [
+        ("cuboid", _make_cuboid_plan),
+        ("cylinder", _make_cylinder_plan),
+        ("plate_cut", _make_plate_cut_plan),
+        ("sequential", _make_sequential_plan),
+        ("gear", _make_gear_plan),
+    ],
+)
+def test_live_m33_02_pipeline_end_to_end_smoke_matrix(
+    live_runtime: SolidEdgeRuntime,
+    tmp_path: Path,
+    case_id: str,
+    plan_factory: Any,
+) -> None:
+    """M33-LIVE-02: End-to-end smoke matrix verifying pipeline finalization across 5 representative geometries."""
+    app_handle = live_runtime.connect_application()
+    diag = live_runtime.get_diagnostics()
+    req_id = f"req-live-{case_id}"
+    print(f"\n[M33-LIVE-02] Case '{case_id}' on Solid Edge {diag.version_build} (req_id={req_id})", flush=True)
+
+    plan = plan_factory(req_id)
+    doc_handle = live_runtime.create_part_document(app_handle)
+    executor = SolidEdgeExecutor(live_runtime, doc_handle)
+
+    # 1. Execute plan with authoritative inspection
+    exec_result = executor.execute_feature_plan(plan)
+    assert isinstance(exec_result, ExecutionSuccess), f"Execution failed: {exec_result}"
+    assert exec_result.inspection_report is not None
+    assert exec_result.inspection_report.solid_body_count == 1
+    assert exec_result.inspection_report.sheet_body_count == 0
+    assert exec_result.inspection_report.wire_body_count == 0
+    assert exec_result.inspection_report.volume_mm3 > 0.0
+
+    # 2. Finalize request artifacts
+    final_result = finalize_request_artifacts(
+        executor=executor,
+        success_result=exec_result,
+        output_root=tmp_path,
+        request_id=req_id,
+    )
+    assert isinstance(final_result, ExecutionSuccess)
+
+    # 3. Invariant: Terminal release consumed the handle
+    assert executor._doc_handle is None
+    assert doc_handle.handle_id not in live_runtime._open_document_handles
+
+    # 4. Invariant: Published directory exists and staging directory is unlinked
+    request_dir = tmp_path / req_id
+    assert request_dir.is_dir()
+    staging_dirs = list(tmp_path.glob(f".staging-{req_id}-*"))
+    assert len(staging_dirs) == 0, f"Found lingering staging directories: {staging_dirs}"
+
+    # 5. Invariant: Required on-disk files exist and are non-empty
+    par_file = request_dir / f"{req_id}.par"
+    step_file = request_dir / f"{req_id}.step"
+    stl_file = request_dir / f"{req_id}.stl"
+    jpg_file = request_dir / f"{req_id}.jpg"
+
+    assert par_file.is_file() and par_file.stat().st_size > 0
+    assert step_file.is_file() and step_file.stat().st_size > 0
+    assert stl_file.is_file() and stl_file.stat().st_size > 0
+
+    # 6. Invariant: Artifacts satisfy Step 4 strict validators
+    assert validate_par_artifact(par_file, final_result.inspection_report) == par_file.stat().st_size
+    step_size = validate_step_artifact(step_file)
+    assert step_size == step_file.stat().st_size
+    stl_size = validate_stl_artifact(stl_file)
+    assert stl_size == stl_file.stat().st_size
+
+    step_text = step_file.read_text(encoding="utf-8", errors="replace")[:1024]
+    assert "ISO-10303-21" in step_text
+
+    # 7. Check preview status
+    if jpg_file.exists():
+        jpg_size = validate_jpg_artifact(jpg_file)
+        assert jpg_size == jpg_file.stat().st_size
+        assert any(a.format == "jpg" for a in final_result.exported_artifacts)
+        print(f"[M33-LIVE-02] Case '{case_id}': preview.jpg validated ({jpg_size}B)", flush=True)
+    else:
+        assert any(
+            w.get("code") == "PREVIEW_EXPORT_FAILED" or "PREVIEW_EXPORT_FAILED" in str(w) for w in final_result.warnings
+        )
+        print(f"[M33-LIVE-02] Case '{case_id}': preview skipped with warning", flush=True)
+
+    # 8. Invariant: Exported artifact records match disk exactly
+    formats = [a.format for a in final_result.exported_artifacts]
+    assert formats[:3] == ["par", "step", "stl"]
+
+    for record in final_result.exported_artifacts:
+        assert isinstance(record, ArtifactRecord)
+        expected_path = request_dir / f"{req_id}.{record.format}"
+        assert Path(record.path) == expected_path
+        assert record.size_bytes == expected_path.stat().st_size
+        assert record.sha256 is not None and len(record.sha256) == 64
+        assert record.origin == "cad_copilot"
+
+
+def test_live_m33_03_reopen_exported_par_smoke_gate(
+    live_runtime: SolidEdgeRuntime,
+    tmp_path: Path,
+) -> None:
+    """M33-LIVE-03: Independently reopen exported native .par in Solid Edge to prove valid geometry."""
+    app_handle = live_runtime.connect_application()
+    diag = live_runtime.get_diagnostics()
+    print(f"\n[M33-LIVE-03] Reopening exported .par on Solid Edge {diag.version_build}...", flush=True)
+
+    req_id = "req-live-reopen-par"
+    doc_handle = live_runtime.create_part_document(app_handle)
+    executor = SolidEdgeExecutor(live_runtime, doc_handle)
+    plan = _make_cuboid_plan(req_id)
+    exec_res = executor.execute_feature_plan(plan)
+    assert isinstance(exec_res, ExecutionSuccess)
+
+    final_res = finalize_request_artifacts(executor, exec_res, tmp_path, req_id)
+    assert isinstance(final_res, ExecutionSuccess)
+    par_file = tmp_path / req_id / f"{req_id}.par"
+    assert par_file.is_file()
+
+    # Independently open the exported .par file
+    opened_handle = live_runtime.open_document(app_handle, par_file)
+    assert opened_handle is not None
+    assert opened_handle.handle_id in live_runtime._open_document_handles
+
+    try:
+        worker = live_runtime._ensure_worker()
+        raw_doc = worker._document_registry[opened_handle.handle_id]
+
+        def _inspect_opened() -> dict[str, Any]:
+            name = str(worker._invoke_com(lambda: getattr(raw_doc, "Name", "")))
+            mode = int(worker._invoke_com(lambda: getattr(raw_doc, "ModelingMode", 0)))
+            models_col = worker._invoke_com(lambda: getattr(raw_doc, "Models", None))
+            models_count = worker._invoke_com(lambda: getattr(models_col, "Count", 0)) if models_col else 0
+            return {"name": name, "mode": mode, "models_count": models_count}
+
+        doc_info = worker.call(_inspect_opened, timeout=10.0)
+        print(f"[M33-LIVE-03] Reopened document verified: {doc_info}", flush=True)
+        assert f"{req_id}.par".lower() in doc_info["name"].lower()
+        assert doc_info["mode"] == 2  # Ordered mode
+        assert doc_info["models_count"] == 1  # 1 solid model
+    finally:
+        live_runtime.close_document(opened_handle)
+        assert opened_handle.handle_id not in live_runtime._open_document_handles
+
+
+def test_live_m33_04_borrowed_session_isolation_and_unrelated_document_preservation(
+    live_runtime: SolidEdgeRuntime,
+    tmp_path: Path,
+) -> None:
+    """M33-LIVE-04: Verify artifact finalization in borrowed session preserves unrelated document and application process."""
+    print("\n[M33-LIVE-04] Setting up independent application and unrelated document...", flush=True)
+    setup_runtime = SolidEdgeRuntime()
+    try:
+        setup_handle = setup_runtime.connect_application()
+        if setup_handle.ownership != OwnershipMode.OWNED:
+            pytest.skip("Self-contained borrowed-isolation test requires no pre-existing Solid Edge session")
+        assert setup_handle.process_identity is not None
+        pid = setup_handle.process_identity.pid
+
+        # Create unrelated document in setup session
+        doc_unrelated = setup_runtime.create_part_document(setup_handle)
+
+        def _probe_unrelated(raw_doc: Any, worker: Any) -> dict[str, Any]:
+            return {
+                "name": str(worker._invoke_com(lambda: getattr(raw_doc, "Name", ""))),
+                "mode": int(worker._invoke_com(lambda: getattr(raw_doc, "ModelingMode", 0))),
+            }
+
+        before = setup_runtime.run_document_task(doc_unrelated, _probe_unrelated)
+        assert before["name"]
+        assert before["mode"] == 2
+
+        # Connect live_runtime as borrowed
+        handle = live_runtime.connect_application()
+        assert handle.ownership == OwnershipMode.BORROWED
+        assert handle.process_identity is not None
+        assert handle.process_identity.pid == pid
+        assert doc_unrelated.handle_id not in live_runtime._open_document_handles
+
+        # Run full artifact pipeline on request document
+        req_id = "req-live-borrowed-01"
+        doc_request = live_runtime.create_part_document(handle)
+        executor = SolidEdgeExecutor(live_runtime, doc_request)
+        plan = _make_cuboid_plan(req_id)
+        exec_res = executor.execute_feature_plan(plan)
+        assert isinstance(exec_res, ExecutionSuccess)
+
+        final_res = finalize_request_artifacts(executor, exec_res, tmp_path, req_id)
+        assert isinstance(final_res, ExecutionSuccess)
+        assert (tmp_path / req_id / f"{req_id}.par").is_file()
+
+        # Teardown live_runtime (borrowed session)
+        live_runtime.teardown(force_kill_on_failure=False)
+
+        # Verify borrowed process and unrelated document survived intact
+        assert is_process_alive(pid)
+        after = setup_runtime.run_document_task(doc_unrelated, _probe_unrelated)
+        assert after == before
+        setup_runtime.close_document(doc_unrelated)
+        print(
+            f"[M33-LIVE-04] Borrowed session PID {pid} and unrelated document {before['name']} preserved after artifact finalization.",
+            flush=True,
+        )
+    finally:
+        live_runtime.teardown(force_kill_on_failure=False)
+        setup_runtime.teardown(force_kill_on_failure=False)
+
+
+def test_live_m33_05_owned_session_graceful_lifecycle(tmp_path: Path) -> None:
+    """M33-LIVE-05: Verify owned session lifecycle performs graceful shutdown without force kill after artifact finalization."""
+    print("\n[M33-LIVE-05] Connecting owned session for artifact finalization...", flush=True)
+    owned_runtime = SolidEdgeRuntime()
+    try:
+        handle = owned_runtime.connect_application()
+        assert handle.process_identity is not None
+        pid = handle.process_identity.pid
+
+        if handle.ownership != OwnershipMode.OWNED:
+            pytest.skip(f"Test requires an owned session; active borrowed session detected (PID {pid})")
+
+        req_id = "req-live-owned-01"
+        doc_handle = owned_runtime.create_part_document(handle)
+        executor = SolidEdgeExecutor(owned_runtime, doc_handle)
+        plan = _make_cuboid_plan(req_id)
+        exec_res = executor.execute_feature_plan(plan)
+        assert isinstance(exec_res, ExecutionSuccess)
+
+        final_res = finalize_request_artifacts(executor, exec_res, tmp_path, req_id)
+        assert isinstance(final_res, ExecutionSuccess)
+        assert (tmp_path / req_id / f"{req_id}.par").is_file()
+
+        print(f"[M33-LIVE-05] Owned session PID {pid}. Executing graceful teardown...", flush=True)
+        owned_runtime.teardown(force_kill_on_failure=False)
+        time.sleep(1.0)
+        assert not is_process_alive(pid)
+        print(f"[M33-LIVE-05] Owned session PID {pid} gracefully terminated without force kill.", flush=True)
+    finally:
+        owned_runtime.teardown(force_kill_on_failure=False)
+
+
+def test_live_m33_06_induced_required_export_failure(
+    live_runtime: SolidEdgeRuntime,
+    tmp_path: Path,
+) -> None:
+    """M33-LIVE-06: Verify current-session recovery after an induced executor export failure."""
+    app_handle = live_runtime.connect_application()
+    diag = live_runtime.get_diagnostics()
+    print(f"\n[M33-LIVE-06] Inducing export failure on Solid Edge {diag.version_build}...", flush=True)
+
+    class InducedFailingExportExecutor(SolidEdgeExecutor):
+        def export_model(self, format_id: ArtifactFormat, output_path: Path) -> None:
+            if format_id == "step":
+                raise CADExportError("Induced failure during live STEP export", error_code="ARTIFACT_EXPORT_FAILED")
+            super().export_model(format_id, output_path)
+
+    req_id = "req-live-fail-step"
+    doc_handle = live_runtime.create_part_document(app_handle)
+    executor = InducedFailingExportExecutor(live_runtime, doc_handle)
+    plan = _make_cuboid_plan(req_id)
+    exec_res = executor.execute_feature_plan(plan)
+    assert isinstance(exec_res, ExecutionSuccess)
+
+    with pytest.raises(CADExportError) as exc_info:
+        finalize_request_artifacts(executor, exec_res, tmp_path, req_id)
+
+    assert "Induced failure during live STEP export" in str(exc_info.value)
+    assert exc_info.value.error_code == "ARTIFACT_EXPORT_FAILED"
+
+    # Verify no final directory was created
+    final_dir = tmp_path / req_id
+    assert not final_dir.exists()
+
+    # Verify staging directories were cleaned up
+    staging_dirs = list(tmp_path.glob(f".staging-{req_id}-*"))
+    assert len(staging_dirs) == 0
+
+    # Verify document was cleanly closed
+    assert executor._doc_handle is None
+    assert doc_handle.handle_id not in live_runtime._open_document_handles
+
+    # Verify subsequent request succeeds on the same live session
+    next_req_id = "req-live-after-fail"
+    next_doc_handle = live_runtime.create_part_document(app_handle)
+    next_executor = SolidEdgeExecutor(live_runtime, next_doc_handle)
+    next_plan = _make_cuboid_plan(next_req_id)
+    next_exec_res = next_executor.execute_feature_plan(next_plan)
+    assert isinstance(next_exec_res, ExecutionSuccess)
+    next_final_res = finalize_request_artifacts(next_executor, next_exec_res, tmp_path, next_req_id)
+    assert isinstance(next_final_res, ExecutionSuccess)
+    assert (tmp_path / next_req_id / f"{next_req_id}.par").is_file()
+    print("[M33-LIVE-06] Session remained healthy and successfully finalized subsequent request.", flush=True)
+
+
+def test_live_m33_07_induced_preview_failure_graceful_degradation(
+    live_runtime: SolidEdgeRuntime,
+    tmp_path: Path,
+) -> None:
+    """M33-LIVE-07: Verify graceful degradation and warning retention under an induced executor preview failure."""
+    app_handle = live_runtime.connect_application()
+    diag = live_runtime.get_diagnostics()
+    print(f"\n[M33-LIVE-07] Inducing preview failure on Solid Edge {diag.version_build}...", flush=True)
+
+    class InducedFailingPreviewExecutor(SolidEdgeExecutor):
+        def capture_preview(self, output_path: Path, width: int = 800, height: int = 600) -> None:
+            raise CADExportError("Induced localized preview failure", error_code="PREVIEW_EXPORT_FAILED")
+
+    req_id = "req-live-fail-preview"
+    doc_handle = live_runtime.create_part_document(app_handle)
+    executor = InducedFailingPreviewExecutor(live_runtime, doc_handle)
+    plan = _make_cuboid_plan(req_id)
+    exec_res = executor.execute_feature_plan(plan)
+    assert isinstance(exec_res, ExecutionSuccess)
+
+    final_res = finalize_request_artifacts(executor, exec_res, tmp_path, req_id)
+    assert isinstance(final_res, ExecutionSuccess)
+
+    # Required artifacts must exist
+    final_dir = tmp_path / req_id
+    assert final_dir.is_dir()
+    assert (final_dir / f"{req_id}.par").is_file()
+    assert (final_dir / f"{req_id}.step").is_file()
+    assert (final_dir / f"{req_id}.stl").is_file()
+    assert not (final_dir / f"{req_id}.jpg").exists()
+
+    # Warning must be retained
+    assert any(
+        w.get("code") == "PREVIEW_EXPORT_FAILED" or "PREVIEW_EXPORT_FAILED" in str(w) for w in final_res.warnings
+    )
+
+    # Artifact records must only include par, step, stl (no jpg)
+    formats = [a.format for a in final_res.exported_artifacts]
+    assert formats == ["par", "step", "stl"]
+
+    # Document must be closed
+    assert executor._doc_handle is None
+    print("[M33-LIVE-07] Degradation verified: required artifacts published, preview warning retained.", flush=True)
+
+
+def test_live_m33_08_publication_collision_rejection(
+    live_runtime: SolidEdgeRuntime,
+    tmp_path: Path,
+) -> None:
+    """M33-LIVE-08: Verify preflight collision rejection with a pre-existing target directory leaves content untouched."""
+    app_handle = live_runtime.connect_application()
+    diag = live_runtime.get_diagnostics()
+    print(f"\n[M33-LIVE-08] Testing target collision on Solid Edge {diag.version_build}...", flush=True)
+
+    req_id = "req-live-collision"
+    final_dir = tmp_path / req_id
+    final_dir.mkdir(parents=True, exist_ok=True)
+    sentinel_file = final_dir / "pre_existing.txt"
+    sentinel_content = "ORIGINAL_CONTENT_PRESERVED"
+    sentinel_file.write_text(sentinel_content, encoding="utf-8")
+
+    doc_handle = live_runtime.create_part_document(app_handle)
+    executor = SolidEdgeExecutor(live_runtime, doc_handle)
+    plan = _make_cuboid_plan(req_id)
+    exec_res = executor.execute_feature_plan(plan)
+    assert isinstance(exec_res, ExecutionSuccess)
+
+    with pytest.raises(CADError) as exc_info:
+        finalize_request_artifacts(executor, exec_res, tmp_path, req_id)
+
+    assert exc_info.value.error_code == "TARGET_ALREADY_EXISTS"
+
+    # Verify sentinel file remains completely intact
+    assert sentinel_file.is_file()
+    assert sentinel_file.read_text(encoding="utf-8") == sentinel_content
+
+    # Verify no CAD models were written into final_dir
+    assert not (final_dir / f"{req_id}.par").exists()
+    assert not (final_dir / f"{req_id}.step").exists()
+    assert not (final_dir / f"{req_id}.stl").exists()
+
+    # Verify document was cleanly closed
+    assert executor._doc_handle is None
+    assert doc_handle.handle_id not in live_runtime._open_document_handles
+    print("[M33-LIVE-08] Collision rejected: pre-existing content untouched, document cleanly released.", flush=True)

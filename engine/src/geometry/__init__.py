@@ -48,7 +48,6 @@ from geometry.plan_lowering import (
 from geometry.plan_models import (
     CANONICAL_PLAN_VERSION,
     DEFAULT_EDGE_MARGIN_MM,
-    ArtifactPolicy,
     BodyPlacement,
     BooleanOperation,
     BooleanOperationFamily,
@@ -137,7 +136,6 @@ __all__ = [
     "MAX_STEP_TEXT_CHARS",
     "MAX_SWEEP_CROSS_SECTIONS",
     "MAX_UNIT_DECL_CHARS",
-    "ArtifactPolicy",
     "BodyPlacement",
     "BooleanOperation",
     "BooleanOperationFamily",

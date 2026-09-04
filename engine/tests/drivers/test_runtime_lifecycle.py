@@ -6,6 +6,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -515,3 +516,74 @@ def test_create_part_document_retains_tracking_for_teardown_when_immediate_close
         assert created_doc.closed_save_arg is False
         assert created_doc.close_attempt_count == 2
         assert len(runtime._open_document_handles) == 0
+
+
+def test_connect_application_captures_version_unavailable_warning() -> None:
+    """Proves that missing Version property records a sanitized diagnostic warning without failing connection."""
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp()
+    mock_app.Version = None  # type: ignore[assignment]
+
+    with patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules:
+        mock_win32_client = MagicMock()
+        mock_win32_client.GetActiveObject.return_value = mock_app
+        mock_modules.return_value = (None, mock_win32_client)
+
+        app_handle = runtime.connect_application()
+        assert app_handle.version_build is None
+        assert len(app_handle.warnings) == 1
+        assert app_handle.warnings[0]["code"] == "VERSION_METADATA_UNAVAILABLE"
+
+        diag = runtime.get_diagnostics()
+        assert diag.version_build is None
+        assert len(diag.warnings) == 1
+        assert diag.warnings[0]["code"] == "VERSION_METADATA_UNAVAILABLE"
+        assert diag.is_healthy is True
+
+        runtime.teardown()
+
+
+def test_connect_application_captures_version_exception_warning() -> None:
+    """Proves that an exception while reading Version property records a sanitized warning and connects safely."""
+    runtime = SolidEdgeRuntime()
+
+    class ExceptionVersionApp(MockSolidEdgeApp):
+        @property
+        def Version(self) -> str:
+            raise RuntimeError("C:\\Secret\\Path\\COM Version call failed (0x80004005)")
+
+        @Version.setter
+        def Version(self, val: Any) -> None:
+            pass
+
+    mock_app = ExceptionVersionApp()
+
+    with patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules:
+        mock_win32_client = MagicMock()
+        mock_win32_client.GetActiveObject.return_value = mock_app
+        mock_modules.return_value = (None, mock_win32_client)
+
+        app_handle = runtime.connect_application()
+        assert app_handle.version_build is None
+        assert len(app_handle.warnings) == 1
+        assert app_handle.warnings[0]["code"] == "VERSION_METADATA_UNAVAILABLE"
+        # Invariant: Exception details are masked and sanitized
+        assert "Secret" not in app_handle.warnings[0]["message"]
+        assert "0x80004005" not in app_handle.warnings[0]["message"]
+
+        diag = runtime.get_diagnostics()
+        assert len(diag.warnings) == 1
+        assert diag.warnings[0]["code"] == "VERSION_METADATA_UNAVAILABLE"
+        assert diag.is_healthy is True
+
+        runtime.teardown()
+
+
+def test_close_document_raises_when_runtime_is_poisoned() -> None:
+    """Proves that close_document immediately raises CADRuntimeError when runtime is poisoned without re-entering COM."""
+    runtime = SolidEdgeRuntime()
+    runtime._is_poisoned = True
+
+    handle = SolidEdgePartDocumentHandle(handle_id="test-handle-id")
+    with pytest.raises(CADRuntimeError, match="runtime is poisoned"):
+        runtime.close_document(handle)

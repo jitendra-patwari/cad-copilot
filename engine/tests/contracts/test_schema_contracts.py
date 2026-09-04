@@ -102,7 +102,7 @@ def test_generation_response_fixtures_conformance() -> None:
     fixtures_dir = SCHEMAS_ROOT / "generation" / "fixtures"
 
     response_fixtures = list(fixtures_dir.glob("*.response.json"))
-    assert len(response_fixtures) == 4, f"Expected exactly 4 response fixtures, found {len(response_fixtures)}"
+    assert len(response_fixtures) == 5, f"Expected exactly 5 response fixtures, found {len(response_fixtures)}"
 
     for fixture_path in response_fixtures:
         payload = _load_json(fixture_path)
@@ -176,6 +176,41 @@ def test_generation_response_schema_rejects_invalid_artifact_combinations() -> N
     }
     with pytest.raises(jsonschema.ValidationError):
         validator.validate(missing_par)
+
+
+def test_generation_response_schema_rejects_unrecognized_error_codes() -> None:
+    """Proves that generation-response schema rejects arbitrary error codes and accepts all valid taxonomy codes."""
+    res_schema = _load_json(SCHEMAS_ROOT / "generation" / "generation-response.schema.json")
+    validator = Draft202012Validator(res_schema)
+
+    # Valid failure payload with TARGET_ALREADY_EXISTS
+    valid_payload = {
+        "contract_version": "1.0",
+        "request_id": "test-req-err-01",
+        "status": "failed",
+        "errors": [
+            {
+                "code": "TARGET_ALREADY_EXISTS",
+                "message": "Output destination already exists.",
+            }
+        ],
+    }
+    validator.validate(valid_payload)
+
+    # Invalid payload with unknown error code -> Must raise ValidationError
+    invalid_payload = {
+        "contract_version": "1.0",
+        "request_id": "test-req-err-02",
+        "status": "failed",
+        "errors": [
+            {
+                "code": "ARBITRARY_UNKNOWN_ERROR",
+                "message": "Some error.",
+            }
+        ],
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(invalid_payload)
 
 
 # ---------------------------------------------------------------------------

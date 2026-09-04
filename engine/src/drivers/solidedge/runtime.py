@@ -51,9 +51,9 @@ from .types import (
 
 DEFAULT_ATTACH_TIMEOUT: float = 30.0
 
-DEFAULT_DOC_CLOSE_TIMEOUT: float = 3.0
-DEFAULT_QUIT_TIMEOUT: float = 5.0
-DEFAULT_EXIT_POLL_TIMEOUT: float = 5.0
+DEFAULT_DOC_CLOSE_TIMEOUT: float = 10.0
+DEFAULT_QUIT_TIMEOUT: float = 10.0
+DEFAULT_EXIT_POLL_TIMEOUT: float = 10.0
 
 T = TypeVar("T")
 
@@ -169,6 +169,11 @@ class STAThreadWorker(threading.Thread):
                 if not future.cancelled():
                     try:
                         normalized = normalize_com_error(exc)
+                        # Detach raw exception chains, traceback, and worker frames across the STA boundary (SEC-07)
+                        normalized.__cause__ = None
+                        normalized.__context__ = None
+                        normalized.__suppress_context__ = True
+                        normalized.__traceback__ = None
                         future.set_exception(normalized)
                     except Exception:
                         pass
@@ -349,12 +354,25 @@ class SolidEdgeRuntime(CADRuntimeABC):
                     identity = get_process_identity(process_id)
 
             version_build: str | None = None
+            connection_warnings: list[dict[str, str]] = []
             try:
                 version_raw = worker._invoke_com(lambda: getattr(raw_app, "Version", None))
-                if version_raw is not None:
-                    version_build = str(version_raw)
-            except Exception:
-                pass
+                if version_raw is not None and str(version_raw).strip():
+                    version_build = str(version_raw).strip()
+                else:
+                    connection_warnings.append(
+                        {
+                            "code": "VERSION_METADATA_UNAVAILABLE",
+                            "message": "Solid Edge application did not report a valid Version property.",
+                        }
+                    )
+            except Exception as ver_exc:
+                connection_warnings.append(
+                    {
+                        "code": "VERSION_METADATA_UNAVAILABLE",
+                        "message": describe_exception(ver_exc, "Failed to read Solid Edge version property"),
+                    }
+                )
 
             worker._raw_app = raw_app
             app_handle = SolidEdgeApplicationHandle(
@@ -363,6 +381,7 @@ class SolidEdgeRuntime(CADRuntimeABC):
                 attachment_mode=attachment_mode,
                 process_identity=identity,
                 version_build=version_build,
+                warnings=tuple(connection_warnings),
             )
             return app_handle
 
@@ -410,6 +429,7 @@ class SolidEdgeRuntime(CADRuntimeABC):
             process_id=pid,
             version_build=version_str,
             is_healthy=is_healthy,
+            warnings=list(self._application.warnings),
         )
 
     def create_part_document(self, application: Any) -> SolidEdgePartDocumentHandle:
@@ -483,6 +503,9 @@ class SolidEdgeRuntime(CADRuntimeABC):
         if not hasattr(doc_handle, "handle_id"):
             return
 
+        if self._is_poisoned:
+            raise CADRuntimeError("Cannot close document: Solid Edge runtime is poisoned from a prior timeout")
+
         handle_id: str = doc_handle.handle_id
         worker = self._ensure_worker()
 
@@ -499,7 +522,7 @@ class SolidEdgeRuntime(CADRuntimeABC):
         except Exception as exc:
             if isinstance(exc, TimeoutError):
                 self._is_poisoned = True
-            describe_exception(exc, f"Error closing document handle {handle_id}")
+            describe_exception(exc, "Error closing document")
             raise
 
     def run_document_task(
@@ -541,7 +564,7 @@ class SolidEdgeRuntime(CADRuntimeABC):
 
         tracked_handle = self._open_document_handles.get(doc_handle.handle_id)
         if tracked_handle is None:
-            raise CADDocumentError(f"Untracked or closed document handle: {doc_handle.handle_id}")
+            raise CADDocumentError("Untracked or closed document handle", error_code="DOCUMENT_LOST")
 
         if not isinstance(tracked_handle, SolidEdgePartDocumentHandle):
             tracked_type = type(tracked_handle).__name__
@@ -554,7 +577,7 @@ class SolidEdgeRuntime(CADRuntimeABC):
         def _wrapped_task() -> T:
             raw_doc = worker._document_registry.get(handle_id)
             if raw_doc is None:
-                raise CADDocumentError(f"Document object not found in STA worker registry for handle {handle_id}")
+                raise CADDocumentError("Document object not found in STA worker registry", error_code="DOCUMENT_LOST")
             result = task(raw_doc, worker)
             _validate_pure_task_result(result, raw_doc, worker)
             return result
@@ -564,10 +587,10 @@ class SolidEdgeRuntime(CADRuntimeABC):
         except TimeoutError:
             self._is_poisoned = True
             describe_exception(
-                TimeoutError(f"Document task timed out after {timeout}s on handle {handle_id}"),
-                "Document task timeout",
+                TimeoutError(f"Document task timed out after {timeout}s"),
+                "Document task timed out fail-closed",
             )
-            raise
+            raise TimeoutError(f"Document task timed out after {timeout}s") from None
 
     def is_healthy(self) -> bool:
         """Check if the CAD runtime is alive and responsive."""
@@ -609,7 +632,7 @@ class SolidEdgeRuntime(CADRuntimeABC):
 
                     worker.call(_close_doc, timeout=DEFAULT_DOC_CLOSE_TIMEOUT)
                 except Exception as close_exc:
-                    describe_exception(close_exc, f"Teardown document close timeout/error on {handle_id}")
+                    describe_exception(close_exc, "Teardown document close timeout/error")
                     self._is_poisoned = True
                     break
 

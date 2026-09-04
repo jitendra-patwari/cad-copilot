@@ -1,4 +1,4 @@
-"""Siemens Solid Edge concrete CAD executor implementation for Milestone 3.2."""
+"""Siemens Solid Edge concrete CAD executor implementation for Milestone 3."""
 
 from __future__ import annotations
 
@@ -14,10 +14,10 @@ from geometry.plan_models import (
     SweptProtrusionFeature,
 )
 from geometry.plan_parser import feature_plan_from_dict
-from interfaces.exceptions import CADExecutionError
+from interfaces.exceptions import CADDocumentError, CADError, CADExecutionError
 from interfaces.executor_abc import CADExecutorABC
 from interfaces.models import (
-    ArtifactRecord,
+    ArtifactFormat,
     BodyRef,
     ExecutionFailure,
     ExecutionResult,
@@ -52,6 +52,7 @@ from .directions import (
     PROMOTED_PAD_CAPABILITY_ROWS,
 )
 from .errors import describe_exception
+from .exporter import capture_preview_image, export_model_to_path
 from .runtime import SolidEdgeRuntime
 from .types import SolidEdgePartDocumentHandle
 from .units import m3_to_mm3
@@ -412,8 +413,22 @@ class SolidEdgeExecutor(CADExecutorABC):
             raise ValueError(f"timeout_seconds must be a positive finite number, got {timeout_seconds}")
 
         self._runtime = runtime
-        self._doc_handle = document_handle
+        self._doc_handle: SolidEdgePartDocumentHandle | None = document_handle
         self._timeout_seconds = timeout_seconds
+        self._close_failed: bool = False
+
+    def _require_doc_handle(self) -> SolidEdgePartDocumentHandle:
+        if self._close_failed:
+            raise CADDocumentError(
+                "Document close previously failed; handle is not confirmed released",
+                error_code="DOCUMENT_CLOSE_FAILED",
+            )
+        if self._doc_handle is None:
+            raise CADDocumentError(
+                "Document handle has been closed and is no longer available for execution",
+                error_code="DOCUMENT_CLOSED",
+            )
+        return self._doc_handle
 
     # -----------------------------------------------------------------------
     # High-Level Feature Plan Execution
@@ -528,8 +543,9 @@ class SolidEdgeExecutor(CADExecutorABC):
             return self._execute_patches_on_worker(raw_doc, worker, patches)
 
         try:
+            doc_handle = self._require_doc_handle()
             operations, inspection = self._runtime.run_document_task(
-                self._doc_handle,
+                doc_handle,
                 _document_task,
                 timeout=self._timeout_seconds,
             )
@@ -548,8 +564,8 @@ class SolidEdgeExecutor(CADExecutorABC):
                 "EXECUTION_TIMEOUT",
                 phase="execution",
             )
-        except CADExecutionError as exc:
-            err_code = getattr(exc, "error_code", "CAD_EXECUTION_ERROR")
+        except CADError as exc:
+            err_code = getattr(exc, "error_code", "CAD_ERROR")
             raw_details = getattr(exc, "details", None)
             extra_details: dict[str, Any] | None = dict(raw_details) if isinstance(raw_details, dict) else None
             return _fail(
@@ -1202,20 +1218,22 @@ class SolidEdgeExecutor(CADExecutorABC):
 
     def inspect_active_document(self) -> StandardInspectionReport:
         """Extract standardized physical and geometric properties from the active document."""
+        doc_handle = self._require_doc_handle()
 
         def _task(raw_doc: Any, worker: Any) -> StandardInspectionReport:
             return _inspect_model_topology_and_properties(raw_doc, worker)
 
-        return self._runtime.run_document_task(self._doc_handle, _task, timeout=self._timeout_seconds)
+        return self._runtime.run_document_task(doc_handle, _task, timeout=self._timeout_seconds)
 
     def recompute_physical_properties(self) -> None:
         """Force recomputation of physical and mass properties in the CAD kernel."""
+        doc_handle = self._require_doc_handle()
 
         def _task(raw_doc: Any, worker: Any) -> None:
             _inspect_model_topology_and_properties(raw_doc, worker)
             return None
 
-        self._runtime.run_document_task(self._doc_handle, _task, timeout=self._timeout_seconds)
+        self._runtime.run_document_task(doc_handle, _task, timeout=self._timeout_seconds)
 
     def update_document(self) -> None:
         """Force geometric recompute on the active document."""
@@ -1256,63 +1274,85 @@ class SolidEdgeExecutor(CADExecutorABC):
             error_code="UNSUPPORTED_EXECUTION_OPERATION",
         )
 
-    def export_step(self, output_path: Path) -> None:
-        raise CADExecutionError(
-            "export_step is out of scope for Milestone 3.2 (planned for Milestone 3.3)",
-            error_code="UNSUPPORTED_EXECUTION_OPERATION",
+    def export_model(self, format_id: ArtifactFormat, output_path: Path) -> None:
+        """Export the active document geometry to a required model format (PAR, STEP, or STL)."""
+        if self._close_failed:
+            raise CADDocumentError(
+                "Document close previously failed; cannot export from unconfirmed document state",
+                error_code="DOCUMENT_CLOSE_FAILED",
+            )
+        if self._doc_handle is None:
+            raise CADDocumentError(
+                "No active request document bound to executor",
+                error_code="NO_ACTIVE_DOCUMENT",
+            )
+        self._runtime.run_document_task(
+            self._doc_handle,
+            lambda raw_doc, worker: export_model_to_path(raw_doc, worker, format_id, output_path),
+            timeout=self._timeout_seconds,
         )
 
-    def export_preview(self, output_path: Path) -> None:
-        raise CADExecutionError(
-            "export_preview is out of scope for Milestone 3.2 (planned for Milestone 3.3)",
-            error_code="UNSUPPORTED_EXECUTION_OPERATION",
+    def capture_preview(self, output_path: Path, width: int = 800, height: int = 600) -> None:
+        """Capture a best-effort preview snapshot image (JPG) of the active document."""
+        if self._close_failed:
+            raise CADDocumentError(
+                "Document close previously failed; cannot capture preview from unconfirmed document state",
+                error_code="DOCUMENT_CLOSE_FAILED",
+            )
+        if self._doc_handle is None:
+            raise CADDocumentError(
+                "No active request document bound to executor",
+                error_code="NO_ACTIVE_DOCUMENT",
+            )
+        self._runtime.run_document_task(
+            self._doc_handle,
+            lambda raw_doc, worker: capture_preview_image(raw_doc, worker, output_path, width=width, height=height),
+            timeout=self._timeout_seconds,
         )
 
-    def export_preview_images(self, output_dir: Path, views: list[str]) -> list[Path]:
-        raise CADExecutionError(
-            "export_preview_images is out of scope for Milestone 3.2 (planned for Milestone 3.3)",
-            error_code="UNSUPPORTED_EXECUTION_OPERATION",
-        )
-
-    def export_artifacts(self, formats: list[str], output_dir: Path) -> list[ArtifactRecord]:
-        raise CADExecutionError(
-            "export_artifacts is out of scope for Milestone 3.2 (planned for Milestone 3.3)",
-            error_code="UNSUPPORTED_EXECUTION_OPERATION",
-        )
+    def close_request_document(self) -> None:
+        """Terminally release and close the bound request document handle."""
+        if self._close_failed:
+            raise CADDocumentError(
+                "Document close previously failed; handle is not confirmed released",
+                error_code="DOCUMENT_CLOSE_FAILED",
+            )
+        if self._doc_handle is not None:
+            handle = self._doc_handle
+            self._doc_handle = None
+            try:
+                self._runtime.close_document(handle)
+            except Exception:
+                self._close_failed = True
+                raise
 
     def generate_flat_pattern(self, output_path: Path) -> None:
         raise CADExecutionError(
-            "generate_flat_pattern is out of scope for Milestone 3.2",
+            "generate_flat_pattern is out of scope for Milestone 3",
             error_code="UNSUPPORTED_EXECUTION_OPERATION",
         )
 
     def generate_draft(self, output_path: Path) -> None:
         raise CADExecutionError(
-            "generate_draft is out of scope for Milestone 3.2",
+            "generate_draft is out of scope for Milestone 3",
             error_code="UNSUPPORTED_EXECUTION_OPERATION",
         )
 
     def publish_drawing(self, output_path: Path) -> None:
         raise CADExecutionError(
-            "publish_drawing is out of scope for Milestone 3.2",
+            "publish_drawing is out of scope for Milestone 3",
             error_code="UNSUPPORTED_EXECUTION_OPERATION",
         )
 
     def read_custom_properties(self) -> dict[str, Any]:
         raise CADExecutionError(
-            "read_custom_properties is out of scope for Milestone 3.2",
+            "read_custom_properties is out of scope for Milestone 3",
             error_code="UNSUPPORTED_EXECUTION_OPERATION",
         )
 
     def write_custom_properties(self, properties: dict[str, Any]) -> None:
         raise CADExecutionError(
-            "write_custom_properties is out of scope for Milestone 3.2",
-            error_code="UNSUPPORTED_EXECUTION_OPERATION",
-        )
-
-    def save_document(self) -> None:
-        raise CADExecutionError(
-            "save_document is out of scope for M3.2; request documents are closed without save",
+            "write_custom_properties is out of scope for Milestone 3",
             error_code="UNSUPPORTED_EXECUTION_OPERATION",
         )
 

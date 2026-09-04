@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -24,27 +23,18 @@ CO_E_SERVER_EXEC_FAILURE = 0x80080005
 REGDB_E_CLASSNOTREG = 0x80040154
 DISP_E_MEMBERNOTFOUND = 0x80020003
 
-# Regex patterns for sanitizing sensitive local data
-_DRIVE_PATH_PATTERN = re.compile(r"[a-zA-Z]:[\\/][\\/\w\s._-]+")
-_UNC_PATH_PATTERN = re.compile(r"\\\\[\\/\w\s._-]+")
-_GUID_PATTERN = re.compile(r"\{[a-fA-F0-9-]{36}\}")
-_HEX_PATTERN = re.compile(r"0x[a-fA-F0-9]+")
+_REDACTED_EXCEPTION_DETAILS = "<details redacted>"
 
 
 def describe_exception(error: BaseException, context_msg: str | None = None) -> str:
-    """Sanitize and format an exception, logging the sanitized string to sys.stderr.
+    """Format a fail-closed diagnostic without evaluating untrusted exception text.
 
-    Masks absolute filesystem paths, UNC shares, COM GUIDs, and Hex codes to prevent
-    sensitive information leakage into IPC transports and logs.
+    Vendor exception strings can contain arbitrary paths, document metadata, COM
+    representations, or other workstation details. Preserve only the exception type
+    and caller-supplied internal operation context; never interpolate ``str(error)``.
     """
-    raw_str = f"{type(error).__name__}: {error!s}"
-
-    sanitized = _DRIVE_PATH_PATTERN.sub("<path>", raw_str)
-    sanitized = _UNC_PATH_PATTERN.sub("<path>", sanitized)
-    sanitized = _GUID_PATTERN.sub("<GUID>", sanitized)
-    sanitized = _HEX_PATTERN.sub("<HEX>", sanitized)
-
-    full_msg = f"{context_msg} -> {sanitized}" if context_msg else sanitized
+    safe_summary = f"{type(error).__name__}: {_REDACTED_EXCEPTION_DETAILS}"
+    full_msg = f"{context_msg} -> {safe_summary}" if context_msg else safe_summary
 
     # Write sanitized diagnostic to stderr
     print(f"[DIAGNOSTIC LOG] {full_msg}", file=sys.stderr)

@@ -4,21 +4,22 @@ CAD Copilot is an open-source project for local Solid Edge generation and native
 
 ## Current implementation
 
-As of 1 September 2026:
+As of 4 September 2026:
 
 - M1/M2: domain interfaces, JSON contracts, pure geometry, parsing, validation, lowering, and bounded STEP text smoke checking.
 - M3.0: scope, contract, governance, and Python tooling reconciliation.
 - M3.1: a dedicated STA Solid Edge runtime with explicit ownership, opaque handles, Ordered part creation, and bounded lifecycle cleanup.
 - M3.2: Solid Edge primitive execution (cuboid, cylinder, conceptual spur gear with centered bore), localized 2D cutouts (circular, rectangular, slot through/blind), +Z rectangular pad protrusions, ordered sequential feature execution, recompute, and authoritative topology/property inspection.
+- M3.3: safe multi-format artifact finalization, atomic directory publication, path containment, Draft 2020-12 wire-schema projection compatibility, closed-file validators (native `.par`, bounded STEP, binary/ASCII STL, signature-checked JPG), and pipeline orchestration (`finalize_request_artifacts`).
 
-M3.3 artifact export/finalization, M4 generation orchestration and optional Gemini, M5 batch execution, and M6 desktop integration are not yet implemented. The schemas and example plans describe contracts; they are not an available end-to-end application.
+M4 generation orchestration and optional Gemini adapter, M5 batch execution, and M6 desktop integration are not yet implemented. The schemas and example plans describe contracts; they are not an available end-to-end application.
 
 ## Verification boundary
 
-- Full offline test suite: **492 passed, 19 COM tests deselected** across all domain packages.
-- Strict mypy: **Success (0 issues across 28 source files)**.
-- Ruff linting and formatting: clean across 71 files.
-- Live integration evidence: **19 passed** on a licensed Siemens Solid Edge 2024 session (version `226.00.00.106`), including M3.1 owned lifecycle behavior and M3.2 3D primitives, 6-face cutout characterization, +Z pads, sequential feature execution, conceptual gears with centered bores, controlled preflight/native failure handling with recovery, borrowed unrelated-document preservation, and graceful owned shutdown without force cleanup.
+- Full offline test suite: **838 passed, 2 skipped, 31 COM tests deselected** across all domain packages.
+- Strict mypy: **Success (0 issues across 44 source files)**.
+- Ruff linting and formatting: clean across 81 files in engine (91 files repo-wide).
+- Live integration evidence: **31 passed, 0 skipped** on a licensed Siemens Solid Edge 2026 session (version `226.00.00.106`), including M3.1 owned lifecycle behavior, M3.2 3D primitives and sequential features, M3.3 export/preview characterization, 5-case end-to-end smoke matrix, independent `.par` reopening, and borrowed/owned session safety with atomic publication and failure handling.
 
 ## Development and scope
 

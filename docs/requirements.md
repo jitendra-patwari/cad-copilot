@@ -2,18 +2,22 @@
 
 **Project**: CAD Copilot  
 **Scope**: Milestone 1 (Foundation & Domain Interfaces), Milestone 2 (Pure Domain Geometry Math), and Milestone 3 (Solid Edge COM Driver & Artifact Pipeline)
-**Status (1 September 2026)**: M1/M2 domain baseline and M3.0 reconciliation implemented; M3.1 runtime/lifecycle and M3.2 primitive execution, 2D cutouts, +Z pads, recompute, and authoritative topology/property inspection implemented and verified; M3.3 multi-format artifact export remains planned.
+**Status (4 September 2026)**: M1/M2 domain baseline and M3.0 reconciliation implemented; M3.1 runtime/lifecycle, M3.2 primitive execution and inspection, and M3.3 multi-format artifact export and pipeline finalization implemented, hardened, and verified.
 
 ### Current evidence boundary
 
-- **Offline test suite**: 492 tests passed with 19 COM tests deselected; strict mypy passed (28 source files); Ruff lint passed and formatting clean (71 files); `git diff --check` clean.
-- **Live integration evidence**: 19 passing COM tests on a licensed Siemens Solid Edge 2024 session (`226.00.00.106`), verifying:
-  1. M3.1 lifecycle isolation, Ordered mode readback `2`, and non-destructive process preservation.
-  2. M3.2 3D primitives (cuboid, cylinder, 24-tooth conceptual spur gear at origin and translated with centered through-bore).
-  3. Characterized 6-face circular through cutouts, localized +Z cuts (circle, polygon, slot through/blind), and +Z rectangular extruded pads with analytic volume delta verification.
-  4. Ordered sequential feature execution with stable reference tracking and 1-solid topology inspection.
-  5. Controlled preflight rejection plus a native non-intersecting cut refusal, prompt-free failed-document closure, and a successful subsequent request in the same borrowed application.
-  6. Preservation of an independently tracked unrelated Part document and process under borrowed teardown, plus graceful owned startup/shutdown without force cleanup.
+- **Offline test suite**: 838 tests passed, 2 skipped, with 31 COM tests deselected; strict mypy passed (44 source files); Ruff lint passed and formatting clean (81 files in engine, 91 files repo-wide); `git diff --check` clean (exit code 0; 9 Windows CRLF normalization notices).
+- **Live integration evidence**: 31 passed, 0 skipped across 31 COM tests on a licensed Siemens Solid Edge 2026 session (`226.00.00.106`), verifying:
+  1. M3.1 lifecycle isolation, Ordered mode readback `2`, and non-destructive process preservation (4 live gates).
+  2. M3.2 3D primitives (cuboid, cylinder, 24-tooth conceptual spur gear at origin and translated with centered through-bore), 6-face circular cuts, localized +Z cuts, and sequential feature execution (15 live gates).
+  3. M3.3 multi-format artifact export characterization, identity preservation, and atomic staging directory rename (1 live gate).
+  4. M3.3 end-to-end smoke matrix verifying pipeline finalization across 5 representative geometries (cuboid, cylinder, plate with cut, sequential features, gear) producing valid `.par`, `.step`, `.stl`, and `.jpg` (5 live gates).
+  5. M3.3 independent reopening of exported native `.par` in Solid Edge proving valid 3D Ordered geometry with 1 solid model (1 live gate).
+  6. M3.3 borrowed session isolation and unrelated document preservation during artifact finalization (1 live gate).
+  7. M3.3 owned session graceful lifecycle without force kill after artifact finalization (1 live gate).
+  8. M3.3 induced required export failure verifying staging cleanup, absence of final directory, and session preservation for subsequent requests (1 live gate).
+  9. M3.3 induced preview failure verifying graceful degradation, retention of `PREVIEW_EXPORT_FAILED` warning, and required model publication (1 live gate).
+  10. M3.3 publication collision rejection verifying `TARGET_ALREADY_EXISTS` without mutating pre-existing targets (1 live gate).
 
 ---
 
@@ -61,7 +65,7 @@ This specification defines the functional, architectural, and quality requiremen
 - **CAD Runtime Port (`CADRuntimeABC` in `engine/src/interfaces/`)**:
   - Abstract interface defining the lifecycle contract for CAD processes: application connection, document opening/closing, and graceful process teardown.
 - **CAD Execution Port (`CADExecutorABC` in `engine/src/interfaces/`)**:
-  - Abstract interface defining modeling operations: solid body creation, localized cutouts, artifact exports (STEP, preview images), and inspection of physical properties (volume, mass, feature count).
+  - Abstract interface defining modeling operations: solid body creation, localized cutouts, multi-format model exports (PAR, STEP, STL), best-effort preview capture (JPG), terminal document release, and authoritative inspection of physical properties (volume, mass, feature count).
 - **Normalized Exception Hierarchy**:
   - Normalized exception taxonomy (`CADError`, `CADRuntimeError`, `CADExecutionError`, `CADDocumentError`) isolating caller domains from vendor-specific COM/kernel errors.
 
@@ -81,7 +85,7 @@ This specification defines the functional, architectural, and quality requiremen
 
 ### FR-5: Parametric Spur Gear Geometry (Milestone 2)
 - **Deterministic Conceptual Spur Gear Outline (`gear_math.py` in `engine/src/geometry/`)**:
-  - Analytical computation of deterministic conceptual 2D spur gear tooth outlines based on module ($m$), tooth count ($z$), pressure angle ($\alpha$), and root/tip bounds with 6-point-per-tooth polygon discretization.
+  - Analytical computation of deterministic conceptual 2D spur gear tooth outlines based on module ($m$), tooth count ($z$), pressure angle ($\alpha$), and root/tip bounds with 5-point-per-tooth polygon discretization (5 unique cyclic points per tooth).
   - Generates conceptual polygon vertex sequences, optionally repeating the first point for explicit closure; a center bore is lowered as a separate cut. This is not a manufacturing-grade involute profile or live-kernel validity guarantee.
   - Automatic $+Z$ elevation sketch and cut frame generation aligned with gear face width and placement.
 
@@ -109,7 +113,7 @@ The implementation is in `engine/src/drivers/solidedge/`. The requirements below
   - Attach to a responsive existing instance as borrowed. A spawn path is entered only for `MK_E_UNAVAILABLE`; owned classification requires PID/creation-time proof. Unproven ownership remains `unknown`. Only verified owned instances receive `Visible=True` / `DisplayAlerts=False` writes.
 - **Runtime Diagnostics & Bounded Retries**:
   - Required diagnostics capture version/build (best effort), PID when available, ownership (`owned`, `borrowed`, or `unknown`), attachment mode, visibility, and health. Unavailable version metadata must not fail an otherwise usable connection.
-  - **Known evidence/implementation limit:** The approved diagnostic policy calls for a warning when version metadata is unavailable. Current code returns `version_build=None` without populating that warning; do not claim the warning path is implemented.
+  - Diagnostic warnings include `VERSION_METADATA_UNAVAILABLE` when version metadata is absent or unreadable, preserving healthy connections without failing runtime attachment.
   - Bounded busy-call retry strategy with backoff handling recognized retryable busy/rejected HRESULTs (`RPC_E_CALL_REJECTED` / `RPC_E_SERVERCALL_RETRYLATER`).
 - **Document Lifecycle & Session Safety**:
   - Document management operating strictly via explicit document handles (`doc = documents.Add("SolidEdge.PartDocument")`) rather than ambiguous global `ActiveDocument` references.
@@ -134,12 +138,12 @@ The implementation is in `engine/src/drivers/solidedge/`. The requirements below
   - Updates/recomputes and checks the explicit request-owned document after construction; native `Features` collection health, body type classification (`igSolidBody`, `igSheetBody`, `igCurveBody`), positive finite volume, and `PhysicalPropertiesStatusConstants` (`sePhysicalPropertiesStatus_Model=1`) are authoritatively inspected. `ActiveDocument` is not ownership authority.
   - Inspects model topology to verify expected solid body count and enforce 3D manifold solid body classification (hard-rejecting non-manifold wire or sheet bodies).
 
-### FR-9: Atomic Multi-Format Artifact Export & Pipeline Finalization (M3.3 — Planned)
+### FR-9: Atomic Multi-Format Artifact Export & Pipeline Finalization (M3.3 — Implemented and Verified)
 - **Multi-Format Export**:
   - Exports native Solid Edge part (`.par`), standard exchange STEP (`.step` / `.stp`), and mesh polygon STL (`.stl`) artifacts.
   - Best-effort preview rendering generating thumbnail preview images (`.jpg`) without invalidating otherwise successful CAD solid models upon rendering issues.
   - Native `.par` validation: file must exist, be non-empty, and pass authoritative solid body inspection (positive volume, verified feature tree).
-  - STEP Part 21 validation: in-memory streaming verification via `step_checker.py` ensuring non-empty topology (`MANIFOLD_SOLID_BREP`), ISO 10303-41 length unit scale detection, and valid spatial bounds.
+  - STEP Part 21 validation: bounded text verification via `step_checker.py` ensuring non-empty topology (`MANIFOLD_SOLID_BREP`), ISO 10303-41 length unit scale detection, and valid spatial bounds.
   - STL validation: structure check confirming recognizable ASCII or binary header (80-byte header + uint32 triangle count) with at least one valid triangle ($\ge 1$).
   - JPG preview capture: failed image capture removes any partial or corrupt temporary JPG output (regardless of size), logs a non-fatal warning diagnostic, and does not invalidate the CAD solid result.
   - Required artifact failures: any failure to generate or validate required `.par`, STEP, or STL files is fatal to the generation request (`ARTIFACT_EXPORT_FAILED`).
@@ -179,14 +183,14 @@ The implementation is in `engine/src/drivers/solidedge/`. The requirements below
 6. `step_checker.py` performs in-place $O(1)$-memory streaming bounding box and entity smoke validation with ISO 10303-41 unit scale detection.
 7. Historical M2 completion evidence recorded 365/365 passing tests. The current reported M3.1 and M3.2 results are stated in the evidence boundary above.
 
-### Milestone 3 Acceptance Criteria (M3.1 & M3.2 Implemented; M3.3 Planned)
+### Milestone 3 Acceptance Criteria (M3.1, M3.2 & M3.3 Implemented and Verified)
 
-These are milestone-wide acceptance gates. M3.1 lifecycle and M3.2 geometric primitive execution are verified; M3.3 multi-format artifact export remains planned.
+These are milestone-wide acceptance gates. M3.1 lifecycle, M3.2 geometric primitive execution, and M3.3 multi-format artifact finalization are fully implemented, hardened, and verified.
 
 #### A. Automated Test Suite Verification (Offline & Fake COM)
-1. Offline non-COM checks (`pytest -m "not com"`) continue passing. Historical M3.0 evidence was 366 tests; the latest supplied M3.1 report is 416 passed with four COM tests deselected. These counts are dated evidence, not a required fixed suite size.
+1. Offline non-COM checks (`pytest -c engine/pytest.ini -m "not com"`) pass with 838 tests passed (2 skipped, 31 COM tests deselected).
 2. Driver lifecycle unit tests with mock/fake COM dispatch verify state transitions, explicit document handle tracking, bounded busy-call retries, and PID ownership classification logic.
-3. Artifact staging and validation unit tests verify atomic move semantics, `.par`/STEP/STL format verification, and non-fatal JPG warning handling.
+3. Artifact staging, validation, and pipeline unit tests verify atomic move semantics, `.par`/STEP/STL format verification, Draft 2020-12 wire projections, and non-fatal JPG warning handling.
 
 #### B. Mandatory Live Solid Edge COM Verification Gates (Windows Workstation)
 1. **Live Runtime Connection & Lifecycle Gate**:
@@ -204,4 +208,4 @@ These are milestone-wide acceptance gates. M3.1 lifecycle and M3.2 geometric pri
    - Unsafe destination paths attempting directory traversal outside `CAD_OUTPUT_ROOT` are safely rejected with `OUTPUT_PATH_NOT_ALLOWED`.
 4. **Live Induced Failure & Cleanup Gates**:
    - *Induced Construction Failure*: Injecting a controlled Solid Edge construction failure after validation succeeds and a request-owned document has been opened verifies that the active request-owned document is cleanly closed without saving, no corrupt target artifacts are finalized in `CAD_OUTPUT_ROOT`, and the session remains healthy for subsequent requests.
-   - *Induced Export Failure*: Simulating an export failure (e.g. read-only target path or artificial export fault) verifies that temporary staging files are removed, no incomplete artifacts remain in target destination paths, and an accurate `ARTIFACT_EXPORT_FAILED` failure response is returned.
+   - *Induced Export Failure*: Simulating an export failure (e.g. read-only target path or artificial export fault) verifies that temporary staging files are removed, no incomplete artifacts remain in target destination paths, and an accurate `ARTIFACT_EXPORT_FAILED` exception is raised and publication is blocked.

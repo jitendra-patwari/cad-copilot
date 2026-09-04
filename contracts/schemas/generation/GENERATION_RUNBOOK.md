@@ -2,7 +2,7 @@
 
 This runbook specifies the planned M4 generation subprocess integration for a later Tauri desktop client or local CLI.
 
-**Status (28 August 2026):** `engine/scripts/generate.cmd` and the generation service do not exist in the current M3.1 baseline. Commands below are future integration examples, not runnable setup instructions or evidence of generated artifacts.
+**Status:** `engine/scripts/generate.cmd` and the generation service do not exist in the current baseline (M3.1, M3.2, and M3.3 completed and verified). Commands below are planned M4 integration examples, not runnable setup instructions or evidence of generated artifacts.
 
 ---
 

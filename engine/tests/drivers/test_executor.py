@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -30,7 +30,7 @@ from geometry.plan_models import (
     SlotThroughCutoutFeature,
     SpurGearBaseBody,
 )
-from interfaces.exceptions import CADExecutionError
+from interfaces.exceptions import CADDocumentError, CADExecutionError
 from interfaces.models import (
     ExecutionFailure,
     ExecutionSuccess,
@@ -67,11 +67,14 @@ class MockWorkerForExecutor:
         self.call_log: list[str] = []
         self._document_registry: dict[str, Any] = {}
         self.is_poisoned: bool = False
+        self.call_raises: Exception | None = None
 
     def is_alive(self) -> bool:
         return True
 
     def call(self, func: Any, timeout: float | None = None, **kwargs: Any) -> Any:
+        if self.call_raises is not None:
+            raise self.call_raises
         return func()
 
     def _invoke_com(self, func: Any, **kwargs: Any) -> Any:
@@ -332,6 +335,14 @@ class FakeCOMPartDocument:
         self.Models = FakeCOMModels(worker)
         self.Constructions = FakeCOMConstructions(worker)
         self.recompute_should_fail: bool = False
+        self.close_should_fail: bool = False
+        self.closed: bool = False
+
+    def Close(self, save_changes: bool = False) -> None:
+        self.worker.call_log.append(f"PartDocument.Close(save_changes={save_changes})")
+        if self.close_should_fail:
+            raise RuntimeError("Simulated kernel close error")
+        self.closed = True
 
     def Recompute(self) -> None:
         self.worker.call_log.append("PartDocument.Recompute()")
@@ -381,16 +392,11 @@ def test_executor_out_of_scope_methods_raise_immediate_unsupported(
     methods_to_test = [
         lambda: executor.create_prism_body(10.0, 10.0, 10.0),
         lambda: executor.add_cylindrical_cutout(5.0),
-        lambda: executor.export_step(Path("model.step")),
-        lambda: executor.export_preview(Path("preview.png")),
-        lambda: executor.export_preview_images(Path("dir"), ["iso"]),
-        lambda: executor.export_artifacts(["step"], Path("dir")),
         lambda: executor.generate_flat_pattern(Path("flat.dxf")),
         lambda: executor.generate_draft(Path("draft.dft")),
         lambda: executor.publish_drawing(Path("draw.pdf")),
         lambda: executor.read_custom_properties(),
         lambda: executor.write_custom_properties({"author": "test"}),
-        lambda: executor.save_document(),
     ]
 
     for meth in methods_to_test:
@@ -400,6 +406,256 @@ def test_executor_out_of_scope_methods_raise_immediate_unsupported(
 
     # Zero COM calls made
     assert len(worker.call_log) == initial_log_len
+
+
+def test_executor_close_request_document_closes_handle_and_is_idempotent(
+    mock_runtime_and_handle: tuple[
+        SolidEdgeRuntime, SolidEdgePartDocumentHandle, FakeCOMPartDocument, MockWorkerForExecutor
+    ],
+) -> None:
+    """Proves close_request_document delegates to runtime.close_document and is safe/idempotent on multiple calls."""
+    runtime, doc_handle, _, _ = mock_runtime_and_handle
+    executor = SolidEdgeExecutor(runtime, doc_handle)
+
+    assert executor._doc_handle is not None
+    assert doc_handle.handle_id in runtime._open_document_handles
+
+    # First close: releases handle from runtime and sets _doc_handle to None
+    executor.close_request_document()
+    assert executor._doc_handle is None
+    assert doc_handle.handle_id not in runtime._open_document_handles
+
+    # Second close: safe idempotent no-op
+    executor.close_request_document()
+    assert executor._doc_handle is None
+
+
+def test_executor_close_request_document_retains_tracking_on_ordinary_close_failure(
+    mock_runtime_and_handle: tuple[
+        SolidEdgeRuntime, SolidEdgePartDocumentHandle, FakeCOMPartDocument, MockWorkerForExecutor
+    ],
+) -> None:
+    """Proves ordinary close failure preserves runtime tracking for teardown retry and does not poison runtime."""
+    runtime, doc_handle, fake_doc, worker = mock_runtime_and_handle
+    executor = SolidEdgeExecutor(runtime, doc_handle)
+    fake_doc.close_should_fail = True
+
+    # Attempt close: raises RuntimeError from kernel Close
+    with pytest.raises(RuntimeError, match="Simulated kernel close error"):
+        executor.close_request_document()
+
+    # Executor handle consumed to prevent double dispatch
+    assert executor._doc_handle is None
+    # Runtime still tracks handle for teardown retry
+    assert doc_handle.handle_id in runtime._open_document_handles
+    # Runtime is NOT poisoned on ordinary close error
+    assert runtime._is_poisoned is False
+
+    # Second close attempt must raise CADDocumentError and not re-enter COM
+    initial_log_len = len(worker.call_log)
+    with pytest.raises(CADDocumentError) as exc_info:
+        executor.close_request_document()
+    assert exc_info.value.error_code == "DOCUMENT_CLOSE_FAILED"
+    assert len(worker.call_log) == initial_log_len
+
+
+def test_executor_close_request_document_poisons_runtime_on_timeout(
+    mock_runtime_and_handle: tuple[
+        SolidEdgeRuntime, SolidEdgePartDocumentHandle, FakeCOMPartDocument, MockWorkerForExecutor
+    ],
+) -> None:
+    """Proves timeout during close sets runtime poison flag, retains tracking, and prevents COM re-entry."""
+    runtime, doc_handle, _, worker = mock_runtime_and_handle
+    executor = SolidEdgeExecutor(runtime, doc_handle)
+    worker.call_raises = TimeoutError("Simulated STA close hang")
+
+    # Attempt close: raises TimeoutError
+    with pytest.raises(TimeoutError, match="Simulated STA close hang"):
+        executor.close_request_document()
+
+    # Executor handle consumed
+    assert executor._doc_handle is None
+    # Runtime tracking retained
+    assert doc_handle.handle_id in runtime._open_document_handles
+    # Runtime IS poisoned on timeout
+    assert runtime._is_poisoned is True
+
+    # Second close attempt raises CADDocumentError without re-invoking worker
+    initial_log_len = len(worker.call_log)
+    with pytest.raises(CADDocumentError) as exc_info:
+        executor.close_request_document()
+    assert exc_info.value.error_code == "DOCUMENT_CLOSE_FAILED"
+    assert len(worker.call_log) == initial_log_len
+
+
+def test_executor_require_doc_handle_reports_close_failed_when_close_failed(
+    mock_runtime_and_handle: tuple[
+        SolidEdgeRuntime, SolidEdgePartDocumentHandle, FakeCOMPartDocument, MockWorkerForExecutor
+    ],
+) -> None:
+    """Proves that _require_doc_handle() reports DOCUMENT_CLOSE_FAILED if document closure previously failed."""
+    runtime, doc_handle, _, worker = mock_runtime_and_handle
+    executor = SolidEdgeExecutor(runtime, doc_handle)
+    worker.call_raises = RuntimeError("Simulated ordinary close error")
+
+    with pytest.raises(RuntimeError):
+        executor.close_request_document()
+
+    with pytest.raises(CADDocumentError) as exc_info:
+        executor._require_doc_handle()
+    assert exc_info.value.error_code == "DOCUMENT_CLOSE_FAILED"
+
+
+def test_executor_execute_feature_plan_preserves_cad_error_code(
+    mock_runtime_and_handle: tuple[
+        SolidEdgeRuntime, SolidEdgePartDocumentHandle, FakeCOMPartDocument, MockWorkerForExecutor
+    ],
+) -> None:
+    """Proves that execute_feature_plan preserves domain CADError error codes rather than masking as NATIVE_COM_ERROR."""
+    runtime, doc_handle, _, _ = mock_runtime_and_handle
+    executor = SolidEdgeExecutor(runtime, doc_handle)
+    executor._close_failed = True  # Simulate failed close state
+
+    plan: dict[str, Any] = {
+        "version": "1.0",
+        "base_body": {
+            "type": "box",
+            "dimensions": {"length_mm": 50.0, "width_mm": 30.0, "height_mm": 10.0},
+        },
+    }
+    result = executor.execute_feature_plan(plan)
+    assert isinstance(result, ExecutionFailure)
+    assert result.details.get("error_code") == "DOCUMENT_CLOSE_FAILED"
+
+
+def test_executor_export_model_delegates_to_run_document_task(
+    mock_runtime_and_handle: tuple[
+        SolidEdgeRuntime, SolidEdgePartDocumentHandle, FakeCOMPartDocument, MockWorkerForExecutor
+    ],
+    tmp_path: Path,
+) -> None:
+    """Proves that export_model delegates to runtime.run_document_task with bound handle."""
+    runtime, doc_handle, fake_doc, worker = mock_runtime_and_handle
+    executor = SolidEdgeExecutor(runtime, doc_handle)
+    out_file = tmp_path / "model.par"
+
+    with patch("drivers.solidedge.executor.export_model_to_path", return_value=None) as mock_export:
+        executor.export_model("par", out_file)
+        mock_export.assert_called_once_with(fake_doc, worker, "par", out_file)
+
+
+def test_executor_capture_preview_delegates_to_run_document_task(
+    mock_runtime_and_handle: tuple[
+        SolidEdgeRuntime, SolidEdgePartDocumentHandle, FakeCOMPartDocument, MockWorkerForExecutor
+    ],
+    tmp_path: Path,
+) -> None:
+    """Proves that capture_preview delegates to runtime.run_document_task with bound handle."""
+    runtime, doc_handle, fake_doc, worker = mock_runtime_and_handle
+    executor = SolidEdgeExecutor(runtime, doc_handle)
+    out_file = tmp_path / "preview.jpg"
+
+    with patch("drivers.solidedge.executor.capture_preview_image", return_value=None) as mock_preview:
+        executor.capture_preview(out_file, width=1024, height=768)
+        mock_preview.assert_called_once_with(fake_doc, worker, out_file, width=1024, height=768)
+
+
+def test_executor_export_model_forwards_configured_timeout(
+    mock_runtime_and_handle: tuple[
+        SolidEdgeRuntime, SolidEdgePartDocumentHandle, FakeCOMPartDocument, MockWorkerForExecutor
+    ],
+    tmp_path: Path,
+) -> None:
+    """Proves export_model forwards executor timeout_seconds to run_document_task."""
+    runtime, doc_handle, _, _ = mock_runtime_and_handle
+    executor = SolidEdgeExecutor(runtime, doc_handle, timeout_seconds=42.0)
+    out_file = tmp_path / "model.step"
+
+    with patch.object(runtime, "run_document_task") as mock_task:
+        executor.export_model("step", out_file)
+        mock_task.assert_called_once()
+        assert mock_task.call_args.kwargs.get("timeout") == 42.0
+
+
+def test_executor_capture_preview_forwards_configured_timeout(
+    mock_runtime_and_handle: tuple[
+        SolidEdgeRuntime, SolidEdgePartDocumentHandle, FakeCOMPartDocument, MockWorkerForExecutor
+    ],
+    tmp_path: Path,
+) -> None:
+    """Proves capture_preview forwards executor timeout_seconds to run_document_task."""
+    runtime, doc_handle, _, _ = mock_runtime_and_handle
+    executor = SolidEdgeExecutor(runtime, doc_handle, timeout_seconds=42.0)
+    out_file = tmp_path / "preview.jpg"
+
+    with patch.object(runtime, "run_document_task") as mock_task:
+        executor.capture_preview(out_file)
+        mock_task.assert_called_once()
+        assert mock_task.call_args.kwargs.get("timeout") == 42.0
+
+
+def test_executor_export_model_refuses_when_doc_handle_is_none(
+    mock_runtime_and_handle: tuple[
+        SolidEdgeRuntime, SolidEdgePartDocumentHandle, FakeCOMPartDocument, MockWorkerForExecutor
+    ],
+    tmp_path: Path,
+) -> None:
+    """Proves export_model raises NO_ACTIVE_DOCUMENT when handle is None (e.g. after close)."""
+    runtime, doc_handle, _, _ = mock_runtime_and_handle
+    executor = SolidEdgeExecutor(runtime, doc_handle)
+    executor.close_request_document()
+
+    with pytest.raises(CADDocumentError) as exc_info:
+        executor.export_model("par", tmp_path / "model.par")
+    assert exc_info.value.error_code == "NO_ACTIVE_DOCUMENT"
+
+
+def test_executor_export_model_refuses_when_close_failed(
+    mock_runtime_and_handle: tuple[
+        SolidEdgeRuntime, SolidEdgePartDocumentHandle, FakeCOMPartDocument, MockWorkerForExecutor
+    ],
+    tmp_path: Path,
+) -> None:
+    """Proves export_model raises DOCUMENT_CLOSE_FAILED when previous close failed."""
+    runtime, doc_handle, _, _ = mock_runtime_and_handle
+    executor = SolidEdgeExecutor(runtime, doc_handle)
+    executor._close_failed = True
+
+    with pytest.raises(CADDocumentError) as exc_info:
+        executor.export_model("step", tmp_path / "model.step")
+    assert exc_info.value.error_code == "DOCUMENT_CLOSE_FAILED"
+
+
+def test_executor_capture_preview_refuses_when_doc_handle_is_none(
+    mock_runtime_and_handle: tuple[
+        SolidEdgeRuntime, SolidEdgePartDocumentHandle, FakeCOMPartDocument, MockWorkerForExecutor
+    ],
+    tmp_path: Path,
+) -> None:
+    """Proves capture_preview raises NO_ACTIVE_DOCUMENT when handle is None."""
+    runtime, doc_handle, _, _ = mock_runtime_and_handle
+    executor = SolidEdgeExecutor(runtime, doc_handle)
+    executor.close_request_document()
+
+    with pytest.raises(CADDocumentError) as exc_info:
+        executor.capture_preview(tmp_path / "preview.jpg")
+    assert exc_info.value.error_code == "NO_ACTIVE_DOCUMENT"
+
+
+def test_executor_capture_preview_refuses_when_close_failed(
+    mock_runtime_and_handle: tuple[
+        SolidEdgeRuntime, SolidEdgePartDocumentHandle, FakeCOMPartDocument, MockWorkerForExecutor
+    ],
+    tmp_path: Path,
+) -> None:
+    """Proves capture_preview raises DOCUMENT_CLOSE_FAILED when previous close failed."""
+    runtime, doc_handle, _, _ = mock_runtime_and_handle
+    executor = SolidEdgeExecutor(runtime, doc_handle)
+    executor._close_failed = True
+
+    with pytest.raises(CADDocumentError) as exc_info:
+        executor.capture_preview(tmp_path / "preview.jpg")
+    assert exc_info.value.error_code == "DOCUMENT_CLOSE_FAILED"
 
 
 # ---------------------------------------------------------------------------

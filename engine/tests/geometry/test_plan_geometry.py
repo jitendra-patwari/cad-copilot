@@ -255,3 +255,31 @@ class TestBoundingBoxesAndDistances:
 
         # Point directly on segment
         assert math.isclose(point_to_segment_distance(3.0, 0.0, 0.0, 0.0, 10.0, 0.0), 0.0, abs_tol=1e-12)
+
+
+class TestGeometryArchitectureBoundaries:
+    """Verify NFR-1 Zero I/O Purity and strict architectural isolation for engine/src/geometry."""
+
+    def test_geometry_modules_have_no_driver_or_artifact_or_com_imports(self) -> None:
+        import ast
+        from pathlib import Path
+
+        geometry_src_dir = Path(__file__).resolve().parents[2] / "src" / "geometry"
+        assert geometry_src_dir.is_dir()
+
+        forbidden_modules = {"drivers", "artifacts", "win32com", "win32gui", "pywintypes", "pythoncom"}
+
+        for py_file in geometry_src_dir.glob("**/*.py"):
+            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        root_pkg = alias.name.split(".")[0]
+                        assert root_pkg not in forbidden_modules, (
+                            f"File {py_file.name} imports forbidden module '{alias.name}'"
+                        )
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    root_pkg = node.module.split(".")[0]
+                    assert root_pkg not in forbidden_modules, (
+                        f"File {py_file.name} imports from forbidden module '{node.module}'"
+                    )

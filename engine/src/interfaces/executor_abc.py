@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .models import (
-    ArtifactRecord,
+    ArtifactFormat,
     BodyRef,
     ExecutionResult,
     FeatureRef,
@@ -55,22 +55,18 @@ class CADExecutorABC(abc.ABC):
     ) -> FeatureRef:
         """Add a cylindrical cutout or hole feature and return its opaque feature handle."""
 
-    # --- Artifact Export Methods ---
+    # --- Artifact Export & Terminal Lifecycle Methods ---
     @abc.abstractmethod
-    def export_step(self, output_path: Path) -> None:
-        """Export the active document geometry to a STEP file."""
+    def export_model(self, format_id: ArtifactFormat, output_path: Path) -> None:
+        """Export the active document geometry to a required model format (PAR, STEP, or STL)."""
 
     @abc.abstractmethod
-    def export_preview(self, output_path: Path) -> None:
-        """Export a preview image or thumbnail of the active document."""
+    def capture_preview(self, output_path: Path) -> None:
+        """Capture a best-effort preview snapshot image (JPG) of the active document."""
 
     @abc.abstractmethod
-    def export_preview_images(self, output_dir: Path, views: list[str]) -> list[Path]:
-        """Export multi-angle preview snapshot images (e.g. isometric, top, front)."""
-
-    @abc.abstractmethod
-    def export_artifacts(self, formats: list[str], output_dir: Path) -> list[ArtifactRecord]:
-        """Export requested formats and return wire-compliant artifact records."""
+    def close_request_document(self) -> None:
+        """Terminally release and close the bound request document handle."""
 
     # --- QA & Mass Property Inspection ---
     @abc.abstractmethod
@@ -113,10 +109,6 @@ class CADExecutorABC(abc.ABC):
     @abc.abstractmethod
     def update_document(self) -> None:
         """Force geometric recompute on the active document."""
-
-    @abc.abstractmethod
-    def save_document(self) -> None:
-        """Save the active document to disk."""
 
 
 __all__ = ["CADExecutorABC"]

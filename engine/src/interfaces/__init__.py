@@ -14,6 +14,7 @@ from .exceptions import (
 )
 from .executor_abc import CADExecutorABC
 from .models import (
+    ArtifactFormat,
     ArtifactRecord,
     BodyRef,
     ExecutionFailure,
@@ -28,6 +29,7 @@ from .models import (
 from .runtime_abc import CADRuntimeABC
 
 __all__ = [
+    "ArtifactFormat",
     "ArtifactRecord",
     "BodyRef",
     "CADContainmentError",

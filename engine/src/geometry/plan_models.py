@@ -363,29 +363,6 @@ class LoweringStrategy:
 
 
 @dataclass(frozen=True)
-class ArtifactPolicy:
-    """Output artifact generation and visibility configuration."""
-
-    step_required: bool = True
-    step_visible: bool = True
-    par_visible: bool = False
-    jpg_required: bool = False
-    jpg_visible: bool = True
-    step_sanity_runtime_gate: bool = False
-    step_sanity_development_signal: bool = True
-
-    def visible_formats(self) -> list[str]:
-        formats: list[str] = []
-        if self.step_visible:
-            formats.append("step")
-        if self.jpg_visible:
-            formats.append("jpg")
-        if self.par_visible:
-            formats.append("par")
-        return formats
-
-
-@dataclass(frozen=True)
 class FeaturePlan:
     """Root canonical feature plan AST representation."""
 
@@ -400,7 +377,6 @@ class FeaturePlan:
     defaults_applied: tuple[DefaultApplied, ...] = ()
     validation_diagnostics: tuple[ValidationDiagnostic, ...] = ()
     lowering_strategy: LoweringStrategy = field(default_factory=LoweringStrategy)
-    artifact_policy: ArtifactPolicy = field(default_factory=ArtifactPolicy)
 
 
 @dataclass(frozen=True)
@@ -415,7 +391,6 @@ class FeaturePlanBackendPortRun:
 __all__ = [
     "CANONICAL_PLAN_VERSION",
     "DEFAULT_EDGE_MARGIN_MM",
-    "ArtifactPolicy",
     "BodyPlacement",
     "BooleanOperation",
     "BooleanOperationFamily",

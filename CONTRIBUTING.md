@@ -18,7 +18,7 @@ We are committed to providing a welcoming, inclusive, and harassment-free enviro
 - **Rust**: Not required for the current Python/runtime baseline. Tauri/Rust setup belongs to the later desktop milestone.
 - **Operating System**: Windows 10/11 x64 with licensed Siemens Solid Edge® for live COM automation. Pure geometry and contract checks do not require COM; some offline driver tests use Windows process APIs. Exclude live tests explicitly with `-m "not com"`.
 
-M3.1 runtime/lifecycle is implemented; M3.2 execution handlers, M3.3 artifacts, generation/batch launchers, and the desktop UI remain planned. See [engine status](engine/README.md).
+M3.1 runtime/lifecycle, M3.2 geometric execution and inspection, and M3.3 multi-format artifact finalization are implemented and verified; M4 generation orchestration, M5 batch execution, and M6 desktop UI remain planned. See [engine status](engine/README.md).
 
 ### Initializing the Workspace
 ```powershell

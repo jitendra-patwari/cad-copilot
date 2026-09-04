@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+import traceback
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ from drivers.solidedge.types import (
 from interfaces.exceptions import (
     CADDocumentError,
     CADExecutionError,
+    CADExportError,
     CADRuntimeError,
 )
 
@@ -115,7 +117,7 @@ def test_run_document_task_rejects_untracked_handle(
     runtime, _, _ = runtime_with_mock_doc
     untracked_handle = SolidEdgePartDocumentHandle(handle_id="unknown-handle-999")
 
-    with pytest.raises(CADDocumentError, match="Untracked or closed document handle: unknown-handle-999"):
+    with pytest.raises(CADDocumentError, match="Untracked or closed document handle"):
         runtime.run_document_task(untracked_handle, lambda doc, w: None)
 
 
@@ -128,7 +130,7 @@ def test_run_document_task_rejects_closed_handle(
     runtime.close_document(doc_handle)
     mock_raw_doc.Close.assert_called_once_with(False)
 
-    with pytest.raises(CADDocumentError, match=f"Untracked or closed document handle: {doc_handle.handle_id}"):
+    with pytest.raises(CADDocumentError, match="Untracked or closed document handle"):
         runtime.run_document_task(doc_handle, lambda doc, w: None)
 
 
@@ -280,3 +282,69 @@ def test_run_document_task_rejects_leaked_com_object_in_dataclass(
 
     with pytest.raises(CADExecutionError, match="Document task returned raw COM object reference"):
         runtime.run_document_task(doc_handle, lambda doc, w: CustomTaskResult(status="ok", proxy=leaked_com))
+
+
+def test_run_document_task_detaches_exception_chains_at_sta_boundary(
+    runtime_with_mock_doc: tuple[SolidEdgeRuntime, SolidEdgePartDocumentHandle, MagicMock],
+) -> None:
+    """Proves that raw vendor exceptions, secret path text, and COM objects are detached at the STA worker boundary."""
+    runtime, doc_handle, mock_raw_doc = runtime_with_mock_doc
+
+    secret_dir = r"E:\Client, LLC\SECRET_PROJECT\model.par"
+    raw_vendor_error = OSError(f"Access denied at {secret_dir}")
+
+    def faulty_export_task(doc: Any, worker: Any) -> None:
+        # Simulate an exporter raising a CADExportError with cause/context attached
+        err = CADExportError(
+            "Failed to export PAR artifact 'model.par': <path>",
+            error_code="ARTIFACT_EXPORT_FAILED",
+        )
+        err.__cause__ = raw_vendor_error
+        err.__context__ = raw_vendor_error
+        raise err
+
+    with pytest.raises(CADExportError) as exc_info:
+        runtime.run_document_task(doc_handle, faulty_export_task)
+
+    propagated_exc = exc_info.value
+
+    # 1. Verify cause and context are stripped
+    assert propagated_exc.__cause__ is None
+    assert propagated_exc.__context__ is None
+    assert propagated_exc.__suppress_context__ is True
+
+    # 2. Verify formatted traceback does not leak secret directory, raw OSError, or worker internals
+    tb_str = "".join(traceback.format_exception(propagated_exc))
+    assert "SECRET_PROJECT" not in tb_str
+    assert "Client, LLC" not in tb_str
+    assert "Access denied" not in tb_str
+    assert "raw_vendor_error" not in tb_str
+
+    # 3. Verify no raw document is referenced in exception attributes
+    for attr_name in dir(propagated_exc):
+        if not attr_name.startswith("__"):
+            val = getattr(propagated_exc, attr_name)
+            assert val is not mock_raw_doc
+
+
+def test_run_document_task_normalizes_and_detaches_raw_vendor_exception(
+    runtime_with_mock_doc: tuple[SolidEdgeRuntime, SolidEdgePartDocumentHandle, MagicMock],
+) -> None:
+    """Proves that raw unhandled vendor exceptions are normalized and have tracebacks/chains detached."""
+    runtime, doc_handle, _ = runtime_with_mock_doc
+
+    secret_dir = r"E:\Client, LLC\SECRET_PROJECT\model.par"
+
+    def faulty_raw_task(doc: Any, worker: Any) -> None:
+        raise OSError(f"Disk failure at {secret_dir}")
+
+    with pytest.raises(CADRuntimeError) as exc_info:
+        runtime.run_document_task(doc_handle, faulty_raw_task)
+
+    propagated_exc = exc_info.value
+    assert propagated_exc.__cause__ is None
+    assert propagated_exc.__context__ is None
+
+    tb_str = "".join(traceback.format_exception(propagated_exc))
+    assert "SECRET_PROJECT" not in tb_str
+    assert "Client, LLC" not in tb_str

@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from interfaces import (
+    ArtifactFormat,
     ArtifactRecord,
     BodyRef,
     CADContainmentError,
@@ -79,8 +80,16 @@ class ConcreteCADRuntime(CADRuntimeABC):
 class ConcreteCADExecutor(CADExecutorABC):
     """Complete concrete implementation of CADExecutorABC for testing."""
 
+    def __init__(self) -> None:
+        self.exported_models: list[tuple[str, Path]] = []
+        self.preview_captures: list[Path] = []
+        self.document_closed = False
+
     def execute_feature_plan(self, plan: Any) -> ExecutionResult:
-        return ExecutionSuccess(operations_executed=1, exported_artifacts=["mock.step"])
+        return ExecutionSuccess(
+            operations_executed=1,
+            exported_artifacts=[ArtifactRecord(type="geometry_step", format="step", path="mock.step")],
+        )
 
     def create_prism_body(
         self,
@@ -107,21 +116,14 @@ class ConcreteCADExecutor(CADExecutorABC):
     ) -> FeatureRef:
         return FeatureRef("feature.cutout.1")
 
-    def export_step(self, output_path: Path) -> None:
-        pass
+    def export_model(self, format_id: ArtifactFormat, output_path: Path) -> None:
+        self.exported_models.append((format_id, output_path))
 
-    def export_preview(self, output_path: Path) -> None:
-        pass
+    def capture_preview(self, output_path: Path) -> None:
+        self.preview_captures.append(output_path)
 
-    def export_preview_images(self, output_dir: Path, views: list[str]) -> list[Path]:
-        return [output_dir / f"{view}.jpg" for view in views]
-
-    def export_artifacts(self, formats: list[str], output_dir: Path) -> list[ArtifactRecord]:
-        return [
-            ArtifactRecord(type="geometry_step", format="step", path=str(output_dir / "part.step"))
-            for fmt in formats
-            if fmt == "step"
-        ]
+    def close_request_document(self) -> None:
+        self.document_closed = True
 
     def inspect_active_document(self) -> StandardInspectionReport:
         return StandardInspectionReport(
@@ -150,9 +152,6 @@ class ConcreteCADExecutor(CADExecutorABC):
         pass
 
     def update_document(self) -> None:
-        pass
-
-    def save_document(self) -> None:
         pass
 
 
@@ -265,14 +264,16 @@ def test_concrete_cad_executor_methods_and_defaults() -> None:
     assert props.volume_mm3 == 1500.0
     assert props.mass_kg == 1.17
 
-    # Test preview images and export artifacts
-    images = executor.export_preview_images(Path("out"), ["iso", "top"])
-    assert images == [Path("out/iso.jpg"), Path("out/top.jpg")]
+    # Test export model, preview capture, and close
+    executor.export_model("step", Path("out/part.step"))
+    assert executor.exported_models == [("step", Path("out/part.step"))]
 
-    artifacts = executor.export_artifacts(["step"], Path("out"))
-    assert len(artifacts) == 1
-    assert artifacts[0].type == "geometry_step"
-    assert artifacts[0].format == "step"
+    executor.capture_preview(Path("out/preview.jpg"))
+    assert executor.preview_captures == [Path("out/preview.jpg")]
+
+    assert executor.document_closed is False
+    executor.close_request_document()
+    assert executor.document_closed is True
 
     # Test custom properties
     assert executor.read_custom_properties() == {"Material": "Steel"}
@@ -395,7 +396,10 @@ def test_operation_result_dataclass() -> None:
 
 
 def test_execution_success_positional_compatibility() -> None:
-    """Proves that ExecutionSuccess preserves legacy positional parameter constructor binding."""
+    """Proves that ExecutionSuccess preserves positional constructor binding with typed ArtifactRecord."""
+    rec_par = ArtifactRecord(type="native_part", format="par", path="out.par")
+    rec_step = ArtifactRecord(type="geometry_step", format="step", path="out.step")
+
     # Positional instantiation with 1, 2, and 3 arguments
     success_1 = ExecutionSuccess(5)
     assert success_1.operations_executed == 5
@@ -404,17 +408,24 @@ def test_execution_success_positional_compatibility() -> None:
     assert success_1.operation_results == []
     assert success_1.inspection_report is None
 
-    success_2 = ExecutionSuccess(3, ["out.par", "out.step"])
+    success_2 = ExecutionSuccess(3, [rec_par, rec_step])
     assert success_2.operations_executed == 3
-    assert success_2.exported_artifacts == ["out.par", "out.step"]
+    assert success_2.exported_artifacts == [rec_par, rec_step]
     assert success_2.warnings == []
 
-    success_3 = ExecutionSuccess(2, ["part.step"], [{"code": "WARN_01", "message": "Notice"}])
+    success_3 = ExecutionSuccess(2, [rec_step], [{"code": "WARN_01", "message": "Notice"}])
     assert success_3.operations_executed == 2
-    assert success_3.exported_artifacts == ["part.step"]
+    assert success_3.exported_artifacts == [rec_step]
     assert success_3.warnings == [{"code": "WARN_01", "message": "Notice"}]
     assert success_3.operation_results == []
     assert success_3.inspection_report is None
+
+
+def test_artifact_format_type_invariants() -> None:
+    """Proves that ArtifactFormat type alias includes exactly 'par', 'step', and 'stl'."""
+    from typing import get_args
+
+    assert set(get_args(ArtifactFormat)) == {"par", "step", "stl"}
 
 
 def test_physical_properties_dataclass_defaults_and_custom() -> None:

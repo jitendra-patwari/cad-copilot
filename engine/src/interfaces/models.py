@@ -11,6 +11,8 @@ from typing import Any, Literal, NewType, TypeAlias
 BodyRef = NewType("BodyRef", str)
 FeatureRef = NewType("FeatureRef", str)
 
+ArtifactFormat: TypeAlias = Literal["par", "step", "stl"]
+
 
 @dataclass(frozen=True)
 class OperationResult:
@@ -50,7 +52,7 @@ class PhysicalProperties:
 
 @dataclass
 class ArtifactRecord:
-    """Wire-compliant record of a generated CAD artifact."""
+    """Internal artifact record of a generated CAD artifact."""
 
     type: str
     format: str
@@ -65,7 +67,7 @@ class ExecutionSuccess:
     """Result payload returned when CAD execution succeeds."""
 
     operations_executed: int = 0
-    exported_artifacts: list[str] = field(default_factory=list)
+    exported_artifacts: list[ArtifactRecord] = field(default_factory=list)
     warnings: list[dict[str, str]] = field(default_factory=list)
     operation_results: list[OperationResult] = field(default_factory=list)
     inspection_report: StandardInspectionReport | None = None
@@ -97,6 +99,7 @@ class RuntimeDiagnostics:
 ExecutionResult: TypeAlias = ExecutionSuccess | ExecutionFailure
 
 __all__ = [
+    "ArtifactFormat",
     "ArtifactRecord",
     "BodyRef",
     "ExecutionFailure",

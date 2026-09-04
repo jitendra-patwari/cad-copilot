@@ -4,7 +4,7 @@ The `generation` domain defines the wire protocol and contract schemas used by c
 
 The planned client application owns UI/UX, user prompt entry, example plan selection, and process execution. The planned application/driver path owns prompt interpretation, geometric planning, Solid Edge execution, and required artifact generation.
 
-**Status (28 August 2026):** Schemas and fixtures exist. M3.1 provides runtime/lifecycle only; the M3.2 executor, M3.3 artifact layer, and M4 generation service/launcher are not implemented. The process and output descriptions below define the target contract, not currently available end-to-end behavior.
+**Status:** Schemas and fixtures exist. M3.1 (runtime/lifecycle), M3.2 (Solid Edge executor), and M3.3 (artifact export pipeline) are implemented and verified; M4 generation service/launcher is planned. The process and output descriptions below define the target contract, not currently available end-to-end behavior.
 
 ---
 
@@ -50,6 +50,7 @@ The request schema supports two explicit variants via `oneOf`:
 
 > **Note on Outputs**: Generation outputs are **not** caller-selectable. Successful generation always guarantees the creation of the native Solid Edge part (`.par`), exchange geometry (`step`), and 3D print mesh (`stl`). A preview snapshot (`jpg`) is generated on a best-effort basis.
 
+
 ---
 
 ## Response Shape
@@ -93,6 +94,7 @@ Standardized error codes:
 - `INTERNAL_ERROR` - Unhandled engine exception
 - `NATIVE_QA_BLOCKED` - Solid Edge native physical property inspection failed
 - `PAYLOAD_TOO_LARGE` - Request payload exceeds size limits
+- `TARGET_ALREADY_EXISTS` - Destination output directory or target artifact already exists; existing targets are never overwritten
 
 ---
 
@@ -112,3 +114,4 @@ Golden request and response fixtures are maintained in `fixtures/`:
 - `rejected_unknown_example.request.json` - Negative test verifying rejection of unknown `example_id`
 - `failed_missing_step.response.json` - Export failure response with `ARTIFACT_EXPORT_FAILED`
 - `failed_output_path_escape.response.json` - Security failure response with `OUTPUT_PATH_NOT_ALLOWED`
+- `failed_target_already_exists.response.json` - Conflict failure response with `TARGET_ALREADY_EXISTS`

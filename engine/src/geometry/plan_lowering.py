@@ -506,7 +506,6 @@ def lower_validated_feature_plan_to_payload(validated: FeaturePlan) -> dict[str,
             "diagnostics": [d.to_dict() for d in validated.validation_diagnostics],
             "defaults_applied": [d.to_dict() for d in validated.defaults_applied],
         },
-        "export": {"formats": validated.artifact_policy.visible_formats()},
     }
 
 

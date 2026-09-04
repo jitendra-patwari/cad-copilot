@@ -183,7 +183,8 @@
             "OUTPUT_PATH_NOT_ALLOWED",
             "INTERNAL_ERROR",
             "NATIVE_QA_BLOCKED",
-            "PAYLOAD_TOO_LARGE"
+            "PAYLOAD_TOO_LARGE",
+            "TARGET_ALREADY_EXISTS"
           ]
         },
         "message": {

@@ -740,7 +740,7 @@ class TestContractInvariantsAndFacade:
         assert "canonical_state" in payload
         assert "patches" in payload
         assert "metadata" in payload
-        assert "export" in payload
+        assert "export" not in payload
 
     def test_all_five_golden_fixtures_via_facade(self) -> None:
         fixtures_dir = Path(__file__).resolve().parents[3] / "contracts" / "examples"

@@ -40,6 +40,7 @@ class SolidEdgeApplicationHandle:
     attachment_mode: AttachmentMode = AttachmentMode.UNSPECIFIED
     process_identity: ProcessIdentity | None = None
     version_build: str | None = None
+    warnings: tuple[dict[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
