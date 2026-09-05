@@ -67,7 +67,7 @@ $env:CAD_OUTPUT_ROOT = "E:\cad-output"
 
 ### Required Environment Variables
 - `CAD_OUTPUT_ROOT`: Base output directory for generated CAD artifacts.
-- `GOOGLE_GENAI_API_KEY`: API key for Gemini foundation model (required for `prompt_to_cad` mode; optional for `example_plan` mode).
+- `GOOGLE_GENAI_API_KEY`: API key for Gemini foundation model (required for `prompt_to_cad` mode; not required for deterministic `example_plan` mode or M4.1 component testing).
 - `CAD_LLM_MODEL`: Configurable model identifier.
 
 ### System Requirements
@@ -87,10 +87,12 @@ $env:CAD_OUTPUT_ROOT = "E:\cad-output"
 ### 2. Status: `rejected`
 - The request was rejected before CAD execution (e.g. `INVALID_SCHEMA`, `UNSUPPORTED_REQUEST`).
 - Display `errors[].message` to the user.
+- Surface nonfatal `warnings` in the diagnostic log (empty array if none exist).
 
 ### 3. Status: `failed`
 - The request passed schema checks but execution failed (e.g. `CAD_PLAN_REJECTED`, `CAD_EXECUTION_FAILED`, `OUTPUT_PATH_NOT_ALLOWED`).
-- Log diagnostic trace from `stderr` for developer support.
+- Retain sanitized stderr diagnostics for developer support.
+- Surface nonfatal `warnings` accumulated prior to failure in the diagnostic log.
 
 * **Do Not Retry**:
   - `INVALID_SCHEMA` or `UNSUPPORTED_REQUEST`.

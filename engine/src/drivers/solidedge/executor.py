@@ -6,7 +6,8 @@ import math
 from pathlib import Path
 from typing import Any
 
-from geometry.plan_lowering import lower_feature_plan_to_payload
+from geometry.gate_policy import GatePolicyMode
+from geometry.plan_lowering import lower_validated_feature_plan_to_payload
 from geometry.plan_models import (
     FeaturePlan,
     ProfileCutoutFeature,
@@ -14,6 +15,7 @@ from geometry.plan_models import (
     SweptProtrusionFeature,
 )
 from geometry.plan_parser import feature_plan_from_dict
+from geometry.plan_validation import validate_feature_plan
 from interfaces.exceptions import CADDocumentError, CADError, CADExecutionError
 from interfaces.executor_abc import CADExecutorABC
 from interfaces.models import (
@@ -434,9 +436,14 @@ class SolidEdgeExecutor(CADExecutorABC):
     # High-Level Feature Plan Execution
     # -----------------------------------------------------------------------
 
-    def execute_feature_plan(self, plan: FeaturePlan | dict[str, Any]) -> ExecutionResult:
+    def execute_feature_plan(
+        self,
+        plan: FeaturePlan | dict[str, Any],
+        *,
+        mode: GatePolicyMode | None = None,
+    ) -> ExecutionResult:
         """Execute a declarative feature plan AST and return the execution result."""
-        raw_warnings: list[str] = []
+        raw_warnings: list[dict[str, str]] = []
 
         def _fail(
             msg: str,
@@ -447,12 +454,11 @@ class SolidEdgeExecutor(CADExecutorABC):
             details: dict[str, Any] = {"error_code": code}
             if extra_details:
                 details.update(extra_details)
-            formatted_warnings = [{"message": w} for w in raw_warnings]
             return ExecutionFailure(
                 message=msg,
                 phase=phase,
                 details=details,
-                warnings=formatted_warnings,
+                warnings=list(raw_warnings),
             )
 
         # 1. Parse high-level plan AST
@@ -493,7 +499,8 @@ class SolidEdgeExecutor(CADExecutorABC):
 
         # 3. Lower plan to semantic patch sequence (validates AST internally)
         try:
-            lowered = lower_feature_plan_to_payload(ast)
+            validated = validate_feature_plan(ast, mode=mode)
+            lowered = lower_validated_feature_plan_to_payload(validated)
             contract_version = lowered.get("contract_version")
             kind = lowered.get("kind")
             unit = lowered.get("unit")
@@ -518,7 +525,8 @@ class SolidEdgeExecutor(CADExecutorABC):
                     phase="lowering",
                 )
 
-            raw_warnings.extend([d.message for d in ast.validation_diagnostics])
+            for d in validated.validation_diagnostics:
+                raw_warnings.append({"code": d.code, "message": d.message})
 
         except Exception as exc:
             return _fail(
@@ -553,7 +561,7 @@ class SolidEdgeExecutor(CADExecutorABC):
             return ExecutionSuccess(
                 operations_executed=len(patches),
                 exported_artifacts=[],
-                warnings=[{"message": w} for w in raw_warnings],
+                warnings=list(raw_warnings),
                 operation_results=operations,
                 inspection_report=inspection,
             )

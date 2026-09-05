@@ -1873,3 +1873,54 @@ def test_executor_rejects_missing_or_failing_get_global_parameter(
         executor.inspect_active_document()
     assert exc4.value.error_code == "SOLID_INSPECTION_FAILED"
     assert "invalid accuracy" in str(exc4.value)
+
+
+def test_executor_mode_continuity_capability_first_vs_strict(
+    mock_runtime_and_handle: tuple[
+        SolidEdgeRuntime, SolidEdgePartDocumentHandle, FakeCOMPartDocument, MockWorkerForExecutor
+    ],
+) -> None:
+    """Proves mode keyword continuity: capability_first allows edge margin relaxation while strict rejects."""
+    runtime, doc_handle, _raw_doc, _worker = mock_runtime_and_handle
+    executor = SolidEdgeExecutor(runtime, doc_handle)
+
+    body = RectangularBaseBody(id="body.main", length_mm=100.0, width_mm=100.0, thickness_mm=10.0)
+    # Hole placed with center_x=48, diameter=10 (radius=5): outer edge exceeds boundary
+    # In capability_first mode: allowed with GATE_POLICY_RELAXED warning
+    # In strict mode: hard HOLE_DOES_NOT_FIT validation error
+    h1 = CircularThroughHoleFeature(
+        id="hole_1", diameter_mm=10.0, center_x_mm=48.0, center_y_mm=0.0, target_body_id="body.main"
+    )
+    plan = FeaturePlan(request_id="req_mode_test", part=PartMetadata(), base_body=body, features=(h1,))
+
+    # In strict mode: lowering fails due to strict clearance violation
+    res_strict = executor.execute_feature_plan(plan, mode="strict")
+    assert isinstance(res_strict, ExecutionFailure)
+    assert res_strict.phase == "validation"
+    assert res_strict.details.get("error_code") == "PLAN_LOWERING_FAILED"
+
+    # In capability_first mode: lowering passes and emits relaxed warning
+    res_cap = executor.execute_feature_plan(plan, mode="capability_first")
+    assert isinstance(res_cap, ExecutionSuccess)
+    assert any("GATE_POLICY_RELAXED" in str(w) for w in res_cap.warnings)
+
+
+def test_executor_mode_continuity_default_is_capability_first(
+    mock_runtime_and_handle: tuple[
+        SolidEdgeRuntime, SolidEdgePartDocumentHandle, FakeCOMPartDocument, MockWorkerForExecutor
+    ],
+) -> None:
+    """Proves mode keyword defaults to capability_first when omitted."""
+    runtime, doc_handle, _raw_doc, _worker = mock_runtime_and_handle
+    executor = SolidEdgeExecutor(runtime, doc_handle)
+
+    body = RectangularBaseBody(id="body.main", length_mm=100.0, width_mm=100.0, thickness_mm=10.0)
+    h1 = CircularThroughHoleFeature(
+        id="hole_1", diameter_mm=10.0, center_x_mm=48.0, center_y_mm=0.0, target_body_id="body.main"
+    )
+    plan = FeaturePlan(request_id="req_mode_test", part=PartMetadata(), base_body=body, features=(h1,))
+
+    # In default mode (mode=None): defaults to capability_first
+    res_default = executor.execute_feature_plan(plan)
+    assert isinstance(res_default, ExecutionSuccess)
+    assert any("GATE_POLICY_RELAXED" in str(w) for w in res_default.warnings)

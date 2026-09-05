@@ -5,7 +5,8 @@
   "errors": [
     {
       "code": "OUTPUT_PATH_NOT_ALLOWED",
-      "message": "Artifact path escaped CAD_OUTPUT_ROOT: {{OUTSIDE_STEP_PATH}}"
+      "message": "Requested output path is not allowed outside the configured output root."
     }
-  ]
+  ],
+  "warnings": []
 }

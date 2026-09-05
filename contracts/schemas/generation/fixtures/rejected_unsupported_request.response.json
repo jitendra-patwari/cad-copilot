@@ -1,0 +1,12 @@
+{
+  "contract_version": "1.0",
+  "request_id": "fixture-cube-unsupported",
+  "status": "rejected",
+  "errors": [
+    {
+      "code": "UNSUPPORTED_REQUEST",
+      "message": "The requested example plan or configuration is not supported."
+    }
+  ],
+  "warnings": []
+}

@@ -73,11 +73,12 @@ Scopes include planned domains; listing a scope does not mean its package or run
 * `drivers`: Solid Edge COM automation driver
 * `ai`: Foundation model adapter and geometry plan generator
 * `ipc`: One-request/one-response JSON stdio boundary for the desktop bridge (no REST or JSON-RPC server)
+* `application`: Generation application orchestration service (`GenerationService`)
 * `batch`: Sequential local native-file export and drawing publication
 * `contracts`: Public JSON-Schema contracts and golden fixtures
 
 ### Requirements Traceability (`<FR-ID>`)
-Every commit must cite the corresponding **Functional Requirement ID** from [`docs/requirements.md`](docs/requirements.md) (e.g. `[FR-1]`, `[FR-2]`, `[FR-3]`, `[FR-4]`, `[FR-5]`, `[FR-6]`). For infrastructure or root maintenance, use `[FR-1]` or `[INFRA]`.
+Every commit must cite the corresponding **Functional Requirement ID** from [`docs/requirements.md`](docs/requirements.md) (e.g. `[FR-1]`, `[FR-2]`, `[FR-3]`, `[FR-9]`, `[FR-10]`). For infrastructure or root maintenance, use `[FR-1]` or `[INFRA]`.
 
 ### Examples
 * `chore(root): [FR-1] initialize root workspace configuration, pnpm toolchains and dev tooling`
@@ -85,6 +86,7 @@ Every commit must cite the corresponding **Functional Requirement ID** from [`do
 * `feat(contracts): [FR-2] define public JSON-Schema contracts and golden runbooks`
 * `feat(interfaces): [FR-3] implement abstract domain interfaces (CADExecutorABC, CADRuntimeABC) in engine`
 * `fix(geometry): [FR-4] resolve floating point precision boundary in FaceContext UV projection`
+* `feat(application): [FR-10] implement generation application orchestration`
 
 ---
 

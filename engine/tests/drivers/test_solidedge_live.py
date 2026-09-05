@@ -16,6 +16,12 @@ from typing import Any
 
 import pytest
 
+from application import (
+    ExampleGenerationRequest,
+    GenerationService,
+    PlanProposal,
+    PromptGenerationRequest,
+)
 from artifacts.pipeline import finalize_request_artifacts
 from artifacts.validation import (
     validate_jpg_artifact,
@@ -1611,3 +1617,123 @@ def test_live_m33_08_publication_collision_rejection(
     assert executor._doc_handle is None
     assert doc_handle.handle_id not in live_runtime._open_document_handles
     print("[M33-LIVE-08] Collision rejected: pre-existing content untouched, document cleanly released.", flush=True)
+
+
+def test_m41_live_01_prompt_to_cad_block_orchestration(
+    live_runtime: SolidEdgeRuntime,
+    tmp_path: Path,
+) -> None:
+    """M41-LIVE-01: prompt_to_cad with an injected deterministic block-plan resolver."""
+    diag = live_runtime.get_diagnostics()
+    req_id = "req-m41-live-01"
+    print(f"\n[M41-LIVE-01] Testing prompt_to_cad on Solid Edge {diag.version_build}...", flush=True)
+
+    block_payload = {
+        "plan_version": "cad_copilot.single_part_feature_plan.v1",
+        "request_id": req_id,
+        "units": "mm",
+        "part": {"part_id": "part.live.block", "design_intent": "deterministic block", "scope": "single_part"},
+        "base_body": {
+            "id": "body.main",
+            "family": "rectangular_prism",
+            "dimensions_mm": {"length": 50.0, "width": 40.0, "thickness": 10.0},
+        },
+        "primitive_bodies": [],
+        "boolean_operations": [],
+        "features": [],
+    }
+
+    def block_resolver(req: PromptGenerationRequest) -> PlanProposal:
+        return PlanProposal(
+            plan_payload=block_payload,
+            provenance="ai_proposal",
+            source_id="deterministic_block_test",
+        )
+
+    service = GenerationService(
+        prompt_resolver=block_resolver,
+        runtime_factory=lambda: live_runtime,
+    )
+
+    req = PromptGenerationRequest(
+        contract_version="1.0",
+        request_id=req_id,
+        kind="prompt_to_cad",
+        unit="mm",
+        prompt="Create a rectangular prism 50x40x10 mm",
+    )
+    resp = service.generate(req, output_root=tmp_path)
+    assert resp["status"] == "accepted"
+    assert resp["request_id"] == req_id
+    assert "warnings" in resp
+    artifacts = resp["data"]["artifacts"]
+    assert len(artifacts) >= 3
+
+    final_dir = tmp_path / req_id
+    assert (final_dir / f"{req_id}.par").is_file()
+    assert (final_dir / f"{req_id}.step").is_file()
+    assert (final_dir / f"{req_id}.stl").is_file()
+    print("[M41-LIVE-01] Success: Block prompt_to_cad generated all valid artifacts.", flush=True)
+
+
+def test_m41_live_02_example_plan_spur_gear_orchestration(
+    live_runtime: SolidEdgeRuntime,
+    tmp_path: Path,
+) -> None:
+    """M41-LIVE-02: example_plan with an injected conceptual spur-gear resolver."""
+    diag = live_runtime.get_diagnostics()
+    req_id = "req-m41-live-02"
+    print(f"\n[M41-LIVE-02] Testing example_plan on Solid Edge {diag.version_build}...", flush=True)
+
+    gear_payload = {
+        "plan_version": "cad_copilot.single_part_feature_plan.v1",
+        "request_id": req_id,
+        "units": "mm",
+        "part": {"part_id": "part.live.gear", "design_intent": "conceptual spur gear", "scope": "single_part"},
+        "base_body": {
+            "id": "body.gear",
+            "family": "spur_gear",
+            "dimensions_mm": {
+                "tooth_count": 24,
+                "module_mm": 2.0,
+                "face_width_mm": 15.0,
+                "pressure_angle_deg": 20.0,
+                "bore_diameter_mm": 12.0,
+            },
+        },
+        "primitive_bodies": [],
+        "boolean_operations": [],
+        "features": [],
+    }
+
+    def gear_resolver(req: ExampleGenerationRequest) -> PlanProposal:
+        return PlanProposal(
+            plan_payload=gear_payload,
+            provenance="example_plan",
+            source_id="spur_gear_concept",
+        )
+
+    service = GenerationService(
+        example_resolver=gear_resolver,
+        runtime_factory=lambda: live_runtime,
+    )
+
+    req = ExampleGenerationRequest(
+        contract_version="1.0",
+        request_id=req_id,
+        kind="example_plan",
+        unit="mm",
+        example_id="spur_gear",
+    )
+    resp = service.generate(req, output_root=tmp_path)
+    assert resp["status"] == "accepted"
+    assert resp["request_id"] == req_id
+    assert "warnings" in resp
+    artifacts = resp["data"]["artifacts"]
+    assert len(artifacts) >= 3
+
+    final_dir = tmp_path / req_id
+    assert (final_dir / f"{req_id}.par").is_file()
+    assert (final_dir / f"{req_id}.step").is_file()
+    assert (final_dir / f"{req_id}.stl").is_file()
+    print("[M41-LIVE-02] Success: Spur gear example_plan generated all valid artifacts.", flush=True)

@@ -7,5 +7,6 @@
       "code": "TARGET_ALREADY_EXISTS",
       "message": "Target request directory or artifact already exists in output root."
     }
-  ]
+  ],
+  "warnings": []
 }

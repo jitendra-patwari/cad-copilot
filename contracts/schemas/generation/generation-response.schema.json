@@ -71,7 +71,7 @@
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["contract_version", "request_id", "status", "errors"],
+      "required": ["contract_version", "request_id", "status", "errors", "warnings"],
       "properties": {
         "contract_version": { "const": "1.0" },
         "request_id": { "$ref": "#/$defs/requestId" },
@@ -80,13 +80,17 @@
           "type": "array",
           "minItems": 1,
           "items": { "$ref": "#/$defs/errorRecord" }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
         }
       }
     },
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["contract_version", "request_id", "status", "errors"],
+      "required": ["contract_version", "request_id", "status", "errors", "warnings"],
       "properties": {
         "contract_version": { "const": "1.0" },
         "request_id": { "$ref": "#/$defs/requestId" },
@@ -95,6 +99,10 @@
           "type": "array",
           "minItems": 1,
           "items": { "$ref": "#/$defs/errorRecord" }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
         }
       }
     }

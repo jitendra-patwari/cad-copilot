@@ -85,7 +85,7 @@ class ConcreteCADExecutor(CADExecutorABC):
         self.preview_captures: list[Path] = []
         self.document_closed = False
 
-    def execute_feature_plan(self, plan: Any) -> ExecutionResult:
+    def execute_feature_plan(self, plan: Any, *, mode: Any = None) -> ExecutionResult:
         return ExecutionSuccess(
             operations_executed=1,
             exported_artifacts=[ArtifactRecord(type="geometry_step", format="step", path="mock.step")],

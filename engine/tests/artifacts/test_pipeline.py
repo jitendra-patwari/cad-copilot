@@ -185,7 +185,7 @@ class FakePipelineExecutor(CADExecutorABC):
             raise self.close_error
 
     # --- Out of scope abstract methods ---
-    def execute_feature_plan(self, plan: Any) -> Any:
+    def execute_feature_plan(self, plan: Any, *, mode: Any = None) -> Any:
         raise NotImplementedError
 
     def create_prism_body(self, *args: Any, **kwargs: Any) -> Any:

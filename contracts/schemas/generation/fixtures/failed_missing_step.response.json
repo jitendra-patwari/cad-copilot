@@ -7,5 +7,6 @@
       "code": "ARTIFACT_EXPORT_FAILED",
       "message": "Export failed for required STEP artifact."
     }
-  ]
+  ],
+  "warnings": []
 }

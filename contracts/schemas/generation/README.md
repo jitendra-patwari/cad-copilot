@@ -65,12 +65,14 @@ Returned when geometric planning, CAD execution, and required artifact export co
 - `warnings`: array of nonfatal diagnostic strings (e.g. preview generation unavailable).
 
 ### Status: `rejected`
-Returned when the request is syntactically or semantically invalid before entering CAD execution (e.g. schema validation failure, legacy field present).
+Returned when the request is syntactically or semantically invalid before entering CAD execution (e.g. schema validation failure, unsupported or unrecognized field present).
 - `errors`: array of error records with `code`, `message`, and optional `field`.
+- `warnings`: array of diagnostic warning strings accumulated prior to rejection (empty array when none exist).
 
 ### Status: `failed`
 Returned when request validation succeeds, but prompt interpretation, geometry lowering, Solid Edge execution, or required artifact export encounters an unrecoverable error.
 - `errors`: array of error records with `code` and `message`.
+- `warnings`: array of diagnostic warning strings accumulated prior to failure (empty array when none exist).
 
 ---
 
@@ -109,9 +111,10 @@ Golden request and response fixtures are maintained in `fixtures/`:
 - `accepted_no_preview.response.json` - Accepted response returning `.par`, `step`, and `stl` with a non-fatal preview warning
 
 ### Negative & Failure Fixtures
-- `rejected_image_field.request.json` - Negative test verifying rejection of legacy `image` field
-- `rejected_visible_artifacts_field.request.json` - Negative test verifying rejection of legacy `visible_artifacts` selector
+- `rejected_image_field.request.json` - Negative test verifying rejection of unsupported `image` field
+- `rejected_visible_artifacts_field.request.json` - Negative test verifying rejection of unsupported `visible_artifacts` selector
 - `rejected_unknown_example.request.json` - Negative test verifying rejection of unknown `example_id`
 - `failed_missing_step.response.json` - Export failure response with `ARTIFACT_EXPORT_FAILED`
 - `failed_output_path_escape.response.json` - Security failure response with `OUTPUT_PATH_NOT_ALLOWED`
 - `failed_target_already_exists.response.json` - Conflict failure response with `TARGET_ALREADY_EXISTS`
+- `rejected_unsupported_request.response.json` - Controlled rejection response with `UNSUPPORTED_REQUEST`

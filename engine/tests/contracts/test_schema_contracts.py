@@ -81,7 +81,7 @@ def test_generation_request_fixtures_conformance() -> None:
         payload = _load_json(fixture_path)
         validator.validate(payload)
 
-    # Intentional negative fixtures: legacy/unsupported inputs must fail schema validation
+    # Intentional negative fixtures: unsupported inputs must fail schema validation
     negative_fixtures = [
         "rejected_image_field.request.json",
         "rejected_visible_artifacts_field.request.json",
@@ -102,7 +102,7 @@ def test_generation_response_fixtures_conformance() -> None:
     fixtures_dir = SCHEMAS_ROOT / "generation" / "fixtures"
 
     response_fixtures = list(fixtures_dir.glob("*.response.json"))
-    assert len(response_fixtures) == 5, f"Expected exactly 5 response fixtures, found {len(response_fixtures)}"
+    assert len(response_fixtures) == 6, f"Expected exactly 6 response fixtures, found {len(response_fixtures)}"
 
     for fixture_path in response_fixtures:
         payload = _load_json(fixture_path)
@@ -183,7 +183,7 @@ def test_generation_response_schema_rejects_unrecognized_error_codes() -> None:
     res_schema = _load_json(SCHEMAS_ROOT / "generation" / "generation-response.schema.json")
     validator = Draft202012Validator(res_schema)
 
-    # Valid failure payload with TARGET_ALREADY_EXISTS
+    # Valid failure payload with TARGET_ALREADY_EXISTS and warnings array
     valid_payload = {
         "contract_version": "1.0",
         "request_id": "test-req-err-01",
@@ -194,6 +194,7 @@ def test_generation_response_schema_rejects_unrecognized_error_codes() -> None:
                 "message": "Output destination already exists.",
             }
         ],
+        "warnings": [],
     }
     validator.validate(valid_payload)
 
@@ -208,9 +209,50 @@ def test_generation_response_schema_rejects_unrecognized_error_codes() -> None:
                 "message": "Some error.",
             }
         ],
+        "warnings": [],
     }
     with pytest.raises(jsonschema.ValidationError):
         validator.validate(invalid_payload)
+
+
+def test_generation_response_schema_requires_warnings_on_rejected_and_failed() -> None:
+    """Proves that rejected and failed responses strictly require the warnings array for schema parity."""
+    res_schema = _load_json(SCHEMAS_ROOT / "generation" / "generation-response.schema.json")
+    validator = Draft202012Validator(res_schema)
+
+    # Failed payload missing warnings -> Must fail
+    failed_missing_warnings = {
+        "contract_version": "1.0",
+        "request_id": "test-req-no-warn-01",
+        "status": "failed",
+        "errors": [
+            {
+                "code": "CAD_EXECUTION_FAILED",
+                "message": "Execution failed.",
+            }
+        ],
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(failed_missing_warnings)
+
+    # Rejected payload missing warnings -> Must fail
+    rejected_missing_warnings = {
+        "contract_version": "1.0",
+        "request_id": "test-req-no-warn-02",
+        "status": "rejected",
+        "errors": [
+            {
+                "code": "UNSUPPORTED_REQUEST",
+                "message": "Request unsupported.",
+            }
+        ],
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(rejected_missing_warnings)
+
+    # Adding warnings: [] makes them valid
+    validator.validate({**failed_missing_warnings, "warnings": []})
+    validator.validate({**rejected_missing_warnings, "warnings": ["Prior warning message"]})
 
 
 # ---------------------------------------------------------------------------

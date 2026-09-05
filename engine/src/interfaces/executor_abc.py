@@ -16,6 +16,7 @@ from .models import (
 )
 
 if TYPE_CHECKING:
+    from geometry.gate_policy import GatePolicyMode
     from geometry.plan_models import FeaturePlan
 
 
@@ -24,7 +25,12 @@ class CADExecutorABC(abc.ABC):
 
     # --- High-Level Feature Plan Execution ---
     @abc.abstractmethod
-    def execute_feature_plan(self, plan: FeaturePlan) -> ExecutionResult:
+    def execute_feature_plan(
+        self,
+        plan: FeaturePlan,
+        *,
+        mode: GatePolicyMode | None = None,
+    ) -> ExecutionResult:
         """Execute a declarative feature plan AST and return the execution result."""
 
     # --- Core Modeling Primitives ---
