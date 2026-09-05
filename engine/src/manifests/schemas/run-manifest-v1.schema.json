@@ -297,6 +297,7 @@
     },
     "defaults_applied": {
       "type": "array",
+      "maxItems": 8192,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -319,9 +320,17 @@
               { "type": "null" },
               {
                 "type": "array",
-                "items": { "type": "number" },
-                "maxItems": 16
-              }
+                "items": {
+                  "anyOf": [
+                    { "type": "number" },
+                    { "$ref": "#/$defs/profilePoint2D" }
+                  ]
+                },
+                "maxItems": 512
+              },
+              { "$ref": "#/$defs/profilePoint2D" },
+              { "$ref": "#/$defs/defaultAxisSpan" },
+              { "$ref": "#/$defs/defaultProfileDimensions" }
             ]
           },
           "reason": {
@@ -341,18 +350,18 @@
               { "type": "null" },
               {
                 "type": "array",
-                "items": { "type": "number" },
-                "maxItems": 16
+                "items": {
+                  "anyOf": [
+                    { "type": "number" },
+                    { "$ref": "#/$defs/profilePoint2D" }
+                  ]
+                },
+                "maxItems": 512
               },
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["redacted", "sha256"],
-                "properties": {
-                  "redacted": { "const": true },
-                  "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
-                }
-              }
+              { "$ref": "#/$defs/defaultRedactedValue" },
+              { "$ref": "#/$defs/profilePoint2D" },
+              { "$ref": "#/$defs/defaultAxisSpan" },
+              { "$ref": "#/$defs/defaultProfileDimensions" }
             ]
           }
         }
@@ -360,6 +369,7 @@
     },
     "diagnostics": {
       "type": "array",
+      "maxItems": 8192,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -613,6 +623,45 @@
         "y_mm": { "type": "number" }
       }
     },
+    "defaultAxisSpan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "$ref": "#/$defs/profilePoint2D" },
+        "end": { "$ref": "#/$defs/profilePoint2D" }
+      }
+    },
+    "defaultProfileDimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["points", "axis"],
+      "properties": {
+        "points": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/profilePoint2D" },
+          "maxItems": 512
+        },
+        "axis": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start", "end"],
+          "properties": {
+            "start": { "$ref": "#/$defs/profilePoint2D" },
+            "end": { "$ref": "#/$defs/profilePoint2D" }
+          }
+        }
+      }
+    },
+    "defaultRedactedValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["redacted", "sha256"],
+      "properties": {
+        "redacted": { "const": true },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
     "baseBody": {
       "oneOf": [
         { "$ref": "#/$defs/rectangularBaseBody" },
@@ -655,7 +704,8 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
             "maxLength": 64
           },
-          "maxItems": 16
+          "maxItems": 16,
+          "uniqueItems": true
         }
       }
     },
@@ -691,7 +741,8 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
             "maxLength": 64
           },
-          "maxItems": 16
+          "maxItems": 16,
+          "uniqueItems": true
         }
       }
     },
@@ -726,7 +777,8 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
             "maxLength": 64
           },
-          "maxItems": 16
+          "maxItems": 16,
+          "uniqueItems": true
         }
       }
     },
@@ -771,7 +823,8 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
             "maxLength": 64
           },
-          "maxItems": 16
+          "maxItems": 16,
+          "uniqueItems": true
         }
       }
     },
@@ -813,7 +866,8 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
             "maxLength": 64
           },
-          "maxItems": 16
+          "maxItems": 16,
+          "uniqueItems": true
         }
       }
     },

@@ -13,11 +13,10 @@ Invariants:
 
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import Any, NoReturn
 
 from geometry.face_context import resolve_face_context
+from geometry.fingerprints import sha256_canonical_json
 from geometry.gate_policy import GatePolicyMode
 from geometry.lowering_sweep import lower_swept_protrusion
 from geometry.lowering_wire_mapping import (
@@ -63,14 +62,7 @@ def _clean_float(val: float) -> float:
 
 def _stable_fingerprint(payload: object) -> str:
     """Calculate the deterministic SHA-256 fingerprint of a canonical payload dictionary."""
-    encoded = json.dumps(
-        payload,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-        allow_nan=False,
-    )
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return sha256_canonical_json(payload)
 
 
 def _ref_slug(ref_id: str) -> str:

@@ -600,22 +600,22 @@ def test_schema_rejects_incomplete_or_invalid_feature() -> None:
         validator.validate(bad_sweep_pos)
 
 
-def test_schema_accepts_large_collections_unbounded() -> None:
-    """Verify that defaults_applied, diagnostics, warnings, and operation_results are unbounded."""
+def test_schema_accepts_large_collections_bounded() -> None:
+    """Verify that defaults_applied and diagnostics accept large collections up to 8192 items and reject exceeding counts."""
     validator = get_run_manifest_validator()
     manifest = build_valid_golden_manifest()
 
-    # 200 defaults applied (> earlier arbitrary 64 limit)
+    # 1000 defaults applied (within 8192 bound)
     manifest["defaults_applied"] = [
         {
             "path": f"features[{i}].extent.depth_mm",
             "value": 0.0,
             "reason": "through_all_zero_depth",
         }
-        for i in range(200)
+        for i in range(1000)
     ]
 
-    # 1000 diagnostics (> earlier arbitrary 64 limit)
+    # 1000 diagnostics (within 8192 bound)
     manifest["diagnostics"] = [
         {
             "severity": "info",
@@ -625,10 +625,10 @@ def test_schema_accepts_large_collections_unbounded() -> None:
         for i in range(1000)
     ]
 
-    # 200 warnings (> earlier arbitrary 32 limit)
+    # 200 warnings
     manifest["warnings"] = [f"Warning notice {i}" for i in range(200)]
 
-    # 200 operation_results (> earlier arbitrary 128 limit)
+    # 200 operation_results
     manifest["execution"]["operations_executed"] = 200
     manifest["execution"]["operation_results"] = [
         {
@@ -641,6 +641,32 @@ def test_schema_accepts_large_collections_unbounded() -> None:
     ]
 
     validator.validate(manifest)
+
+    # Exceeding 8192 diagnostics fails schema validation
+    manifest_over = build_valid_golden_manifest()
+    manifest_over["diagnostics"] = [
+        {
+            "severity": "info",
+            "code": f"DIAG_{i:04d}",
+            "message": f"Diagnostic message {i}",
+        }
+        for i in range(8193)
+    ]
+    with pytest.raises(ValidationError):
+        validator.validate(manifest_over)
+
+    # Exceeding 8192 defaults_applied fails schema validation
+    manifest_over_defs = build_valid_golden_manifest()
+    manifest_over_defs["defaults_applied"] = [
+        {
+            "path": f"features[{i}].extent.depth_mm",
+            "value": 0.0,
+            "reason": "through_all_zero_depth",
+        }
+        for i in range(8193)
+    ]
+    with pytest.raises(ValidationError):
+        validator.validate(manifest_over_defs)
 
 
 def test_schema_accepts_canonical_indexed_default_applied_paths() -> None:
