@@ -1,0 +1,1419 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad-copilot.dev/schemas/run-manifest-v1.schema.json",
+  "title": "RunManifest",
+  "description": "Authoritative reproducible execution sidecar recording normalized plan, stable IDs, hashes, execution metrics, and artifacts for an accepted CAD generation request.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_version",
+    "request",
+    "engine",
+    "cad_runtime",
+    "provenance",
+    "gate_mode",
+    "fingerprints",
+    "feature_plan",
+    "stable_ids",
+    "defaults_applied",
+    "diagnostics",
+    "warnings",
+    "execution",
+    "artifacts"
+  ],
+  "properties": {
+    "manifest_version": {
+      "type": "string",
+      "const": "cad_copilot.run_manifest.v1"
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "contract_version", "kind", "unit"],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96,
+          "pattern": "^[A-Za-z0-9_-]([A-Za-z0-9._-]*[A-Za-z0-9_-])?$"
+        },
+        "contract_version": {
+          "type": "string",
+          "const": "1.0"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["example_plan", "prompt_to_cad"]
+        },
+        "unit": {
+          "type": "string",
+          "const": "mm"
+        }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "const": "cad-copilot"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+.*$"
+        }
+      }
+    },
+    "cad_runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product", "version_build"],
+      "properties": {
+        "product": {
+          "type": "string",
+          "const": "solid_edge"
+        },
+        "version_build": {
+          "type": ["string", "null"],
+          "maxLength": 128
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "source_id"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["example_plan", "ai_proposal"]
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        }
+      }
+    },
+    "gate_mode": {
+      "type": "string",
+      "enum": ["capability_first", "strict"]
+    },
+    "fingerprints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan_sha256", "prompt_sha256"],
+      "properties": {
+        "plan_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "prompt_sha256": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "feature_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_version",
+        "request_id",
+        "units",
+        "part",
+        "base_body",
+        "primitive_bodies",
+        "boolean_operations",
+        "features",
+        "lowering_strategy"
+      ],
+      "properties": {
+        "plan_version": {
+          "type": "string",
+          "const": "cad_copilot.single_part_feature_plan.v1"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96,
+          "pattern": "^[A-Za-z0-9_-]([A-Za-z0-9._-]*[A-Za-z0-9_-])?$"
+        },
+        "units": {
+          "type": "string",
+          "const": "mm"
+        },
+        "part": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "part_id",
+            "design_intent",
+            "scope",
+            "origin",
+            "x_axis",
+            "y_axis",
+            "z_axis"
+          ],
+          "properties": {
+            "part_id": {
+              "type": "string",
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            },
+            "design_intent": {
+              "type": "string",
+              "maxLength": 512
+            },
+            "scope": {
+              "type": "string",
+              "const": "single_part"
+            },
+            "origin": {
+              "type": "string",
+              "const": "body_center"
+            },
+            "x_axis": {
+              "type": "string",
+              "const": "length"
+            },
+            "y_axis": {
+              "type": "string",
+              "const": "width"
+            },
+            "z_axis": {
+              "type": "string",
+              "const": "thickness_up"
+            }
+          }
+        },
+        "base_body": {
+          "$ref": "#/$defs/baseBody"
+        },
+        "primitive_bodies": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/baseBody"
+          }
+        },
+        "boolean_operations": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/booleanOperation"
+          }
+        },
+        "features": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/feature"
+          }
+        },
+        "lowering_strategy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "preferred_current_target",
+            "runtime_route_change"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "canonical"
+            },
+            "preferred_current_target": {
+              "type": "string",
+              "const": "cad_copilot_lowering"
+            },
+            "runtime_route_change": {
+              "type": "boolean",
+              "const": false
+            }
+          }
+        }
+      }
+    },
+    "stable_ids": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "part_id",
+        "body_ids",
+        "boolean_operation_ids",
+        "feature_ids"
+      ],
+      "properties": {
+        "part_id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "body_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 128,
+          "items": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          }
+        },
+        "boolean_operation_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          }
+        },
+        "feature_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 128,
+          "items": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          }
+        }
+      }
+    },
+    "defaults_applied": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "value", "reason"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.\\[\\]-]+$",
+            "maxLength": 128
+          },
+          "value": {
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_+-][A-Za-z0-9._+-]*$",
+                "maxLength": 64
+              },
+              { "type": "number" },
+              { "type": "boolean" },
+              { "type": "null" },
+              {
+                "type": "array",
+                "items": { "type": "number" },
+                "maxItems": 16
+              }
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+$",
+            "maxLength": 128
+          },
+          "original_value": {
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_+-][A-Za-z0-9._+-]*$",
+                "maxLength": 64
+              },
+              { "type": "number" },
+              { "type": "boolean" },
+              { "type": "null" },
+              {
+                "type": "array",
+                "items": { "type": "number" },
+                "maxItems": 16
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["redacted", "sha256"],
+                "properties": {
+                  "redacted": { "const": true },
+                  "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "code", "message"],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["info", "warning", "error"]
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+$",
+            "maxLength": 128
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "path": {
+            "type": ["string", "null"],
+            "maxLength": 256
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 512
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operations_executed",
+        "operation_results",
+        "inspection"
+      ],
+      "properties": {
+        "operations_executed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "operation_results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "patch_id",
+              "operation",
+              "reference_id",
+              "reference_kind"
+            ],
+            "properties": {
+              "patch_id": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "operation": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "reference_id": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "reference_kind": {
+                "type": "string",
+                "enum": ["body", "feature"]
+              }
+            }
+          }
+        },
+        "inspection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "volume_mm3",
+            "mass_kg",
+            "feature_count",
+            "body_count",
+            "solid_body_count",
+            "sheet_body_count",
+            "wire_body_count"
+          ],
+          "properties": {
+            "volume_mm3": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "mass_kg": {
+              "type": "number",
+              "minimum": 0
+            },
+            "feature_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "body_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "solid_body_count": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "sheet_body_count": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "wire_body_count": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 4,
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "format", "path", "size_bytes", "sha256"],
+          "properties": {
+            "type": { "const": "native_part" },
+            "format": { "const": "par" },
+            "path": { "type": "string", "pattern": "^[A-Za-z0-9._-]+\\.par$" },
+            "size_bytes": { "type": "integer", "exclusiveMinimum": 0 },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "format", "path", "size_bytes", "sha256"],
+          "properties": {
+            "type": { "const": "geometry_step" },
+            "format": { "const": "step" },
+            "path": { "type": "string", "pattern": "^[A-Za-z0-9._-]+\\.step$" },
+            "size_bytes": { "type": "integer", "exclusiveMinimum": 0 },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "format", "path", "size_bytes", "sha256"],
+          "properties": {
+            "type": { "const": "mesh_stl" },
+            "format": { "const": "stl" },
+            "path": { "type": "string", "pattern": "^[A-Za-z0-9._-]+\\.stl$" },
+            "size_bytes": { "type": "integer", "exclusiveMinimum": 0 },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "format", "path", "size_bytes", "sha256"],
+          "properties": {
+            "type": { "const": "preview_image" },
+            "format": { "const": "jpg" },
+            "path": { "type": "string", "pattern": "^[A-Za-z0-9._-]+\\.jpg$" },
+            "size_bytes": { "type": "integer", "exclusiveMinimum": 0 },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          }
+        }
+      ],
+      "items": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "request": {
+            "properties": {
+              "kind": { "const": "example_plan" }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "provenance": {
+            "properties": {
+              "kind": { "const": "example_plan" }
+            }
+          },
+          "fingerprints": {
+            "properties": {
+              "prompt_sha256": { "type": "null" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "request": {
+            "properties": {
+              "kind": { "const": "prompt_to_cad" }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "provenance": {
+            "properties": {
+              "kind": { "const": "ai_proposal" }
+            }
+          },
+          "fingerprints": {
+            "properties": {
+              "prompt_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "bodyPlacement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x_mm", "y_mm", "z_mm"],
+      "properties": {
+        "x_mm": { "type": "number" },
+        "y_mm": { "type": "number" },
+        "z_mm": { "type": "number" }
+      }
+    },
+    "profilePoint2D": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x_mm", "y_mm"],
+      "properties": {
+        "x_mm": { "type": "number" },
+        "y_mm": { "type": "number" }
+      }
+    },
+    "baseBody": {
+      "oneOf": [
+        { "$ref": "#/$defs/rectangularBaseBody" },
+        { "$ref": "#/$defs/cylinderBaseBody" },
+        { "$ref": "#/$defs/sphereBaseBody" },
+        { "$ref": "#/$defs/spurGearBaseBody" },
+        { "$ref": "#/$defs/revolvedShaftBaseBody" }
+      ]
+    },
+    "rectangularBaseBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "family", "dimensions_mm", "placement", "semantic_labels"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "family": {
+          "const": "rectangular_prism"
+        },
+        "dimensions_mm": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["length_mm", "width_mm", "thickness_mm"],
+          "properties": {
+            "length_mm": { "type": "number", "exclusiveMinimum": 0 },
+            "width_mm": { "type": "number", "exclusiveMinimum": 0 },
+            "thickness_mm": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "placement": {
+          "$ref": "#/$defs/bodyPlacement"
+        },
+        "semantic_labels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "maxLength": 64
+          },
+          "maxItems": 16
+        }
+      }
+    },
+    "cylinderBaseBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "family", "dimensions_mm", "placement", "semantic_labels"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "family": {
+          "const": "cylinder"
+        },
+        "dimensions_mm": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["radius_mm", "height_mm"],
+          "properties": {
+            "radius_mm": { "type": "number", "exclusiveMinimum": 0 },
+            "height_mm": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "placement": {
+          "$ref": "#/$defs/bodyPlacement"
+        },
+        "semantic_labels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "maxLength": 64
+          },
+          "maxItems": 16
+        }
+      }
+    },
+    "sphereBaseBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "family", "dimensions_mm", "placement", "semantic_labels"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "family": {
+          "const": "sphere"
+        },
+        "dimensions_mm": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["radius_mm"],
+          "properties": {
+            "radius_mm": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "placement": {
+          "$ref": "#/$defs/bodyPlacement"
+        },
+        "semantic_labels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "maxLength": 64
+          },
+          "maxItems": 16
+        }
+      }
+    },
+    "spurGearBaseBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "family", "dimensions_mm", "placement", "semantic_labels"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "family": {
+          "const": "spur_gear"
+        },
+        "dimensions_mm": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tooth_count",
+            "module_mm",
+            "face_width_mm",
+            "pressure_angle_deg",
+            "bore_diameter_mm"
+          ],
+          "properties": {
+            "tooth_count": { "type": "integer", "exclusiveMinimum": 0 },
+            "module_mm": { "type": "number", "exclusiveMinimum": 0 },
+            "face_width_mm": { "type": "number", "exclusiveMinimum": 0 },
+            "pressure_angle_deg": { "type": "number", "exclusiveMinimum": 0 },
+            "bore_diameter_mm": { "type": "number", "minimum": 0 }
+          }
+        },
+        "placement": {
+          "$ref": "#/$defs/bodyPlacement"
+        },
+        "semantic_labels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "maxLength": 64
+          },
+          "maxItems": 16
+        }
+      }
+    },
+    "revolvedShaftBaseBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "family", "dimensions_mm", "profile_points", "placement", "semantic_labels"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "family": {
+          "const": "revolved_shaft"
+        },
+        "dimensions_mm": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["radius_mm", "height_mm"],
+          "properties": {
+            "radius_mm": { "type": "number", "exclusiveMinimum": 0 },
+            "height_mm": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "profile_points": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 512,
+          "items": { "$ref": "#/$defs/profilePoint2D" }
+        },
+        "placement": {
+          "$ref": "#/$defs/bodyPlacement"
+        },
+        "semantic_labels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "maxLength": 64
+          },
+          "maxItems": 16
+        }
+      }
+    },
+    "booleanOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "operation",
+        "target_body_id",
+        "tool_body_id",
+        "result_body_id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "operation": {
+          "type": "string",
+          "enum": ["union", "subtract", "intersect"]
+        },
+        "target_body_id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "tool_body_id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "result_body_id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        }
+      }
+    },
+    "feature": {
+      "oneOf": [
+        { "$ref": "#/$defs/circularThroughHoleFeature" },
+        { "$ref": "#/$defs/rectangularThroughCutoutFeature" },
+        { "$ref": "#/$defs/slotThroughCutoutFeature" },
+        { "$ref": "#/$defs/rectangularExtrudedPadFeature" },
+        { "$ref": "#/$defs/revolvedProfileFeature" },
+        { "$ref": "#/$defs/profileCutoutFeature" },
+        { "$ref": "#/$defs/sweptProtrusionFeature" }
+      ]
+    },
+    "circularThroughHoleFeature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "target_body_id",
+        "target_face",
+        "target_selector",
+        "normal_axis",
+        "diameter_mm",
+        "depth_mm",
+        "center_x_mm",
+        "center_y_mm",
+        "placement_mode",
+        "extent_type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "family": {
+          "const": "circular_through_hole"
+        },
+        "target_body_id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "target_face": {
+          "type": ["string", "null"],
+          "maxLength": 32
+        },
+        "target_selector": {
+          "type": ["string", "null"],
+          "maxLength": 64
+        },
+        "normal_axis": {
+          "type": ["string", "null"],
+          "maxLength": 16
+        },
+        "diameter_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "depth_mm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "center_x_mm": {
+          "type": "number"
+        },
+        "center_y_mm": {
+          "type": "number"
+        },
+        "placement_mode": {
+          "type": "string",
+          "enum": ["face_local_center", "face_local_offset"]
+        },
+        "extent_type": {
+          "type": "string",
+          "maxLength": 32
+        }
+      }
+    },
+    "rectangularThroughCutoutFeature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "target_body_id",
+        "target_face",
+        "target_selector",
+        "normal_axis",
+        "width_mm",
+        "height_mm",
+        "depth_mm",
+        "center_x_mm",
+        "center_y_mm",
+        "placement_mode",
+        "extent_type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "family": {
+          "const": "rectangular_through_cutout"
+        },
+        "target_body_id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "target_face": {
+          "type": ["string", "null"],
+          "maxLength": 32
+        },
+        "target_selector": {
+          "type": ["string", "null"],
+          "maxLength": 64
+        },
+        "normal_axis": {
+          "type": ["string", "null"],
+          "maxLength": 16
+        },
+        "width_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "depth_mm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "center_x_mm": {
+          "type": "number"
+        },
+        "center_y_mm": {
+          "type": "number"
+        },
+        "placement_mode": {
+          "type": "string",
+          "enum": ["face_local_center", "face_local_offset"]
+        },
+        "extent_type": {
+          "type": "string",
+          "maxLength": 32
+        }
+      }
+    },
+    "slotThroughCutoutFeature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "target_body_id",
+        "target_face",
+        "target_selector",
+        "normal_axis",
+        "length_mm",
+        "width_mm",
+        "orientation_axis",
+        "depth_mm",
+        "center_x_mm",
+        "center_y_mm",
+        "placement_mode",
+        "extent_type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "family": {
+          "const": "slot_through_cutout"
+        },
+        "target_body_id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "target_face": {
+          "type": ["string", "null"],
+          "maxLength": 32
+        },
+        "target_selector": {
+          "type": ["string", "null"],
+          "maxLength": 64
+        },
+        "normal_axis": {
+          "type": ["string", "null"],
+          "maxLength": 16
+        },
+        "length_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "width_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "orientation_axis": {
+          "type": "string",
+          "enum": ["x", "y"]
+        },
+        "depth_mm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "center_x_mm": {
+          "type": "number"
+        },
+        "center_y_mm": {
+          "type": "number"
+        },
+        "placement_mode": {
+          "type": "string",
+          "enum": ["face_local_center", "face_local_offset"]
+        },
+        "extent_type": {
+          "type": "string",
+          "maxLength": 32
+        }
+      }
+    },
+    "rectangularExtrudedPadFeature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "target_body_id",
+        "target_face",
+        "target_selector",
+        "normal_axis",
+        "width_mm",
+        "height_mm",
+        "distance_mm",
+        "center_x_mm",
+        "center_y_mm",
+        "placement_mode",
+        "extent_type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "family": {
+          "const": "rectangular_extruded_pad"
+        },
+        "target_body_id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "target_face": {
+          "type": ["string", "null"],
+          "maxLength": 32
+        },
+        "target_selector": {
+          "type": ["string", "null"],
+          "maxLength": 64
+        },
+        "normal_axis": {
+          "type": ["string", "null"],
+          "maxLength": 16
+        },
+        "width_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "distance_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "center_x_mm": {
+          "type": "number"
+        },
+        "center_y_mm": {
+          "type": "number"
+        },
+        "placement_mode": {
+          "type": "string",
+          "enum": ["face_local_center", "face_local_offset"]
+        },
+        "extent_type": {
+          "type": "string",
+          "maxLength": 32
+        }
+      }
+    },
+    "revolvedProfileFeature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "target_body_id",
+        "target_face",
+        "target_selector",
+        "normal_axis",
+        "profile_points",
+        "axis_start",
+        "axis_end",
+        "angle_deg",
+        "radial_depth_mm",
+        "profile_height_mm",
+        "center_x_mm",
+        "center_y_mm",
+        "placement_mode",
+        "extent_type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "family": {
+          "const": "revolved_profile"
+        },
+        "target_body_id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "profile_points": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 512,
+          "items": { "$ref": "#/$defs/profilePoint2D" }
+        },
+        "axis_start": {
+          "$ref": "#/$defs/profilePoint2D"
+        },
+        "axis_end": {
+          "$ref": "#/$defs/profilePoint2D"
+        },
+        "angle_deg": {
+          "type": "number"
+        },
+        "radial_depth_mm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "profile_height_mm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "target_face": {
+          "type": ["string", "null"],
+          "maxLength": 32
+        },
+        "target_selector": {
+          "type": ["string", "null"],
+          "maxLength": 64
+        },
+        "normal_axis": {
+          "type": ["string", "null"],
+          "maxLength": 16
+        },
+        "center_x_mm": {
+          "type": "number"
+        },
+        "center_y_mm": {
+          "type": "number"
+        },
+        "placement_mode": {
+          "type": "string",
+          "enum": ["face_local_center", "face_local_offset"]
+        },
+        "extent_type": {
+          "type": "string",
+          "maxLength": 32
+        }
+      }
+    },
+    "profileCutoutFeature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "target_body_id",
+        "target_face",
+        "target_selector",
+        "normal_axis",
+        "profile_points",
+        "depth_mm",
+        "center_x_mm",
+        "center_y_mm",
+        "placement_mode",
+        "extent_type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "family": {
+          "const": "profile_cutout"
+        },
+        "target_body_id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "profile_points": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 512,
+          "items": { "$ref": "#/$defs/profilePoint2D" }
+        },
+        "depth_mm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "target_face": {
+          "type": ["string", "null"],
+          "maxLength": 32
+        },
+        "target_selector": {
+          "type": ["string", "null"],
+          "maxLength": 64
+        },
+        "normal_axis": {
+          "type": ["string", "null"],
+          "maxLength": 16
+        },
+        "center_x_mm": {
+          "type": "number"
+        },
+        "center_y_mm": {
+          "type": "number"
+        },
+        "placement_mode": {
+          "type": "string",
+          "enum": ["face_local_center", "face_local_offset"]
+        },
+        "extent_type": {
+          "type": "string",
+          "maxLength": 32
+        }
+      }
+    },
+    "sweptProtrusionFeature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "target_body_id",
+        "target_face",
+        "target_selector",
+        "normal_axis",
+        "path",
+        "cross_sections",
+        "center_x_mm",
+        "center_y_mm",
+        "placement_mode",
+        "extent_type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "family": {
+          "const": "swept_protrusion"
+        },
+        "target_body_id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "path": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "radius_mm", "angle_deg"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["full_circle", "semicircle", "quarter_arc", "straight_line", "none"]
+            },
+            "radius_mm": { "type": "number" },
+            "angle_deg": { "type": "number" }
+          }
+        },
+        "cross_sections": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "diameter_mm",
+              "width_mm",
+              "height_mm",
+              "profile_points",
+              "position"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["circle", "rectangle", "polygon"]
+              },
+              "diameter_mm": { "type": "number" },
+              "width_mm": { "type": "number" },
+              "height_mm": { "type": "number" },
+              "profile_points": {
+                "type": "array",
+                "maxItems": 512,
+                "items": { "$ref": "#/$defs/profilePoint2D" }
+              },
+              "position": {
+                "type": "string",
+                "enum": ["start", "end"]
+              }
+            }
+          }
+        },
+        "target_face": {
+          "type": ["string", "null"],
+          "maxLength": 32
+        },
+        "target_selector": {
+          "type": ["string", "null"],
+          "maxLength": 64
+        },
+        "normal_axis": {
+          "type": ["string", "null"],
+          "maxLength": 16
+        },
+        "center_x_mm": {
+          "type": "number"
+        },
+        "center_y_mm": {
+          "type": "number"
+        },
+        "placement_mode": {
+          "type": "string",
+          "enum": ["face_local_center", "face_local_offset"]
+        },
+        "extent_type": {
+          "type": "string",
+          "maxLength": 32
+        }
+      }
+    }
+  }
+}
