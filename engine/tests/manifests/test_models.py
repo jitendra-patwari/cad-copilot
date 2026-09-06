@@ -435,8 +435,8 @@ def test_artifact_record_and_execution_models() -> None:
 
 
 def test_single_line_text_rejects_newlines() -> None:
-    # Newlines in patch_id
-    with pytest.raises(ManifestValidationError, match="control characters"):
+    # Newline in patch_id rejected by safe identifier validation
+    with pytest.raises(ManifestValidationError, match="safe identifier pattern"):
         ManifestOperationResult(
             patch_id="patch\n1",
             operation="add_box",
@@ -470,6 +470,63 @@ def test_single_line_text_rejects_newlines() -> None:
             request_id="req-1",
             cad_runtime_version_build="Build 123\r\nInjected",
         )
+
+
+def test_manifest_operation_result_privacy_probes() -> None:
+    # 1. Windows path in patch_id fails closed without leaking path
+    path_val = "C:\\Users\\secret_user\\patch"
+    with pytest.raises(ManifestValidationError) as excinfo:
+        ManifestOperationResult(
+            patch_id=path_val,
+            operation="add_box",
+            reference_id="body.base",
+            reference_kind="body",
+        )
+    err = str(excinfo.value)
+    assert "contains forbidden credential or path pattern" in err or "safe identifier" in err
+    assert "secret_user" not in err
+    assert "Users" not in err
+    assert "C:\\" not in err
+
+    # 2. password=TOPSECRET in operation fails closed without leaking password
+    with pytest.raises(ManifestValidationError) as excinfo:
+        ManifestOperationResult(
+            patch_id="patch_1",
+            operation="password=TOPSECRET",
+            reference_id="body.base",
+            reference_kind="body",
+        )
+    err = str(excinfo.value)
+    assert "contains forbidden credential or path pattern" in err or "safe identifier" in err
+    assert "TOPSECRET" not in err
+    assert "password" not in err
+
+    # 3. sk- credential in reference_id fails closed without leaking credential
+    sk_val = "sk-ant-api03-abcdef12345"
+    with pytest.raises(ManifestValidationError) as excinfo:
+        ManifestOperationResult(
+            patch_id="patch_1",
+            operation="add_box",
+            reference_id=sk_val,
+            reference_kind="body",
+        )
+    err = str(excinfo.value)
+    assert "contains forbidden credential or path pattern" in err
+    assert sk_val not in err
+    assert "sk-" not in err
+
+    # 4. Untrusted reference_kind fails closed without echoing invalid kind
+    bad_kind = "sk-bad-reference-kind"
+    with pytest.raises(ManifestValidationError) as excinfo:
+        ManifestOperationResult(
+            patch_id="patch_1",
+            operation="add_box",
+            reference_id="body.base",
+            reference_kind=bad_kind,
+        )
+    err = str(excinfo.value)
+    assert "Invalid reference_kind" in err
+    assert bad_kind not in err
 
 
 def test_artifact_record_format_type_and_extension_binding() -> None:

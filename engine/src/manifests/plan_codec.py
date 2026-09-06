@@ -40,10 +40,13 @@ from geometry.plan_models import (
     ValidationDiagnostic,
 )
 from manifests.models import (
-    IDENTIFIER_PATTERN,
+    FREE_TEXT_CREDENTIAL_PATTERN,
+    LOCAL_PATH_PATTERN,
+    SENSITIVE_KEY_PATTERN,
     ManifestStableIds,
     ManifestValidationError,
     PreparedManifestData,
+    _validate_safe_id,
     resolve_engine_version,
 )
 from manifests.run_manifest import load_run_manifest_schema
@@ -51,66 +54,12 @@ from manifests.run_manifest import load_run_manifest_schema
 SAFE_PATH_PATTERN = re.compile(r"^[A-Za-z0-9_.\[\]-]+$")
 SAFE_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_+-][A-Za-z0-9._+-]*$")
 SAFE_SLUG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-# Free-text credential pattern: requires assignment/key boundaries or high-entropy token formats.
-# Avoids substring false positives on innocent words like 'authoring', 'authentication', or 'tokenized'.
-FREE_TEXT_CREDENTIAL_PATTERN = re.compile(
-    r"(?i)(?:"
-    r"bearer\s+[a-z0-9_.-]+"
-    r"|sk-[a-z0-9_-]{8,}"
-    r"|aiza[0-9a-z_-]{16,}"
-    r"|\b(?:"
-    r"api[\s_-]?key"
-    r"|access[\s_-]?token"
-    r"|refresh[\s_-]?token"
-    r"|auth(?:orization)?[\s_-]?token"
-    r"|client[\s_-]?secret"
-    r"|secret[\s_-]?key"
-    r"|private[\s_-]?key"
-    r"|password"
-    r"|passwd"
-    r"|authorization"
-    r"|auth"
-    r"|token"
-    r"|secret"
-    r")\s*[:=]\s*\S+"
-    r"|\bapi[\s_-]?key\b"
-    r")"
-)
-
-# Sensitive key/token pattern: exact word-boundary detection for mapping keys and isolated tokens.
-SENSITIVE_KEY_PATTERN = re.compile(
-    r"(?i)\b(?:"
-    r"password|passwd|secret|token|auth"
-    r"|api[\s_-]?key|access[\s_-]?token|refresh[\s_-]?token|auth(?:orization)?[\s_-]?token"
-    r"|client[\s_-]?secret|secret[\s_-]?key|private[\s_-]?key|authorization"
-    r")\b"
-)
-
-# Backward-compatible alias
 CREDENTIAL_PATTERN = FREE_TEXT_CREDENTIAL_PATTERN
-
-LOCAL_PATH_PATTERN = re.compile(
-    r"([A-Za-z]:[/\\]"
-    r"|/(?:home|users|etc|tmp|var|usr|opt|bin)[/\\]"
-    r"|\\\\[A-Za-z0-9._-]+[/\\][A-Za-z0-9._$-]+"
-    r"|^\\\\[A-Za-z0-9._-]+)",
-    re.IGNORECASE,
-)
 
 
 def validate_identifier(name: str, value: str, max_length: int = 128) -> str:
     """Validate that an identifier conforms strictly to safe token patterns and contains no credentials or paths."""
-    if not isinstance(value, str):
-        raise ManifestValidationError(f"{name} must be a string, got {type(value).__name__}")
-    if len(value) < 1 or len(value) > max_length:
-        raise ManifestValidationError(f"{name} length must be between 1 and {max_length}, got {len(value)}")
-    if not IDENTIFIER_PATTERN.match(value):
-        raise ManifestValidationError(
-            f"{name} '{value}' does not match safe identifier pattern '^[A-Za-z0-9][A-Za-z0-9._-]*$'"
-        )
-    if FREE_TEXT_CREDENTIAL_PATTERN.search(value) or LOCAL_PATH_PATTERN.search(value):
-        raise ManifestValidationError(f"{name} '{value}' contains forbidden credential or path pattern")
-    return value
+    return _validate_safe_id(name, value, max_length=max_length)
 
 
 def generate_structural_design_intent(plan: FeaturePlan) -> str:
@@ -871,7 +820,7 @@ def validate_serialized_feature_plan(serialized_plan: Mapping[str, Any]) -> None
     try:
         validator.validate(dict(serialized_plan))
     except ValidationError as exc:
-        raise ManifestValidationError(f"Serialized FeaturePlan failed schema validation: {exc.message}") from exc
+        raise ManifestValidationError("Serialized FeaturePlan failed schema validation") from exc
 
 
 def prepare_manifest_data(

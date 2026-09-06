@@ -47,6 +47,53 @@ VALID_ARTIFACT_FORMATS = frozenset(ARTIFACT_FORMAT_TO_TYPE.keys())
 VALID_REFERENCE_KINDS = frozenset({"body", "feature"})
 
 
+# Free-text credential pattern: requires assignment/key boundaries or high-entropy token formats.
+# Avoids substring false positives on innocent words like 'authoring', 'authentication', or 'tokenized'.
+FREE_TEXT_CREDENTIAL_PATTERN = re.compile(
+    r"(?i)(?:"
+    r"bearer\s+[a-z0-9_.-]+"
+    r"|sk-[a-z0-9_-]{8,}"
+    r"|aiza[0-9a-z_-]{16,}"
+    r"|\b(?:"
+    r"api[\s_-]?key"
+    r"|access[\s_-]?token"
+    r"|refresh[\s_-]?token"
+    r"|auth(?:orization)?[\s_-]?token"
+    r"|client[\s_-]?secret"
+    r"|secret[\s_-]?key"
+    r"|private[\s_-]?key"
+    r"|password"
+    r"|passwd"
+    r"|authorization"
+    r"|auth"
+    r"|token"
+    r"|secret"
+    r")\s*[:=]\s*\S+"
+    r"|\bapi[\s_-]?key\b"
+    r")"
+)
+
+# Sensitive key/token pattern: exact word-boundary detection for mapping keys and isolated tokens.
+SENSITIVE_KEY_PATTERN = re.compile(
+    r"(?i)\b(?:"
+    r"password|passwd|secret|token|auth"
+    r"|api[\s_-]?key|access[\s_-]?token|refresh[\s_-]?token|auth(?:orization)?[\s_-]?token"
+    r"|client[\s_-]?secret|secret[\s_-]?key|private[\s_-]?key|authorization"
+    r")\b"
+)
+
+# Backward-compatible alias
+CREDENTIAL_PATTERN = FREE_TEXT_CREDENTIAL_PATTERN
+
+LOCAL_PATH_PATTERN = re.compile(
+    r"([A-Za-z]:[/\\]"
+    r"|/(?:home|users|etc|tmp|var|usr|opt|bin)[/\\]"
+    r"|\\\\[A-Za-z0-9._-]+[/\\][A-Za-z0-9._$-]+"
+    r"|^\\\\[A-Za-z0-9._-]+)",
+    re.IGNORECASE,
+)
+
+
 class ManifestError(Exception):
     """Base exception for all run manifest errors."""
 
@@ -78,15 +125,16 @@ def resolve_engine_version(distribution_name: str = "cad-copilot") -> str:
     return ver.strip()
 
 
-def _validate_safe_id(name: str, value: str, max_length: int = MAX_IDENTIFIER_LENGTH) -> None:
+def _validate_safe_id(name: str, value: str, max_length: int = MAX_IDENTIFIER_LENGTH) -> str:
     if not isinstance(value, str):
         raise ManifestValidationError(f"{name} must be a string, got {type(value).__name__}")
     if len(value) < 1 or len(value) > max_length:
         raise ManifestValidationError(f"{name} length must be between 1 and {max_length} characters, got {len(value)}")
+    if FREE_TEXT_CREDENTIAL_PATTERN.search(value) or LOCAL_PATH_PATTERN.search(value):
+        raise ManifestValidationError(f"{name} contains forbidden credential or path pattern")
     if not IDENTIFIER_PATTERN.match(value):
-        raise ManifestValidationError(
-            f"{name} '{value}' does not match safe identifier pattern '^[A-Za-z0-9][A-Za-z0-9._-]*$'"
-        )
+        raise ManifestValidationError(f"{name} does not match safe identifier pattern '^[A-Za-z0-9][A-Za-z0-9._-]*$'")
+    return value
 
 
 def _validate_safe_id_collection(name: str, value: Any) -> tuple[str, ...]:
@@ -99,7 +147,7 @@ def _validate_safe_id_collection(name: str, value: Any) -> tuple[str, ...]:
         _validate_safe_id(f"{name}[{i}]", item)
         normalized.append(item)
     if len(normalized) != len(set(normalized)):
-        raise ManifestValidationError(f"{name} contains duplicate identifiers: {value}")
+        raise ManifestValidationError(f"{name} contains duplicate identifiers")
     return tuple(normalized)
 
 
@@ -124,7 +172,7 @@ def _validate_sha256(name: str, value: str | None, required: bool = True) -> Non
     if not isinstance(value, str):
         raise ManifestValidationError(f"{name} must be a string, got {type(value).__name__}")
     if not SHA256_HEX_PATTERN.match(value):
-        raise ManifestValidationError(f"{name} must be exactly 64 lowercase hex characters, got '{value}'")
+        raise ManifestValidationError(f"{name} must be exactly 64 lowercase hex characters")
 
 
 def _validate_strict_int(name: str, value: Any, min_value: int = 0) -> None:
@@ -194,9 +242,7 @@ class ManifestArtifactRecord:
 
     def __post_init__(self) -> None:
         if self.format not in ARTIFACT_FORMAT_TO_TYPE:
-            raise ManifestValidationError(
-                f"Invalid artifact format: '{self.format}'; must be one of {sorted(ARTIFACT_FORMAT_TO_TYPE)}"
-            )
+            raise ManifestValidationError(f"Invalid artifact format; must be one of {sorted(ARTIFACT_FORMAT_TO_TYPE)}")
         expected_type = ARTIFACT_FORMAT_TO_TYPE[self.format]
         if self.type != expected_type:
             raise ManifestValidationError(
@@ -204,12 +250,12 @@ class ManifestArtifactRecord:
             )
         if not isinstance(self.path, str) or not ARTIFACT_FILENAME_PATTERN.match(self.path):
             raise ManifestValidationError(
-                f"Artifact path '{self.path}' must be a canonical relative filename matching {ARTIFACT_FILENAME_PATTERN.pattern}"
+                f"Artifact path must be a canonical relative filename matching {ARTIFACT_FILENAME_PATTERN.pattern}"
             )
         expected_ext = f".{self.format}"
         if not self.path.endswith(expected_ext):
             raise ManifestValidationError(
-                f"Artifact path '{self.path}' must end with '{expected_ext}' matching format '{self.format}'"
+                f"Artifact path must end with '{expected_ext}' matching format '{self.format}'"
             )
         _validate_strict_int("size_bytes", self.size_bytes, min_value=1)
         _validate_sha256("sha256", self.sha256, required=True)
@@ -234,11 +280,11 @@ class ManifestOperationResult:
     reference_kind: str
 
     def __post_init__(self) -> None:
-        _validate_safe_text("patch_id", self.patch_id, max_length=128)
-        _validate_safe_text("operation", self.operation, max_length=64)
-        _validate_safe_text("reference_id", self.reference_id, max_length=128)
+        _validate_safe_id("patch_id", self.patch_id, max_length=128)
+        _validate_safe_id("operation", self.operation, max_length=64)
+        _validate_safe_id("reference_id", self.reference_id, max_length=128)
         if self.reference_kind not in VALID_REFERENCE_KINDS:
-            raise ManifestValidationError(f"Invalid reference_kind: {self.reference_kind}")
+            raise ManifestValidationError("Invalid reference_kind; must be 'body' or 'feature'")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -370,9 +416,7 @@ class PreparedManifestData:
         _validate_sha256("plan_sha256", self.plan_sha256, required=True)
 
         if self.request_kind not in VALID_REQUEST_KINDS:
-            raise ManifestValidationError(
-                f"Invalid request_kind: {self.request_kind}; must be one of {sorted(VALID_REQUEST_KINDS)}"
-            )
+            raise ManifestValidationError(f"Invalid request_kind; must be one of {sorted(VALID_REQUEST_KINDS)}")
 
         if self.request_kind == "example_plan":
             if self.prompt_sha256 is not None:
@@ -385,23 +429,19 @@ class PreparedManifestData:
                 raise ManifestValidationError("provenance_kind must be 'ai_proposal' for prompt_to_cad requests")
 
         if self.provenance_kind not in VALID_PROVENANCE_KINDS:
-            raise ManifestValidationError(f"Invalid provenance_kind: {self.provenance_kind}")
+            raise ManifestValidationError(f"Invalid provenance_kind; must be one of {sorted(VALID_PROVENANCE_KINDS)}")
 
         _validate_safe_id("source_id", self.source_id, max_length=MAX_IDENTIFIER_LENGTH)
 
         if self.gate_mode not in VALID_GATE_MODES:
-            raise ManifestValidationError(
-                f"Invalid gate_mode: {self.gate_mode}; must be one of {sorted(VALID_GATE_MODES)}"
-            )
+            raise ManifestValidationError(f"Invalid gate_mode; must be one of {sorted(VALID_GATE_MODES)}")
 
         if not isinstance(self.engine_version, str) or not self.engine_version.strip():
             raise ManifestValidationError("engine_version must be a non-empty string")
         if len(self.engine_version) > MAX_ENGINE_VERSION_LENGTH or not ENGINE_VERSION_PATTERN.match(
             self.engine_version
         ):
-            raise ManifestValidationError(
-                f"engine_version '{self.engine_version}' does not match semver pattern '^[0-9]+\\.[0-9]+\\.[0-9]+.*$'"
-            )
+            raise ManifestValidationError("engine_version does not match semver pattern '^[0-9]+\\.[0-9]+\\.[0-9]+.*$'")
 
 
 @dataclass(frozen=True)
@@ -426,26 +466,22 @@ class RunManifestContext:
                 f"request_id length must be between 1 and {MAX_REQUEST_ID_LENGTH}, got {len(self.request_id)}"
             )
         if not REQUEST_ID_PATTERN.match(self.request_id):
-            raise ManifestValidationError(
-                f"request_id '{self.request_id}' does not match pattern '{REQUEST_ID_PATTERN.pattern}'"
-            )
+            raise ManifestValidationError(f"request_id does not match pattern '{REQUEST_ID_PATTERN.pattern}'")
         if self.request_id in (".", ".."):
-            raise ManifestValidationError(f"request_id '{self.request_id}' cannot be a reserved path traversal token")
+            raise ManifestValidationError("request_id cannot be a reserved path traversal token")
         if self.request_id.endswith("."):
-            raise ManifestValidationError(f"request_id '{self.request_id}' must not end with a dot")
+            raise ManifestValidationError("request_id must not end with a dot")
 
         # Plan request_id consistency check if present
         plan_req_id = self.prepared_data.feature_plan.get("request_id")
         if plan_req_id is not None and plan_req_id != self.request_id:
-            raise ManifestValidationError(
-                f"request_id mismatch between context ('{self.request_id}') and plan ('{plan_req_id}')"
-            )
+            raise ManifestValidationError("request_id mismatch between context and feature_plan")
 
         if self.contract_version != "1.0":
-            raise ManifestValidationError(f"contract_version must be '1.0', got '{self.contract_version}'")
+            raise ManifestValidationError("contract_version must be '1.0'")
 
         if self.unit != "mm":
-            raise ManifestValidationError(f"unit must be 'mm', got '{self.unit}'")
+            raise ManifestValidationError("unit must be 'mm'")
 
         if self.cad_runtime_version_build is not None:
             _validate_safe_text(
