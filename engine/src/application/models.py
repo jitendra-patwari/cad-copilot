@@ -12,10 +12,12 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, Protocol, TypeAlias
 
 from geometry.plan_models import DefaultApplied, FeaturePlan, ValidationDiagnostic
+from manifests import PreparedManifestData, RunManifestContext
 
 MAX_REQUEST_ID_LENGTH: int = 96
 MAX_SOURCE_ID_LENGTH: int = 128
@@ -138,6 +140,7 @@ class PreparedPlanContext:
     applied_defaults: tuple[DefaultApplied, ...] = ()
     warnings: tuple[str, ...] = ()
     request_metadata: Mapping[str, str] | None = None
+    prepared_manifest_data: PreparedManifestData | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -154,6 +157,10 @@ class PreparedPlanContext:
             object.__setattr__(self, "applied_defaults", tuple(self.applied_defaults))
         if not isinstance(self.warnings, tuple):
             object.__setattr__(self, "warnings", tuple(self.warnings))
+        if self.prepared_manifest_data is not None and not isinstance(
+            self.prepared_manifest_data, PreparedManifestData
+        ):
+            raise ValueError("prepared_manifest_data must be a PreparedManifestData instance if provided")
         if self.request_metadata is not None:
             if not isinstance(self.request_metadata, Mapping):
                 raise ValueError("request_metadata must be a Mapping if provided")
@@ -183,4 +190,18 @@ class PreparedPlanContext:
 ExampleResolver: TypeAlias = Callable[[ExampleGenerationRequest], PlanProposal]
 PromptResolver: TypeAlias = Callable[[PromptGenerationRequest], PlanProposal]
 ExecutorFactory: TypeAlias = Callable[..., Any]
-ArtifactFinalizer: TypeAlias = Callable[..., Any]
+
+
+class ArtifactFinalizer(Protocol):
+    """Callable protocol for finalizing, validating, and publishing request artifacts."""
+
+    def __call__(
+        self,
+        executor: Any,
+        success_result: Any,
+        output_root: Path | str,
+        request_id: str,
+        /,
+        *,
+        manifest_context: RunManifestContext | None = None,
+    ) -> Any: ...

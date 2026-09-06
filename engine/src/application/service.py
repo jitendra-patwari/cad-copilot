@@ -58,6 +58,15 @@ from interfaces.exceptions import (
 )
 from interfaces.models import ExecutionFailure, ExecutionSuccess
 from interfaces.runtime_abc import CADRuntimeABC
+from manifests import (
+    FREE_TEXT_CREDENTIAL_PATTERN,
+    LOCAL_PATH_PATTERN,
+    SENSITIVE_KEY_PATTERN,
+    ManifestConfigurationError,
+    RunManifestContext,
+    compute_prompt_fingerprint,
+    prepare_manifest_data,
+)
 
 REQUEST_ID_PATTERN: re.Pattern[str] = re.compile(r"^[A-Za-z0-9._-]+$")
 logger = logging.getLogger(__name__)
@@ -132,6 +141,17 @@ def _prepare_canonical_plan(
 
     sanitized_warnings = tuple(project_warnings(warnings_acc))
 
+    prompt_sha256 = compute_prompt_fingerprint(request.prompt) if isinstance(request, PromptGenerationRequest) else None
+
+    prepared_manifest = prepare_manifest_data(
+        validated_plan,
+        provenance_kind=proposal.provenance,
+        source_id=proposal.source_id,
+        gate_mode=active_mode,
+        request_kind=request.kind,
+        prompt_sha256=prompt_sha256,
+    )
+
     context = PreparedPlanContext(
         validated_plan=validated_plan,
         lowered_payload=lowered_payload,
@@ -145,6 +165,7 @@ def _prepare_canonical_plan(
         applied_defaults=tuple(validated_plan.defaults_applied),
         warnings=sanitized_warnings,
         request_metadata=request.metadata,
+        prepared_manifest_data=prepared_manifest,
     )
 
     return context, warnings_acc
@@ -221,6 +242,9 @@ class GenerationService:
         try:
             prepared_ctx, prep_warnings = _prepare_canonical_plan(request, proposal, active_mode)
             accumulated_warnings.extend(prep_warnings)
+        except ManifestConfigurationError:
+            accumulated_warnings.extend(proposal.warnings)
+            return build_failed_response(valid_req_id, "ARTIFACT_EXPORT_FAILED", warnings=accumulated_warnings)
         except Exception:
             accumulated_warnings.extend(proposal.warnings)
             return build_failed_response(valid_req_id, "CAD_PLAN_REJECTED", warnings=accumulated_warnings)
@@ -241,10 +265,30 @@ class GenerationService:
             except Exception:
                 return build_failed_response(valid_req_id, "CAD_EXECUTION_FAILED", warnings=accumulated_warnings)
 
+            runtime_version_build: str | None = None
             with contextlib.suppress(Exception):
                 diag = runtime.get_diagnostics()
-                if diag and diag.warnings:
-                    accumulated_warnings.extend(diag.warnings)
+                if diag:
+                    if diag.warnings:
+                        accumulated_warnings.extend(diag.warnings)
+                    if isinstance(diag.version_build, str) and diag.version_build.strip():
+                        cleaned_build = " ".join(diag.version_build.split())
+                        if (
+                            cleaned_build
+                            and len(cleaned_build) <= 128
+                            and not LOCAL_PATH_PATTERN.search(cleaned_build)
+                            and not FREE_TEXT_CREDENTIAL_PATTERN.search(cleaned_build)
+                            and not SENSITIVE_KEY_PATTERN.search(cleaned_build)
+                        ):
+                            runtime_version_build = cleaned_build
+
+            if runtime_version_build is None and not any(
+                (isinstance(w, Mapping) and w.get("code") == "VERSION_METADATA_UNAVAILABLE")
+                or w == "VERSION_METADATA_UNAVAILABLE"
+                or w == "CAD runtime did not report version metadata."
+                for w in accumulated_warnings
+            ):
+                accumulated_warnings.append({"code": "VERSION_METADATA_UNAVAILABLE"})
 
             try:
                 doc_handle = runtime.create_part_document(app_handle)
@@ -290,9 +334,28 @@ class GenerationService:
             if exec_result.warnings:
                 accumulated_warnings.extend(exec_result.warnings)
 
+            # Assemble manifest context if manifest data was prepared
+            manifest_context: RunManifestContext | None = None
+            if prepared_ctx.prepared_manifest_data is not None:
+                sanitized_manifest_warnings = tuple(project_warnings(accumulated_warnings))
+                manifest_context = RunManifestContext(
+                    prepared_data=prepared_ctx.prepared_manifest_data,
+                    request_id=valid_req_id,
+                    contract_version="1.0",
+                    unit=request.unit,
+                    cad_runtime_version_build=runtime_version_build,
+                    warnings=sanitized_manifest_warnings,
+                )
+
             # Phase D: Artifact finalization (owns inspection, exports, publication, and document release)
             try:
-                finalized = self._artifact_finalizer(executor, exec_result, resolved_root, valid_req_id)
+                finalized = self._artifact_finalizer(
+                    executor,
+                    exec_result,
+                    resolved_root,
+                    valid_req_id,
+                    manifest_context=manifest_context,
+                )
                 if not hasattr(finalized, "exported_artifacts") or not hasattr(finalized, "warnings"):
                     return build_failed_response(valid_req_id, "INTERNAL_ERROR", warnings=accumulated_warnings)
                 if finalized.warnings:

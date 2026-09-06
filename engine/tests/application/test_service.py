@@ -13,6 +13,9 @@ Verifies:
 
 from __future__ import annotations
 
+import hashlib
+import json
+import struct
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +33,7 @@ from application.service import (
     _prepare_canonical_plan,
 )
 from artifacts.paths import ArtifactPathError
+from artifacts.pipeline import finalize_request_artifacts
 from interfaces.exceptions import (
     CADDocumentError,
     CADExecutionError,
@@ -43,6 +47,12 @@ from interfaces.models import (
     StandardInspectionReport,
 )
 from interfaces.runtime_abc import CADRuntimeABC
+from manifests import (
+    ManifestConfigurationError,
+    ManifestValidationError,
+    RunManifestContext,
+    get_run_manifest_validator,
+)
 
 # ---------------------------------------------------------------------------
 # Test Fixtures & Fakes
@@ -85,7 +95,11 @@ class FakeDocumentHandle:
 class FakeRuntime(CADRuntimeABC):
     """Spy runtime implementation tracking lifecycle calls."""
 
-    def __init__(self, diagnostics_warnings: list[dict[str, str]] | None = None) -> None:
+    def __init__(
+        self,
+        diagnostics_warnings: list[dict[str, str]] | None = None,
+        version_build: str | None = None,
+    ) -> None:
         self.connect_count = 0
         self.diagnostics_count = 0
         self.create_doc_count = 0
@@ -94,6 +108,7 @@ class FakeRuntime(CADRuntimeABC):
         self.teardown_args: list[bool] = []
         self.closed_handles: list[Any] = []
         self.diagnostics_warnings = diagnostics_warnings or []
+        self.version_build = version_build
         self.fail_connect = False
         self.fail_create_doc = False
         self.fail_close_doc = False
@@ -110,6 +125,7 @@ class FakeRuntime(CADRuntimeABC):
             ownership="owned",
             attachment_mode="spawned_new",
             is_healthy=True,
+            version_build=self.version_build,
             warnings=list(self.diagnostics_warnings),
         )
 
@@ -179,6 +195,8 @@ def fake_artifact_finalizer(
     success_result: ExecutionSuccess,
     output_root: Path | str,
     request_id: str,
+    *,
+    manifest_context: RunManifestContext | None = None,
 ) -> ExecutionSuccess:
     """Mock artifact finalizer returning canonical artifact records."""
     root = Path(output_root)
@@ -768,8 +786,15 @@ def test_warning_flow_order_and_privacy_guarantee(tmp_path: Path) -> None:
     resolver_warn = {"code": "CANONICAL_MULTI_HOLE_FAMILY", "message": "Multiple holes"}
 
     # Finalizer preview warning
-    def finalizer_with_warnings(executor: Any, success: Any, root: Any, req_id: str) -> ExecutionSuccess:
-        res = fake_artifact_finalizer(executor, success, root, req_id)
+    def finalizer_with_warnings(
+        executor: Any,
+        success: Any,
+        root: Any,
+        req_id: str,
+        *,
+        manifest_context: RunManifestContext | None = None,
+    ) -> ExecutionSuccess:
+        res = fake_artifact_finalizer(executor, success, root, req_id, manifest_context=manifest_context)
         res.warnings.append({"code": "PREVIEW_EXPORT_FAILED", "message": "No preview"})
         return res
 
@@ -867,7 +892,14 @@ def test_executor_warnings_retained_across_finalizer_failure(tmp_path: Path) -> 
         ),
     )
 
-    def failing_finalizer(executor: Any, success: Any, root: Any, req_id: str) -> Any:
+    def failing_finalizer(
+        executor: Any,
+        success: Any,
+        root: Any,
+        req_id: str,
+        *,
+        manifest_context: RunManifestContext | None = None,
+    ) -> Any:
         raise CADExportError("Step export failed")
 
     service = GenerationService(
@@ -909,7 +941,14 @@ def test_malformed_finalizer_result_maps_to_internal_error_with_warnings(tmp_pat
         ),
     )
 
-    def malformed_finalizer(executor: Any, success: Any, root: Any, req_id: str) -> Any:
+    def malformed_finalizer(
+        executor: Any,
+        success: Any,
+        root: Any,
+        req_id: str,
+        *,
+        manifest_context: RunManifestContext | None = None,
+    ) -> Any:
         return object()  # Lacks exported_artifacts and warnings attributes
 
     service = GenerationService(
@@ -933,3 +972,449 @@ def test_malformed_finalizer_result_maps_to_internal_error_with_warnings(tmp_pat
     assert resp["status"] == "failed"
     assert resp["errors"][0]["code"] == "INTERNAL_ERROR"
     assert any("Feature validation evaluated under relaxed capability-first policy." in w for w in resp["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# Phase D Integration: Manifest Context Construction & Publishing
+# ---------------------------------------------------------------------------
+
+
+def test_generation_service_provides_manifest_context_for_example_request(tmp_path: Path) -> None:
+    """Proves GenerationService constructs and passes RunManifestContext for example requests."""
+    captured_context: RunManifestContext | None = None
+
+    def spy_finalizer(
+        executor: Any,
+        success_result: ExecutionSuccess,
+        output_root: Path | str,
+        request_id: str,
+        *,
+        manifest_context: RunManifestContext | None = None,
+    ) -> ExecutionSuccess:
+        nonlocal captured_context
+        captured_context = manifest_context
+        return fake_artifact_finalizer(
+            executor,
+            success_result,
+            output_root,
+            request_id,
+            manifest_context=manifest_context,
+        )
+
+    runtime = FakeRuntime(version_build="Solid Edge 2026 (226.00.00.106)")
+    service = GenerationService(
+        example_resolver=lambda req: PlanProposal(
+            plan_payload=make_valid_plan_payload(req.request_id),
+            provenance="example_plan",
+            source_id="sample_01",
+        ),
+        runtime_factory=lambda: runtime,
+        executor_factory=lambda rt, dh: FakeExecutor(rt, dh),
+        artifact_finalizer=spy_finalizer,
+    )
+
+    req = ExampleGenerationRequest(
+        contract_version="1.0",
+        request_id="req_example_manifest_ctx",
+        kind="example_plan",
+        unit="mm",
+        example_id="sample_01",
+    )
+    resp = service.generate(req, output_root=tmp_path)
+
+    assert resp["status"] == "accepted"
+    assert captured_context is not None
+    assert isinstance(captured_context, RunManifestContext)
+    assert captured_context.request_id == "req_example_manifest_ctx"
+    assert captured_context.contract_version == "1.0"
+    assert captured_context.unit == "mm"
+    assert captured_context.cad_runtime_version_build == "Solid Edge 2026 (226.00.00.106)"
+    assert captured_context.prepared_data.provenance_kind == "example_plan"
+    assert captured_context.prepared_data.request_kind == "example_plan"
+    assert captured_context.prepared_data.prompt_sha256 is None
+    assert captured_context.prepared_data.source_id == "sample_01"
+
+
+def test_generation_service_provides_manifest_context_for_prompt_request(tmp_path: Path) -> None:
+    """Proves GenerationService constructs and passes RunManifestContext for prompt requests."""
+    captured_context: RunManifestContext | None = None
+
+    def spy_finalizer(
+        executor: Any,
+        success_result: ExecutionSuccess,
+        output_root: Path | str,
+        request_id: str,
+        *,
+        manifest_context: RunManifestContext | None = None,
+    ) -> ExecutionSuccess:
+        nonlocal captured_context
+        captured_context = manifest_context
+        return fake_artifact_finalizer(
+            executor,
+            success_result,
+            output_root,
+            request_id,
+            manifest_context=manifest_context,
+        )
+
+    prompt_text = "Generate a base plate 80x40x6 mm"
+    expected_prompt_sha256 = hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()
+
+    runtime = FakeRuntime(version_build="Solid Edge 2026 (226.00.00.106)")
+    service = GenerationService(
+        prompt_resolver=lambda req: PlanProposal(
+            plan_payload=make_valid_plan_payload(req.request_id),
+            provenance="ai_proposal",
+            source_id="agent_v1",
+        ),
+        runtime_factory=lambda: runtime,
+        executor_factory=lambda rt, dh: FakeExecutor(rt, dh),
+        artifact_finalizer=spy_finalizer,
+    )
+
+    req = PromptGenerationRequest(
+        contract_version="1.0",
+        request_id="req_prompt_manifest_ctx",
+        kind="prompt_to_cad",
+        unit="mm",
+        prompt=prompt_text,
+    )
+    resp = service.generate(req, output_root=tmp_path)
+
+    assert resp["status"] == "accepted"
+    assert captured_context is not None
+    assert isinstance(captured_context, RunManifestContext)
+    assert captured_context.request_id == "req_prompt_manifest_ctx"
+    assert captured_context.contract_version == "1.0"
+    assert captured_context.unit == "mm"
+    assert captured_context.prepared_data.provenance_kind == "ai_proposal"
+    assert captured_context.prepared_data.request_kind == "prompt_to_cad"
+    assert captured_context.prepared_data.prompt_sha256 == expected_prompt_sha256
+    # Privacy check: prompt string is not retained in serialized plan
+    assert prompt_text not in json.dumps(captured_context.prepared_data.feature_plan)
+
+
+def test_runtime_version_extracted_into_manifest_context(tmp_path: Path) -> None:
+    """Proves CAD runtime version string is extracted safely into the manifest context."""
+    captured_context: RunManifestContext | None = None
+
+    def spy_finalizer(
+        executor: Any,
+        success_result: ExecutionSuccess,
+        output_root: Path | str,
+        request_id: str,
+        *,
+        manifest_context: RunManifestContext | None = None,
+    ) -> ExecutionSuccess:
+        nonlocal captured_context
+        captured_context = manifest_context
+        return fake_artifact_finalizer(
+            executor,
+            success_result,
+            output_root,
+            request_id,
+            manifest_context=manifest_context,
+        )
+
+    runtime = FakeRuntime(version_build="Solid Edge 2026.1.0")
+    service = GenerationService(
+        example_resolver=lambda req: PlanProposal(
+            plan_payload=make_valid_plan_payload(req.request_id),
+            provenance="example_plan",
+            source_id="sample_01",
+        ),
+        runtime_factory=lambda: runtime,
+        executor_factory=lambda rt, dh: FakeExecutor(rt, dh),
+        artifact_finalizer=spy_finalizer,
+    )
+
+    req = ExampleGenerationRequest(
+        contract_version="1.0",
+        request_id="req_version_extracted",
+        kind="example_plan",
+        unit="mm",
+        example_id="sample_01",
+    )
+    service.generate(req, output_root=tmp_path)
+
+    assert captured_context is not None
+    assert captured_context.cad_runtime_version_build == "Solid Edge 2026.1.0"
+
+
+def test_missing_runtime_version_retains_unavailable_warning(tmp_path: Path) -> None:
+    """Proves missing runtime version results in None build and VERSION_METADATA_UNAVAILABLE warning."""
+    captured_context: RunManifestContext | None = None
+
+    def spy_finalizer(
+        executor: Any,
+        success_result: ExecutionSuccess,
+        output_root: Path | str,
+        request_id: str,
+        *,
+        manifest_context: RunManifestContext | None = None,
+    ) -> ExecutionSuccess:
+        nonlocal captured_context
+        captured_context = manifest_context
+        return fake_artifact_finalizer(
+            executor,
+            success_result,
+            output_root,
+            request_id,
+            manifest_context=manifest_context,
+        )
+
+    runtime = FakeRuntime(version_build=None)
+    service = GenerationService(
+        example_resolver=lambda req: PlanProposal(
+            plan_payload=make_valid_plan_payload(req.request_id),
+            provenance="example_plan",
+            source_id="sample_01",
+        ),
+        runtime_factory=lambda: runtime,
+        executor_factory=lambda rt, dh: FakeExecutor(rt, dh),
+        artifact_finalizer=spy_finalizer,
+    )
+
+    req = ExampleGenerationRequest(
+        contract_version="1.0",
+        request_id="req_version_missing",
+        kind="example_plan",
+        unit="mm",
+        example_id="sample_01",
+    )
+    resp = service.generate(req, output_root=tmp_path)
+
+    assert resp["status"] == "accepted"
+    assert captured_context is not None
+    assert captured_context.cad_runtime_version_build is None
+    assert any("CAD runtime did not report version metadata." in w for w in resp["warnings"])
+    assert any("CAD runtime did not report version metadata." in w for w in captured_context.warnings)
+
+
+def test_pre_runtime_manifest_configuration_error_maps_to_export_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Proves missing package metadata fails closed before runtime acquisition without touching CAD runtime."""
+    runtime_factory_called = False
+
+    def tracking_runtime_factory() -> FakeRuntime:
+        nonlocal runtime_factory_called
+        runtime_factory_called = True
+        return FakeRuntime()
+
+    def failing_prepare(*args: Any, **kwargs: Any) -> Any:
+        raise ManifestConfigurationError("Package distribution metadata for 'cad-copilot' is not installed.")
+
+    monkeypatch.setattr("application.service.prepare_manifest_data", failing_prepare)
+
+    service = GenerationService(
+        example_resolver=lambda req: PlanProposal(
+            plan_payload=make_valid_plan_payload(req.request_id),
+            provenance="example_plan",
+            source_id="sample_01",
+        ),
+        runtime_factory=tracking_runtime_factory,
+        executor_factory=lambda rt, dh: FakeExecutor(rt, dh),
+        artifact_finalizer=fake_artifact_finalizer,
+    )
+
+    req = ExampleGenerationRequest(
+        contract_version="1.0",
+        request_id="req_config_fail_pre_runtime",
+        kind="example_plan",
+        unit="mm",
+        example_id="sample_01",
+    )
+    resp = service.generate(req, output_root=tmp_path)
+
+    assert resp["status"] == "failed"
+    assert resp["errors"][0]["code"] == "ARTIFACT_EXPORT_FAILED"
+    assert runtime_factory_called is False
+
+
+def test_pre_runtime_manifest_validation_error_maps_to_plan_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Proves plan metadata rejection during manifest preparation maps to CAD_PLAN_REJECTED before runtime acquisition."""
+    runtime_factory_called = False
+
+    def tracking_runtime_factory() -> FakeRuntime:
+        nonlocal runtime_factory_called
+        runtime_factory_called = True
+        return FakeRuntime()
+
+    def failing_prepare(*args: Any, **kwargs: Any) -> Any:
+        raise ManifestValidationError("Feature plan contains invalid geometry tokens")
+
+    monkeypatch.setattr("application.service.prepare_manifest_data", failing_prepare)
+
+    service = GenerationService(
+        example_resolver=lambda req: PlanProposal(
+            plan_payload=make_valid_plan_payload(req.request_id),
+            provenance="example_plan",
+            source_id="sample_01",
+        ),
+        runtime_factory=tracking_runtime_factory,
+        executor_factory=lambda rt, dh: FakeExecutor(rt, dh),
+        artifact_finalizer=fake_artifact_finalizer,
+    )
+
+    req = ExampleGenerationRequest(
+        contract_version="1.0",
+        request_id="req_val_fail_pre_runtime",
+        kind="example_plan",
+        unit="mm",
+        example_id="sample_01",
+    )
+    resp = service.generate(req, output_root=tmp_path)
+
+    assert resp["status"] == "failed"
+    assert resp["errors"][0]["code"] == "CAD_PLAN_REJECTED"
+    assert runtime_factory_called is False
+
+
+def test_finalizer_manifest_export_error_retains_accumulated_warnings(tmp_path: Path) -> None:
+    """Proves manifest assembly or writing failure during finalization preserves accumulated warnings."""
+    runtime = FakeRuntime()
+    exec_success = ExecutionSuccess(
+        operations_executed=1,
+        exported_artifacts=[],
+        warnings=[{"code": "GATE_POLICY_RELAXED"}],
+        inspection_report=StandardInspectionReport(
+            volume_mm3=100.0,
+            mass_kg=0.01,
+            feature_count=1,
+            body_count=1,
+            solid_body_count=1,
+        ),
+    )
+
+    def failing_finalizer(
+        executor: Any,
+        success: Any,
+        root: Any,
+        req_id: str,
+        *,
+        manifest_context: RunManifestContext | None = None,
+    ) -> Any:
+        raise CADExportError("Failed to assemble or publish run manifest", error_code="ARTIFACT_EXPORT_FAILED")
+
+    service = GenerationService(
+        example_resolver=lambda req: PlanProposal(
+            plan_payload=make_valid_plan_payload(req.request_id),
+            provenance="example_plan",
+            source_id="sample_01",
+            warnings=[{"code": "CANONICAL_MULTI_HOLE_FAMILY"}],
+        ),
+        runtime_factory=lambda: runtime,
+        executor_factory=lambda rt, dh: FakeExecutor(rt, dh, result=exec_success),
+        artifact_finalizer=failing_finalizer,
+    )
+    req = ExampleGenerationRequest(
+        contract_version="1.0",
+        request_id="req_fin_manifest_fail",
+        kind="example_plan",
+        unit="mm",
+        example_id="sample_01",
+    )
+    resp = service.generate(req, output_root=tmp_path)
+    assert resp["status"] == "failed"
+    assert resp["errors"][0]["code"] == "ARTIFACT_EXPORT_FAILED"
+    # Verify warnings from resolver and executor are preserved
+    assert any("Multiple circular through-holes accepted by canonical validation." in w for w in resp["warnings"])
+    assert any("Feature validation evaluated under relaxed capability-first policy." in w for w in resp["warnings"])
+
+
+def test_end_to_end_generation_publishes_manifest_and_validates_schema(tmp_path: Path) -> None:
+    """Proves end-to-end generation with production finalizer publishes valid run_manifest.json sidecar."""
+
+    class FakeProductionExecutor(FakeExecutor):
+        def export_model(self, format_id: str, output_path: Path) -> None:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            if format_id == "par":
+                output_path.write_bytes(b"SOLID_EDGE_PART_CONTENT")
+            elif format_id == "step":
+                step_text = (
+                    "ISO-10303-21;\n"
+                    "HEADER;\n"
+                    "FILE_DESCRIPTION(('CAD Copilot Test STEP'),'2;1');\n"
+                    "FILE_NAME('test.step','2026-09-02T12:00:00',('Tester'),('CAD Copilot'),"
+                    "'Preprocessor','OriginatingSystem','Authorization');\n"
+                    "FILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));\n"
+                    "ENDSEC;\n"
+                    "DATA;\n"
+                    "#1 = CARTESIAN_POINT('',(0.0,0.0,0.0));\n"
+                    "#2 = CARTESIAN_POINT('',(30.0,20.0,10.0));\n"
+                    "#10 = ( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.) );\n"
+                    "#20 = MANIFOLD_SOLID_BREP('Body1',#30);\n"
+                    "#30 = CLOSED_SHELL('Shell1',());\n"
+                    "#40 = ADVANCED_FACE('Face1',(),#50,.T.);\n"
+                    "#50 = PLANE('Plane1',#60);\n"
+                    "#60 = AXIS2_PLACEMENT_3D('Placement1',#1,#70,#80);\n"
+                    "#70 = DIRECTION('Axis',(0.0,0.0,1.0));\n"
+                    "#80 = DIRECTION('RefDirection',(1.0,0.0,0.0));\n"
+                    "ENDSEC;\n"
+                    "END-ISO-10303-21;\n"
+                )
+                output_path.write_text(step_text, encoding="utf-8")
+            elif format_id == "stl":
+                header = b"CAD Copilot Binary STL".ljust(80, b"\x00")[:80]
+                stl_data = bytearray(header)
+                stl_data.extend(struct.pack("<I", 1))
+                stl_data.extend(struct.pack("<3f", 0.0, 0.0, 1.0))
+                stl_data.extend(struct.pack("<3f", 0.0, 0.0, 0.0))
+                stl_data.extend(struct.pack("<3f", 10.0, 0.0, 0.0))
+                stl_data.extend(struct.pack("<3f", 0.0, 10.0, 0.0))
+                stl_data.extend(struct.pack("<H", 0))
+                output_path.write_bytes(bytes(stl_data))
+
+        def capture_preview(self, output_path: Path) -> None:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"\xff\xd8" + b"\x00" * 252 + b"\xff\xd9")
+
+    runtime = FakeRuntime(version_build="Solid Edge 2026 (226.00.00.106)")
+    req_id = "req_e2e_manifest_pub"
+
+    service = GenerationService(
+        example_resolver=lambda req: PlanProposal(
+            plan_payload=make_valid_plan_payload(req.request_id),
+            provenance="example_plan",
+            source_id="sample_01",
+        ),
+        runtime_factory=lambda: runtime,
+        executor_factory=lambda rt, dh: FakeProductionExecutor(rt, dh),
+        artifact_finalizer=finalize_request_artifacts,
+    )
+
+    req = ExampleGenerationRequest(
+        contract_version="1.0",
+        request_id=req_id,
+        kind="example_plan",
+        unit="mm",
+        example_id="sample_01",
+    )
+    resp = service.generate(req, output_root=tmp_path)
+
+    assert resp["status"] == "accepted"
+    # Artifact records in response contains strictly the 4 model files
+    assert len(resp["data"]["artifacts"]) == 4
+    for record in resp["data"]["artifacts"]:
+        assert record["format"] in ("par", "step", "stl", "jpg")
+        assert not record["path"].endswith("run_manifest.json")
+
+    # On disk: 5 files published including run_manifest.json
+    published_dir = tmp_path / req_id
+    assert published_dir.is_dir()
+    manifest_file = published_dir / "run_manifest.json"
+    assert manifest_file.is_file()
+
+    # Validate published manifest against canonical schema
+    manifest_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+    validator = get_run_manifest_validator()
+    validator.validate(manifest_data)
+
+    assert manifest_data["request"]["request_id"] == req_id
+    assert manifest_data["request"]["contract_version"] == "1.0"
+    assert manifest_data["request"]["unit"] == "mm"
+    assert manifest_data["cad_runtime"]["version_build"] == "Solid Edge 2026 (226.00.00.106)"
+    assert len(manifest_data["artifacts"]) == 4
