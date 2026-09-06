@@ -2,11 +2,11 @@
 
 **Project**: CAD Copilot  
 **Scope**: Milestone 1 (Foundation & Domain Interfaces), Milestone 2 (Pure Domain Geometry Math), Milestone 3 (Solid Edge COM Driver & Artifact Pipeline), and Milestone 4 (Generation Application Orchestration, Examples, Manifest & Stdio IPC)
-**Status (5 September 2026)**: M1/M2 domain baseline and M3.0 reconciliation implemented; M3.1 runtime/lifecycle, M3.2 primitive execution and inspection, and M3.3 multi-format artifact export and pipeline finalization implemented, hardened, and verified. M4.1 generation application orchestration is implemented and verified; M4.2 through M4.5 remain Planned, so Milestone 4 is not complete.
+**Status (6 September 2026)**: M1/M2 domain baseline and M3.0 reconciliation implemented; M3.1 runtime/lifecycle, M3.2 primitive execution and inspection, and M3.3 multi-format artifact export and pipeline finalization implemented, hardened, and verified. M4.1 generation application orchestration and M4.4 canonical run manifest and sidecar publication are implemented, hardened, and verified; M4.2 (Gemini adapter), M4.3 (deterministic example catalog), and M4.5 (stdio IPC) remain Planned, so Milestone 4 is not complete.
 
 ### Current evidence boundary
 
-- **Offline test suite**: 921 tests passed, 2 skipped, with 33 COM tests deselected; strict mypy passed (48 source files, 51 test-inclusive); Ruff lint passed and formatting clean (90 files in engine, 98 files repo-wide); `git diff --check` clean (exit code 0; 8 Windows CRLF normalization notices).
+- **Offline test suite**: 1,109 tests passed, 2 skipped, with 35 COM tests deselected; strict mypy passed across the verified component scope (67 source and test files checked: `mypy --config-file mypy.ini src tests/manifests tests/artifacts tests/application tests/drivers/test_solidedge_live.py`); Ruff lint passed and formatting clean; `git diff --check` clean.
 - **Live integration evidence**: 31 passed, 0 skipped across 31 COM tests on a licensed Siemens Solid Edge 2026 session (`226.00.00.106`), verifying:
   1. M3.1 lifecycle isolation, Ordered mode readback `2`, and non-destructive process preservation (4 live gates).
   2. M3.2 3D primitives (cuboid, cylinder, 24-tooth conceptual spur gear at origin and translated with centered through-bore), 6-face circular cuts, localized +Z cuts, and sequential feature execution (15 live gates).
@@ -18,7 +18,9 @@
   8. M3.3 induced required export failure verifying staging cleanup, absence of final directory, and session preservation for subsequent requests (1 live gate).
   9. M3.3 induced preview failure verifying graceful degradation, retention of `PREVIEW_EXPORT_FAILED` warning, and required model publication (1 live gate).
   10. M3.3 publication collision rejection verifying `TARGET_ALREADY_EXISTS` without mutating pre-existing targets (1 live gate).
-- **M4.1 focused live component evidence (5 September 2026)**: 2 passed, 0 skipped in the focused combined run on a licensed local Solid Edge 2026 installation, verifying the injected deterministic `prompt_to_cad` block path and injected `example_plan` conceptual spur-gear path through canonical preparation, request-owned document execution, required artifact validation/publication, and ownership-safe teardown.
+- **M4 focused live component evidence (6 September 2026)**: 4 passed, 0 skipped across the focused M4 component suite on a licensed local Solid Edge 2026 installation (`test_m41_live_01`, `test_m41_live_02`, `test_m44_live_01`, `test_m44_live_02`), verifying:
+  1. Injected deterministic `prompt_to_cad` block and `example_plan` conceptual spur-gear orchestration (2 live gates).
+  2. End-to-end prompt-to-CAD and example-plan generation with atomic `run_manifest.json` publication, draft 2020-12 schema validation, exact file hash/size consistency, prompt SHA-256 fingerprinting, positive-volume solid inspection, and ownership-safe teardown (2 live gates).
 
 ---
 
@@ -180,7 +182,7 @@ The implementation is in `engine/src/drivers/solidedge/`. The requirements below
 ### FR-12: Deterministic Example Catalog (M4.3 — Planned)
 - Provides deterministic example plan catalog loader resolving schema-approved example IDs (initially `spur_gear`) into canonical feature plans without network dependencies.
 
-### FR-13: Canonical Run Manifest (M4.4 — Planned)
+### FR-13: Canonical Run Manifest (M4.4 — Implemented and Verified)
 - **Reproducible Execution Record**: Generates a canonical `run_manifest.json` recording the full provenance and execution record for every accepted generation run:
   - Explicit request ID, schema version, engine software version, and CAD runtime version diagnostics.
   - Canonical normalized FeaturePlan AST payload.
@@ -276,3 +278,29 @@ This section defines acceptance criteria specifically for the Milestone 4.1 appl
    - Preserves warning parity (`warnings: string[]`) across all response variants.
    - Full offline verification passes with fake runtime, fake executor, and pure projection unit tests (80 tests across `test_projection.py` and `test_service.py`).
    - Focused live execution cases in `engine/tests/drivers/test_solidedge_live.py` (`test_m41_live_01_prompt_to_cad_block_orchestration` and `test_m41_live_02_example_plan_spur_gear_orchestration`) pass for rectangular block and conceptual spur gear generation on licensed Solid Edge using injected resolvers.
+
+### Milestone 4.4 Component Acceptance Criteria (Implemented and Verified)
+
+This section defines acceptance criteria specifically for the Milestone 4.4 canonical run manifest and sidecar publication component:
+
+1. **Canonical Schema & Codec (FR-13)**:
+   - Draft 2020-12 schema resource `run-manifest-v1.schema.json` loaded offline from package resources.
+   - Deterministic canonical JSON serialization (`fingerprints.py`) enforcing canonical key sorting, signed zero normalization (`-0.0 -> 0.0`), explicit float typing, compact separators, and Zero-I/O purity.
+   - Comprehensive codec (`plan_codec.py`) faithfully serializes FeaturePlan AST and pre-validates against schema before CAD runtime acquisition.
+
+2. **Artifact Transaction & Publication Integrity (FR-13)**:
+   - Staging manifest writer writes `run_manifest.json` with exclusive creation (`"xb"`), reads back from disk, and schema-validates before staging close.
+   - Pre-publication inventory check validates `run_manifest.json` along with required model files (`.par`, `.step`, `.stl`) using lightweight filesystem stability snapshots (`FileSnapshot`).
+   - Publication atomicity guarantees all model files and `run_manifest.json` publish together or staging is rolled back.
+   - Wire contract projection remains unchanged: public response returns strictly 3 or 4 model artifact records, while disk publication includes the manifest sidecar.
+
+3. **Application Service Integration (FR-10, FR-13)**:
+   - `GenerationService` validates and prepares manifest data before CAD runtime acquisition ("Zero COM in Preparation").
+   - Safely extracts `cad_runtime_version_build` from runtime diagnostics and guards against workstation path or credential leakage.
+   - Retains all accumulated warnings through manifest failure or success; maps manifest configuration errors to `ARTIFACT_EXPORT_FAILED`.
+
+4. **Automated & Live Verification Baseline**:
+   - Full offline suite: 1,109 tests passed, 2 skipped, 35 COM tests deselected across all domain packages.
+   - Strict mypy: 0 issues across 67 source and test files in verified component scope (`mypy --config-file mypy.ini src tests/manifests tests/artifacts tests/application tests/drivers/test_solidedge_live.py`).
+   - Ruff linting and formatting: clean across engine codebase (`ruff check src tests` and `ruff format --check src tests`).
+   - Live integration evidence on Siemens Solid Edge 2026 (version `226.00.00.106`): 4 passed live tests (`test_m41_live_01`, `test_m41_live_02`, `test_m44_live_01`, `test_m44_live_02`) verifying end-to-end prompt and example generation with schema-valid `run_manifest.json` sidecar publication.

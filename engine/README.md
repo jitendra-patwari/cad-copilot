@@ -4,7 +4,7 @@ CAD Copilot is an open-source project for local Solid Edge generation and native
 
 ## Current implementation
 
-As of 5 September 2026:
+As of 6 September 2026:
 
 - M1/M2: domain interfaces, JSON contracts, pure geometry, parsing, validation, lowering, and bounded STEP text smoke checking.
 - M3.0: scope, contract, governance, and Python tooling reconciliation.
@@ -12,15 +12,16 @@ As of 5 September 2026:
 - M3.2: Solid Edge primitive execution (cuboid, cylinder, conceptual spur gear with centered bore), localized 2D cutouts (circular, rectangular, slot through/blind), +Z rectangular pad protrusions, ordered sequential feature execution, recompute, and authoritative topology/property inspection.
 - M3.3: safe multi-format artifact finalization, atomic directory publication, path containment, Draft 2020-12 wire-schema projection compatibility, closed-file validators (native `.par`, bounded STEP, binary/ASCII STL, signature-checked JPG), and pipeline orchestration (`finalize_request_artifacts`).
 - M4.1: implemented and verified generation application orchestration component (`GenerationService`, typed application models, pure response/warning/error/artifact projection, mode continuity, single-request lifecycle coordination, preflight collision/containment checking, and canonical preparation).
+- M4.4: canonical run manifest (`run_manifest.json`) and sidecar publication component (`manifests` package, deterministic canonical JSON fingerprints, Draft 2020-12 schema validation, snapshot verification, atomic artifact transaction integration, pre-runtime preparation, and fail-closed privacy boundary).
 
-M4 concrete Gemini adapter (M4.2), deterministic example catalog (M4.3), run manifest (M4.4), stdio transport (M4.5), M5 batch execution, and M6 desktop integration remain planned. M4.1 is an internal component; a complete end-to-end generation workflow is not yet available.
+M4 concrete Gemini adapter (M4.2), deterministic example catalog (M4.3), stdio transport (M4.5), M5 batch execution, and M6 desktop integration remain planned. M4.1 and M4.4 are internal engine components; a complete end-to-end generation workflow is not yet available.
 
 ## Verification boundary
 
-- Full offline test suite: **921 passed, 2 skipped, 33 COM tests deselected** across all domain packages.
-- Strict mypy: **Success (0 issues across 48 source files)** (`mypy src`).
-- Ruff linting and formatting: clean across 90 files in engine (98 files repo-wide).
-- Live integration evidence: **31 passed, 0 skipped** for the established M3 suite on a licensed Siemens Solid Edge 2026 session (version `226.00.00.106`), plus **2 passed, 0 skipped** in the focused M4.1 component run covering deterministic prompt/example orchestration, required artifact publication, and ownership-safe teardown.
+- Full offline test suite: **1,109 passed, 2 skipped, 35 COM tests deselected** across all domain packages.
+- Strict mypy: **Success (0 issues across 67 source files)** (`mypy --config-file mypy.ini src tests/manifests tests/artifacts tests/application tests/drivers/test_solidedge_live.py`).
+- Ruff linting and formatting: clean across engine (`ruff check src tests` and `ruff format --check src tests`).
+- Live integration evidence: **31 passed, 0 skipped** for the established M3 suite on a licensed Siemens Solid Edge 2026 session (version `226.00.00.106`), plus **4 passed, 0 skipped** across the focused M4 component runs covering deterministic prompt/example orchestration, required artifact publication, live `run_manifest.json` sidecar publication, and ownership-safe teardown.
 
 ## Development and scope
 
