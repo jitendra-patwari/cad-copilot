@@ -34,6 +34,7 @@ from application.service import (
 )
 from artifacts.paths import ArtifactPathError
 from artifacts.pipeline import finalize_request_artifacts
+from example_catalog import resolve_example_plan
 from interfaces.exceptions import (
     CADDocumentError,
     CADExecutionError,
@@ -188,6 +189,53 @@ class FakeExecutor:
         if self.fail_close:
             raise CADDocumentError("Mock close failed", error_code="DOCUMENT_CLOSE_FAILED")
         self.runtime.close_document(self.doc_handle)
+
+
+class FakeProductionExecutor(FakeExecutor):
+    """Fake executor supporting export_model and capture_preview for artifact pipeline."""
+
+    def export_model(self, format_id: str, output_path: Path) -> None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        if format_id == "par":
+            output_path.write_bytes(b"SOLID_EDGE_PART_CONTENT")
+        elif format_id == "step":
+            step_text = (
+                "ISO-10303-21;\n"
+                "HEADER;\n"
+                "FILE_DESCRIPTION(('CAD Copilot Test STEP'),'2;1');\n"
+                "FILE_NAME('test.step','2026-09-02T12:00:00',('Tester'),('CAD Copilot'),"
+                "'Preprocessor','OriginatingSystem','Authorization');\n"
+                "FILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));\n"
+                "ENDSEC;\n"
+                "DATA;\n"
+                "#1 = CARTESIAN_POINT('',(0.0,0.0,0.0));\n"
+                "#2 = CARTESIAN_POINT('',(30.0,20.0,10.0));\n"
+                "#10 = ( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.) );\n"
+                "#20 = MANIFOLD_SOLID_BREP('Body1',#30);\n"
+                "#30 = CLOSED_SHELL('Shell1',());\n"
+                "#40 = ADVANCED_FACE('Face1',(),#50,.T.);\n"
+                "#50 = PLANE('Plane1',#60);\n"
+                "#60 = AXIS2_PLACEMENT_3D('Placement1',#1,#70,#80);\n"
+                "#70 = DIRECTION('Axis',(0.0,0.0,1.0));\n"
+                "#80 = DIRECTION('RefDirection',(1.0,0.0,0.0));\n"
+                "ENDSEC;\n"
+                "END-ISO-10303-21;\n"
+            )
+            output_path.write_text(step_text, encoding="utf-8")
+        elif format_id == "stl":
+            header = b"CAD Copilot Binary STL".ljust(80, b"\x00")[:80]
+            stl_data = bytearray(header)
+            stl_data.extend(struct.pack("<I", 1))
+            stl_data.extend(struct.pack("<3f", 0.0, 0.0, 1.0))
+            stl_data.extend(struct.pack("<3f", 0.0, 0.0, 0.0))
+            stl_data.extend(struct.pack("<3f", 10.0, 0.0, 0.0))
+            stl_data.extend(struct.pack("<3f", 0.0, 10.0, 0.0))
+            stl_data.extend(struct.pack("<H", 0))
+            output_path.write_bytes(bytes(stl_data))
+
+    def capture_preview(self, output_path: Path) -> None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"\xff\xd8" + b"\x00" * 252 + b"\xff\xd9")
 
 
 def fake_artifact_finalizer(
@@ -1327,51 +1375,6 @@ def test_finalizer_manifest_export_error_retains_accumulated_warnings(tmp_path: 
 
 def test_end_to_end_generation_publishes_manifest_and_validates_schema(tmp_path: Path) -> None:
     """Proves end-to-end generation with production finalizer publishes valid run_manifest.json sidecar."""
-
-    class FakeProductionExecutor(FakeExecutor):
-        def export_model(self, format_id: str, output_path: Path) -> None:
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            if format_id == "par":
-                output_path.write_bytes(b"SOLID_EDGE_PART_CONTENT")
-            elif format_id == "step":
-                step_text = (
-                    "ISO-10303-21;\n"
-                    "HEADER;\n"
-                    "FILE_DESCRIPTION(('CAD Copilot Test STEP'),'2;1');\n"
-                    "FILE_NAME('test.step','2026-09-02T12:00:00',('Tester'),('CAD Copilot'),"
-                    "'Preprocessor','OriginatingSystem','Authorization');\n"
-                    "FILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));\n"
-                    "ENDSEC;\n"
-                    "DATA;\n"
-                    "#1 = CARTESIAN_POINT('',(0.0,0.0,0.0));\n"
-                    "#2 = CARTESIAN_POINT('',(30.0,20.0,10.0));\n"
-                    "#10 = ( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.) );\n"
-                    "#20 = MANIFOLD_SOLID_BREP('Body1',#30);\n"
-                    "#30 = CLOSED_SHELL('Shell1',());\n"
-                    "#40 = ADVANCED_FACE('Face1',(),#50,.T.);\n"
-                    "#50 = PLANE('Plane1',#60);\n"
-                    "#60 = AXIS2_PLACEMENT_3D('Placement1',#1,#70,#80);\n"
-                    "#70 = DIRECTION('Axis',(0.0,0.0,1.0));\n"
-                    "#80 = DIRECTION('RefDirection',(1.0,0.0,0.0));\n"
-                    "ENDSEC;\n"
-                    "END-ISO-10303-21;\n"
-                )
-                output_path.write_text(step_text, encoding="utf-8")
-            elif format_id == "stl":
-                header = b"CAD Copilot Binary STL".ljust(80, b"\x00")[:80]
-                stl_data = bytearray(header)
-                stl_data.extend(struct.pack("<I", 1))
-                stl_data.extend(struct.pack("<3f", 0.0, 0.0, 1.0))
-                stl_data.extend(struct.pack("<3f", 0.0, 0.0, 0.0))
-                stl_data.extend(struct.pack("<3f", 10.0, 0.0, 0.0))
-                stl_data.extend(struct.pack("<3f", 0.0, 10.0, 0.0))
-                stl_data.extend(struct.pack("<H", 0))
-                output_path.write_bytes(bytes(stl_data))
-
-        def capture_preview(self, output_path: Path) -> None:
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_bytes(b"\xff\xd8" + b"\x00" * 252 + b"\xff\xd9")
-
     runtime = FakeRuntime(version_build="Solid Edge 2026 (226.00.00.106)")
     req_id = "req_e2e_manifest_pub"
 
@@ -1418,3 +1421,90 @@ def test_end_to_end_generation_publishes_manifest_and_validates_schema(tmp_path:
     assert manifest_data["request"]["unit"] == "mm"
     assert manifest_data["cad_runtime"]["version_build"] == "Solid Edge 2026 (226.00.00.106)"
     assert len(manifest_data["artifacts"]) == 4
+
+
+# ---------------------------------------------------------------------------
+# M4.3 Tests: Deterministic Example Catalog Integration
+# ---------------------------------------------------------------------------
+
+
+def test_generation_service_with_production_example_resolver_unknown_id_fails_before_runtime(tmp_path: Path) -> None:
+    """Proves unknown example_id fails in Phase B before CAD runtime acquisition."""
+    runtime_factory_called = False
+
+    def spy_runtime_factory() -> CADRuntimeABC:
+        nonlocal runtime_factory_called
+        runtime_factory_called = True
+        return FakeRuntime()
+
+    service = GenerationService(
+        example_resolver=resolve_example_plan,
+        runtime_factory=spy_runtime_factory,
+        executor_factory=lambda rt, dh: FakeExecutor(rt, dh),
+        artifact_finalizer=fake_artifact_finalizer,
+    )
+
+    req = ExampleGenerationRequest(
+        contract_version="1.0",
+        request_id="req_m43_unknown_01",
+        kind="example_plan",
+        unit="mm",
+        example_id="unknown_part_sample",
+    )
+    resp = service.generate(req, output_root=tmp_path)
+
+    assert resp["status"] == "rejected"
+    assert resp["request_id"] == "req_m43_unknown_01"
+    assert resp["errors"][0]["code"] == "UNSUPPORTED_REQUEST"
+    assert runtime_factory_called is False
+
+
+def test_generation_service_with_production_example_resolver_publishes_manifest_on_disk(tmp_path: Path) -> None:
+    """Proves end-to-end spur-gear generation publishes valid run_manifest.json with correct provenance."""
+    runtime = FakeRuntime(version_build="Solid Edge 2026 (226.00.00.106)")
+    req_id = "req_m43_e2e_manifest"
+
+    service = GenerationService(
+        example_resolver=resolve_example_plan,
+        runtime_factory=lambda: runtime,
+        executor_factory=lambda rt, dh: FakeProductionExecutor(rt, dh),
+        artifact_finalizer=finalize_request_artifacts,
+    )
+
+    req = ExampleGenerationRequest(
+        contract_version="1.0",
+        request_id=req_id,
+        kind="example_plan",
+        unit="mm",
+        example_id="spur_gear",
+    )
+    resp = service.generate(req, output_root=tmp_path)
+
+    assert resp["status"] == "accepted"
+    assert len(resp["data"]["artifacts"]) == 4
+
+    published_dir = tmp_path / req_id
+    assert published_dir.is_dir()
+    manifest_file = published_dir / "run_manifest.json"
+    assert manifest_file.is_file()
+
+    manifest_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+    validator = get_run_manifest_validator()
+    validator.validate(manifest_data)
+
+    assert manifest_data["request"]["request_id"] == req_id
+    assert manifest_data["request"]["contract_version"] == "1.0"
+    assert manifest_data["request"]["kind"] == "example_plan"
+    assert manifest_data["request"]["unit"] == "mm"
+    assert manifest_data["provenance"]["kind"] == "example_plan"
+    assert manifest_data["provenance"]["source_id"] == "spur_gear"
+    assert manifest_data["fingerprints"]["prompt_sha256"] is None
+    assert manifest_data["cad_runtime"]["version_build"] == "Solid Edge 2026 (226.00.00.106)"
+    assert manifest_data["feature_plan"]["base_body"]["family"] == "spur_gear"
+    assert len(manifest_data["artifacts"]) == 4
+
+    # Ensure placeholder request ID is never published
+    assert "replace-with-request-id" not in json.dumps(manifest_data)
+
+    # Document was closed by artifact finalizer
+    assert runtime.close_doc_count == 1

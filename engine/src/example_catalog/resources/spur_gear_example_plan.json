@@ -1,0 +1,34 @@
+{
+  "plan_version": "cad_copilot.single_part_feature_plan.v1",
+  "request_id": "replace-with-request-id",
+
+  "units": "mm",
+  "part": {
+    "part_id": "part.main",
+    "design_intent": "concept spur gear with center bore",
+    "scope": "single_part"
+  },
+  "base_body": {
+    "id": "body.main",
+    "family": "spur_gear",
+    "semantic_labels": [
+      "spur_gear",
+      "concept_gear"
+    ],
+    "dimensions_mm": {
+      "tooth_count": 24,
+      "module": 2.0,
+      "pressure_angle": 20.0,
+      "face_width": 10.0,
+      "bore_diameter": 8.0
+    },
+    "placement": {
+      "x_mm": 0.0,
+      "y_mm": 0.0,
+      "z_mm": 0.0
+    }
+  },
+  "primitive_bodies": [],
+  "boolean_operations": [],
+  "features": []
+}
