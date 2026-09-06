@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -346,7 +347,7 @@ class TestStagingAllocation:
         call_count = 0
         original_mkdir = os.mkdir
 
-        def mock_mkdir(path: os.PathLike[str] | str, *args: object, **kwargs: object) -> None:
+        def mock_mkdir(path: os.PathLike[str] | str, *args: Any, **kwargs: Any) -> None:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -736,6 +737,56 @@ class TestArtifactPathsContainer:
         # 2. Cleanup staging directory
         paths.cleanup_staging(document_closed=True)
         assert not paths.staging_dir.exists()
+
+    def test_prepare_artifact_paths_manifest_properties(self, tmp_path: Path) -> None:
+        paths = prepare_artifact_paths(tmp_path, "job-manifest-paths")
+        assert paths.staging_manifest == paths.staging_dir / "run_manifest.json"
+        assert paths.final_manifest == paths.final_dir / "run_manifest.json"
+        assert paths.get_manifest_staging_path() == paths.staging_dir / "run_manifest.json"
+
+    def test_get_manifest_staging_path_rejects_symlink(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        root = tmp_path / "outputs"
+        paths = prepare_artifact_paths(root, "job-manifest-link")
+
+        monkeypatch.setattr(
+            "artifacts.paths.is_symlink_or_reparse_point",
+            lambda p: p == paths.staging_manifest,
+        )
+        with pytest.raises(ArtifactPathError) as exc_info:
+            paths.get_manifest_staging_path()
+        assert exc_info.value.error_code == "OUTPUT_PATH_NOT_ALLOWED"
+        assert "must not be a symbolic link or reparse point" in str(exc_info.value)
+
+    def test_get_manifest_staging_path_rejects_containment_escape(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = tmp_path / "outputs"
+        paths = prepare_artifact_paths(root, "job-manifest-escape")
+
+        escaped = tmp_path / "escaped_run_manifest.json"
+        orig_resolve = Path.resolve
+
+        def mock_resolve(self: Path, strict: bool = False) -> Path:
+            if self == paths.staging_manifest:
+                return escaped
+            return orig_resolve(self, strict=strict)
+
+        monkeypatch.setattr(Path, "resolve", mock_resolve)
+        with pytest.raises(ArtifactPathError) as exc_info:
+            paths.get_manifest_staging_path()
+        assert exc_info.value.error_code == "OUTPUT_PATH_NOT_ALLOWED"
+
+    def test_check_collisions_includes_final_manifest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        paths = prepare_artifact_paths(tmp_path, "job-col-man")
+
+        def mock_is_symlink(p: Path) -> bool:
+            return p == paths.final_manifest
+
+        monkeypatch.setattr("artifacts.paths.is_symlink_or_reparse_point", mock_is_symlink)
+        with pytest.raises(ArtifactPathError) as exc_info:
+            paths.check_collisions()
+        assert exc_info.value.error_code == "TARGET_ALREADY_EXISTS"
+        assert exc_info.value.details.get("target") == "run_manifest.json"
 
 
 # ===========================================================================

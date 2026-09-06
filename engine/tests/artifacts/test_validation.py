@@ -944,7 +944,7 @@ def test_validate_step_artifact_rejects_overflowing_infinite_spans(
         solid_brep_detected=True,
         unit_scale_to_mm=1.0,
         bounding_box_mm=overflow_bbox,
-        signals=type("Signals", (), {"manifold_solid_breps": 1})(),  # type: ignore[arg-type]
+        signals=type("Signals", (), {"manifold_solid_breps": 1})(),
     )
 
     import artifacts.validation as val_mod

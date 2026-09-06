@@ -15,8 +15,10 @@ Invariants:
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import math
 import stat
+from collections.abc import Mapping
 from pathlib import Path
 
 from interfaces.exceptions import (
@@ -31,6 +33,15 @@ from interfaces.models import (
     ArtifactRecord,
     ExecutionSuccess,
     StandardInspectionReport,
+)
+from manifests import (
+    FREE_TEXT_CREDENTIAL_PATTERN,
+    LOCAL_PATH_PATTERN,
+    SENSITIVE_KEY_PATTERN,
+    ManifestError,
+    RunManifestContext,
+    assemble_run_manifest,
+    write_staged_run_manifest,
 )
 
 from .paths import (
@@ -47,6 +58,70 @@ from .validation import (
 
 _REDACTED_DETAILS: str = "<details redacted>"
 REQUIRED_MODEL_FORMATS: tuple[ArtifactFormat, ...] = ("par", "step", "stl")
+
+_GENERIC_WARNING_MESSAGE: str = "A non-fatal diagnostic warning was recorded."
+
+_CANONICAL_WARNING_MESSAGES: Mapping[str, str] = {
+    # Artifact & Preview warnings
+    "PREVIEW_EXPORT_FAILED": "Preview image generation was skipped or unavailable; CAD geometry exported successfully.",
+    "PREVIEW_CLEANUP_FAILED": "Temporary preview export file cleanup failed.",
+    # Runtime warnings
+    "VERSION_METADATA_UNAVAILABLE": "CAD runtime did not report version metadata.",
+    # Validation & Gate Policy warnings
+    "GATE_POLICY_RELAXED": "Feature validation evaluated under relaxed capability-first policy.",
+    "GATE_POLICY_SHADOW": "Feature validation evaluated under shadow gate policy.",
+    "CANONICAL_MULTI_HOLE_FAMILY": "Multiple circular through-holes accepted by canonical validation.",
+    "UNKNOWN_BOOLEAN_OPERATION": "Unrecognized boolean operation fell back to default union.",
+    "UNKNOWN_PLACEMENT_MODE": "Unrecognized placement mode fell back to default absolute placement.",
+    "UNKNOWN_FACE_ALIAS": "Unrecognized face alias fell back to default sketch plane.",
+    "UNKNOWN_SLOT_ORIENTATION": "Unrecognized slot orientation fell back to default horizontal orientation.",
+    "UNKNOWN_SWEEP_PATH_TYPE": "Unrecognized sweep path type fell back to default.",
+    "UNKNOWN_SWEEP_SECTION_TYPE": "Unrecognized sweep section type fell back to default.",
+    "UNKNOWN_SWEEP_SECTION_POSITION": "Unrecognized sweep section position fell back to default.",
+}
+_KNOWN_CANONICAL_WARNING_STRINGS: frozenset[str] = frozenset(_CANONICAL_WARNING_MESSAGES.values()) | {
+    _GENERIC_WARNING_MESSAGE
+}
+
+
+def _project_preview_warning(warning_obj: object) -> str:
+    """Safely project a preview warning into an allowlisted canonical message (fail-closed).
+
+    Unrecognized warning strings, arbitrary mapping message payloads, or any text
+    containing local filesystem paths or credentials are strictly mapped to the
+    fail-closed generic non-fatal warning message.
+    """
+    text: str = _GENERIC_WARNING_MESSAGE
+
+    if isinstance(warning_obj, str):
+        if warning_obj in _CANONICAL_WARNING_MESSAGES:
+            text = _CANONICAL_WARNING_MESSAGES[warning_obj]
+        elif warning_obj in _KNOWN_CANONICAL_WARNING_STRINGS:
+            text = warning_obj
+    elif isinstance(warning_obj, Mapping):
+        code_val = warning_obj.get("code") or warning_obj.get("warning")
+        if isinstance(code_val, str):
+            if code_val in _CANONICAL_WARNING_MESSAGES:
+                text = _CANONICAL_WARNING_MESSAGES[code_val]
+            elif code_val in _KNOWN_CANONICAL_WARNING_STRINGS:
+                text = code_val
+
+    # Clean control characters and normalize whitespace
+    cleaned = "".join(ch if (ch.isprintable() or ch in " \t") else " " for ch in text)
+    normalized = " ".join(cleaned.split())
+    if not normalized:
+        return _GENERIC_WARNING_MESSAGE
+
+    # Screening: check for credentials, local paths, or disallowed patterns
+    if (
+        LOCAL_PATH_PATTERN.search(normalized)
+        or FREE_TEXT_CREDENTIAL_PATTERN.search(normalized)
+        or SENSITIVE_KEY_PATTERN.search(normalized)
+        or "<details redacted>" in normalized
+    ):
+        return _GENERIC_WARNING_MESSAGE
+
+    return normalized
 
 
 def _sanitize_diagnostic(error: BaseException, context_msg: str) -> str:
@@ -129,11 +204,15 @@ def _verify_pre_publication_inventory(
     request_id: str,
     accepted_snapshots: dict[str, FileSnapshot],
     expect_jpg: bool,
+    *,
+    expect_manifest: bool = False,
 ) -> None:
     """Enforce exact accepted inventory, containment, and file stability immediately before directory publication."""
     expected_filenames = {f"{request_id}.par", f"{request_id}.step", f"{request_id}.stl"}
     if expect_jpg:
         expected_filenames.add(f"{request_id}.jpg")
+    if expect_manifest:
+        expected_filenames.add(paths.staging_manifest.name)
 
     try:
         entries = list(paths.staging_dir.iterdir())
@@ -196,6 +275,8 @@ def finalize_request_artifacts(
     success_result: ExecutionSuccess,
     output_root: Path | str,
     request_id: str,
+    *,
+    manifest_context: RunManifestContext | None = None,
 ) -> ExecutionSuccess:
     """Finalize, validate, hash, and publish generation artifacts for a completed request.
 
@@ -204,6 +285,8 @@ def finalize_request_artifacts(
         success_result: Successful execution result payload from Milestone 3.2.
         output_root: Configured root directory beneath which artifacts will be published.
         request_id: Validated canonical request identifier.
+        manifest_context: Optional request-local manifest context. When supplied, assembles,
+            validates, and publishes run_manifest.json as a required transaction artifact.
 
     Returns:
         ExecutionSuccess: Populated result with typed ArtifactRecord entries, preserved
@@ -212,7 +295,7 @@ def finalize_request_artifacts(
     Raises:
         CADExecutionError: If inspection authority is missing or invalid (NATIVE_QA_BLOCKED).
         ArtifactPathError: If request ID or paths violate containment, security, or collision rules.
-        CADExportError: If any required model export or validation fails (ARTIFACT_EXPORT_FAILED).
+        CADExportError: If any required model export, manifest, or validation fails (ARTIFACT_EXPORT_FAILED).
         CADDocumentError: If document release or runtime health fails.
     """
     primary_exc: BaseException | None = None
@@ -456,15 +539,54 @@ def finalize_request_artifacts(
         if jpg_record is not None:
             records.append(jpg_record)
 
-        # Phase 5: Enforce exact accepted inventory and file stability before atomic publication
+        # Phase 5: Run manifest assembly, validation, and staging snapshot (if context provided)
+        if manifest_context is not None:
+            if not isinstance(manifest_context, RunManifestContext):
+                raise CADExportError(
+                    "manifest_context must be an instance of RunManifestContext",
+                    error_code="ARTIFACT_EXPORT_FAILED",
+                )
+
+            # 5.1 Project only finalization-created preview warnings
+            projected_preview_warnings = [_project_preview_warning(w) for w in preview_warnings]
+            clean_preview_warnings = [w for w in projected_preview_warnings if w is not None]
+
+            # 5.2 Deduplicate combined pre-finalization warnings and finalization preview warnings
+            combined_manifest_warnings = tuple(dict.fromkeys(list(manifest_context.warnings) + clean_preview_warnings))
+            updated_context = dataclasses.replace(
+                manifest_context,
+                warnings=combined_manifest_warnings,
+            )
+
+            # 5.3 Assemble manifest and write exclusively in staging with read-back schema validation
+            try:
+                manifest_data = assemble_run_manifest(
+                    context=updated_context,
+                    execution=success_result,
+                    artifacts=records,
+                )
+                staging_manifest_path = paths.get_manifest_staging_path()
+                write_staged_run_manifest(staging_manifest_path, manifest_data)
+            except ManifestError as manifest_exc:
+                raise CADExportError(
+                    "Failed to assemble or publish run manifest",
+                    error_code="ARTIFACT_EXPORT_FAILED",
+                    details={"reason": _sanitize_diagnostic(manifest_exc, "Manifest generation failed")},
+                ) from None
+
+            # 5.4 Capture snapshot of staged manifest for exact pre-publication inventory
+            accepted_snapshots[paths.staging_manifest.name] = FileSnapshot.capture(staging_manifest_path)
+
+        # Phase 6: Enforce exact accepted inventory and file stability before atomic publication
         _verify_pre_publication_inventory(
             paths=paths,
             request_id=request_id,
             accepted_snapshots=accepted_snapshots,
             expect_jpg=(jpg_record is not None),
+            expect_manifest=(manifest_context is not None),
         )
 
-        # Phase 6: Atomic Directory Publication — the final fallible boundary
+        # Phase 7: Atomic Directory Publication — the final fallible boundary
         paths.publish()
 
     except BaseException as post_exc:

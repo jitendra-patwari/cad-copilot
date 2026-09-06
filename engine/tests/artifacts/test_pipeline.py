@@ -26,9 +26,12 @@ import pytest
 from jsonschema.validators import Draft202012Validator
 
 import artifacts
-from artifacts.paths import ArtifactPathError
+from artifacts.paths import STAGING_PREFIX, ArtifactPathError
 from artifacts.pipeline import (
+    _CANONICAL_WARNING_MESSAGES,
+    _GENERIC_WARNING_MESSAGE,
     REQUIRED_MODEL_FORMATS,
+    _project_preview_warning,
     finalize_request_artifacts,
 )
 from artifacts.validation import (
@@ -38,6 +41,14 @@ from artifacts.validation import (
     ArtifactValidationError,
     FileSnapshot,
     ValidatedArtifact,
+    validate_artifact_file,
+)
+from geometry.plan_models import (
+    BodyPlacement,
+    FeaturePlan,
+    LoweringStrategy,
+    PartMetadata,
+    RectangularBaseBody,
 )
 from interfaces.exceptions import (
     CADDocumentError,
@@ -51,6 +62,13 @@ from interfaces.models import (
     ExecutionSuccess,
     OperationResult,
     StandardInspectionReport,
+)
+from manifests import (
+    ManifestError,
+    ManifestValidationError,
+    RunManifestContext,
+    get_run_manifest_validator,
+    prepare_manifest_data,
 )
 
 # ---------------------------------------------------------------------------
@@ -912,7 +930,7 @@ def test_finalize_request_artifacts_export_timeout_followed_by_close_failure(tmp
             raise TimeoutError("Kernel IPC timed out during PAR export")
         original_export_model(format_id, output_path)
 
-    executor.export_model = _timeout_export  # type: ignore[assignment]
+    executor.export_model = _timeout_export  # type: ignore[method-assign]
 
     req_id = "test-req-timeout-close-fail"
     output_root = tmp_path / "cad_output"
@@ -1135,10 +1153,10 @@ def test_finalize_request_artifacts_metadata_mutation_prior_to_publication_rejec
         inspection_report=_create_valid_inspection_report(),
     )
 
-    orig_val = artifacts.pipeline.validate_artifact_file
+    orig_val = validate_artifact_file
 
     def _val_with_mutation(
-        format_id: Any,
+        format_id: ArtifactFormat,
         file_path: Path,
         inspection_report: Any = None,
     ) -> ValidatedArtifact:
@@ -1193,7 +1211,7 @@ def test_finalize_request_artifacts_cleans_up_auxiliary_translation_log(tmp_path
     """Proves Solid Edge translator auxiliary log (<request-id>.log) is cleaned up and not published."""
 
     class LogGeneratingExecutor(FakePipelineExecutor):
-        def export_model(self, format_id: str, output_path: Path) -> None:
+        def export_model(self, format_id: ArtifactFormat, output_path: Path) -> None:
             super().export_model(format_id, output_path)
             if format_id == "step":
                 # Simulate Solid Edge STEP translator generating an auxiliary translation log
@@ -1221,3 +1239,545 @@ def test_finalize_request_artifacts_cleans_up_auxiliary_translation_log(tmp_path
         f"{req_id}.stl",
         f"{req_id}.jpg",
     }
+
+
+# ===========================================================================
+# 13. Manifest Transaction & Inventory Integration Tests (Milestone 4.4 Step 4)
+# ===========================================================================
+
+
+def _build_pipeline_test_context(
+    *,
+    request_id: str,
+    warnings: tuple[str, ...] = ("Initial test warning",),
+) -> RunManifestContext:
+    """Helper to build a valid RunManifestContext for pipeline transaction testing."""
+    plan = FeaturePlan(
+        plan_version="cad_copilot.single_part_feature_plan.v1",
+        request_id=request_id,
+        part=PartMetadata(part_id="part.main", design_intent="pipeline test part"),
+        base_body=RectangularBaseBody(
+            id="body.base",
+            length_mm=100.0,
+            width_mm=50.0,
+            thickness_mm=20.0,
+            placement=BodyPlacement(x_mm=0.0, y_mm=0.0, z_mm=0.0),
+            semantic_labels=("base_plate",),
+        ),
+        primitive_bodies=(),
+        boolean_operations=(),
+        features=(),
+        defaults_applied=(),
+        validation_diagnostics=(),
+        lowering_strategy=LoweringStrategy(),
+    )
+    prompt_sha = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    prep_data = prepare_manifest_data(
+        plan,
+        provenance_kind="ai_proposal",
+        source_id="source-pipe-01",
+        gate_mode="capability_first",
+        request_kind="prompt_to_cad",
+        prompt_sha256=prompt_sha,
+    )
+    return RunManifestContext(
+        prepared_data=prep_data,
+        request_id=request_id,
+        contract_version="1.0",
+        unit="mm",
+        cad_runtime_version_build="Solid Edge 2026 (226.00.00.106)",
+        warnings=warnings,
+    )
+
+
+def test_finalize_with_manifest_context_publishes_all_artifacts_and_manifest(tmp_path: Path) -> None:
+    """Proves 4-artifact generation with manifest publishes 5 files and validates schema."""
+    executor = FakePipelineExecutor()
+    req_id = "test-req-manifest-pub"
+    output_root = tmp_path / "cad_output"
+
+    initial_success = ExecutionSuccess(
+        operations_executed=1,
+        inspection_report=_create_valid_inspection_report(),
+        operation_results=[
+            OperationResult(
+                patch_id="patch.base",
+                operation="create_base_body",
+                reference_id="body.base",
+                reference_kind="body",
+            )
+        ],
+    )
+    manifest_ctx = _build_pipeline_test_context(request_id=req_id)
+
+    result = finalize_request_artifacts(
+        executor,
+        initial_success,
+        output_root,
+        req_id,
+        manifest_context=manifest_ctx,
+    )
+
+    assert isinstance(result, ExecutionSuccess)
+    final_dir = output_root / req_id
+    assert final_dir.is_dir()
+
+    # Directory has exactly 5 files (4 artifacts + run_manifest.json)
+    disk_files = {p.name for p in final_dir.iterdir()}
+    assert disk_files == {
+        f"{req_id}.par",
+        f"{req_id}.step",
+        f"{req_id}.stl",
+        f"{req_id}.jpg",
+        "run_manifest.json",
+    }
+
+    # ExecutionSuccess.exported_artifacts has exactly 4 items (manifest is NOT in exported_artifacts)
+    assert len(result.exported_artifacts) == 4
+    record_filenames = {Path(r.path).name for r in result.exported_artifacts}
+    assert record_filenames == {
+        f"{req_id}.par",
+        f"{req_id}.step",
+        f"{req_id}.stl",
+        f"{req_id}.jpg",
+    }
+    assert "run_manifest.json" not in record_filenames
+
+    # Validate published run_manifest.json against canonical schema
+    manifest_path = final_dir / "run_manifest.json"
+    manifest_content = json.loads(manifest_path.read_text(encoding="utf-8"))
+    validator = get_run_manifest_validator()
+    validator.validate(manifest_content)
+
+    assert manifest_content["manifest_version"] == "cad_copilot.run_manifest.v1"
+    assert manifest_content["request"]["request_id"] == req_id
+    assert manifest_content["execution"]["inspection"]["volume_mm3"] == 6000.0
+    assert len(manifest_content["artifacts"]) == 4
+
+    # Verify manifest artifact records match actual files on disk
+    for art in manifest_content["artifacts"]:
+        assert "origin" not in art
+        file_on_disk = final_dir / art["path"]
+        assert file_on_disk.is_file()
+        assert file_on_disk.stat().st_size == art["size_bytes"]
+
+    # Verify no staging directory left behind
+    staging_dirs = list(output_root.glob(f"{STAGING_PREFIX}*"))
+    assert len(staging_dirs) == 0
+
+
+def test_finalize_with_manifest_context_without_preview(tmp_path: Path) -> None:
+    """Proves 3-artifact generation without preview publishes 4 files and includes warning in manifest."""
+    executor = FakePipelineExecutor(
+        preview_error=CADExportError("Preview capture failed", error_code="PREVIEW_EXPORT_FAILED")
+    )
+    req_id = "test-req-manifest-no-prev"
+    output_root = tmp_path / "cad_output"
+
+    initial_success = ExecutionSuccess(
+        operations_executed=1,
+        inspection_report=_create_valid_inspection_report(),
+    )
+    manifest_ctx = _build_pipeline_test_context(request_id=req_id, warnings=("Pre-finalization warning",))
+
+    result = finalize_request_artifacts(
+        executor,
+        initial_success,
+        output_root,
+        req_id,
+        manifest_context=manifest_ctx,
+    )
+
+    assert isinstance(result, ExecutionSuccess)
+    final_dir = output_root / req_id
+    assert final_dir.is_dir()
+
+    disk_files = {p.name for p in final_dir.iterdir()}
+    assert disk_files == {
+        f"{req_id}.par",
+        f"{req_id}.step",
+        f"{req_id}.stl",
+        "run_manifest.json",
+    }
+    assert f"{req_id}.jpg" not in disk_files
+
+    # 3 artifacts returned in ExecutionSuccess
+    assert len(result.exported_artifacts) == 3
+
+    # Manifest validates and contains 3 artifacts and projected preview warning
+    manifest_path = final_dir / "run_manifest.json"
+    manifest_content = json.loads(manifest_path.read_text(encoding="utf-8"))
+    get_run_manifest_validator().validate(manifest_content)
+
+    assert len(manifest_content["artifacts"]) == 3
+    assert "Pre-finalization warning" in manifest_content["warnings"]
+    assert (
+        "Preview image generation was skipped or unavailable; CAD geometry exported successfully."
+        in manifest_content["warnings"]
+    )
+
+
+def test_finalize_with_manifest_warning_deduplication(tmp_path: Path) -> None:
+    """Proves duplicate warnings between pre-finalization and preview finalization appear only once."""
+    duplicate_warning = "Preview image generation was skipped or unavailable; CAD geometry exported successfully."
+    executor = FakePipelineExecutor(
+        preview_error=CADExportError("Preview capture failed", error_code="PREVIEW_EXPORT_FAILED")
+    )
+    req_id = "test-req-manifest-dedup"
+    output_root = tmp_path / "cad_output"
+
+    initial_success = ExecutionSuccess(
+        operations_executed=1,
+        inspection_report=_create_valid_inspection_report(),
+    )
+    manifest_ctx = _build_pipeline_test_context(
+        request_id=req_id,
+        warnings=(duplicate_warning,),
+    )
+
+    result = finalize_request_artifacts(
+        executor,
+        initial_success,
+        output_root,
+        req_id,
+        manifest_context=manifest_ctx,
+    )
+    assert isinstance(result, ExecutionSuccess)
+
+    final_dir = output_root / req_id
+    manifest_path = final_dir / "run_manifest.json"
+    manifest_content = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    # Warning must appear exactly once
+    assert manifest_content["warnings"].count(duplicate_warning) == 1
+
+
+def test_finalize_with_manifest_assembly_failure_blocks_publication_and_cleans_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Proves manifest assembly failure raises CADExportError, publishes nothing, and cleans staging."""
+    executor = FakePipelineExecutor()
+    req_id = "test-req-manifest-assemble-fail"
+    output_root = tmp_path / "cad_output"
+
+    initial_success = ExecutionSuccess(
+        operations_executed=1,
+        inspection_report=_create_valid_inspection_report(),
+    )
+    manifest_ctx = _build_pipeline_test_context(request_id=req_id)
+
+    def _failing_assemble(*args: Any, **kwargs: Any) -> Any:
+        raise ManifestValidationError("Simulated manifest assembly failure")
+
+    monkeypatch.setattr("artifacts.pipeline.assemble_run_manifest", _failing_assemble)
+
+    with pytest.raises(CADExportError) as exc_info:
+        finalize_request_artifacts(
+            executor,
+            initial_success,
+            output_root,
+            req_id,
+            manifest_context=manifest_ctx,
+        )
+
+    assert exc_info.value.error_code == "ARTIFACT_EXPORT_FAILED"
+    assert "Failed to assemble or publish run manifest" in str(exc_info.value)
+    assert not (output_root / req_id).exists()
+    assert len(list(output_root.glob(f"{STAGING_PREFIX}*"))) == 0
+
+
+def test_finalize_with_manifest_staged_write_failure_blocks_publication_and_cleans_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Proves manifest write failure raises CADExportError, publishes nothing, and cleans staging."""
+    executor = FakePipelineExecutor()
+    req_id = "test-req-manifest-write-fail"
+    output_root = tmp_path / "cad_output"
+
+    initial_success = ExecutionSuccess(
+        operations_executed=1,
+        inspection_report=_create_valid_inspection_report(),
+    )
+    manifest_ctx = _build_pipeline_test_context(request_id=req_id)
+
+    def _failing_write(*args: Any, **kwargs: Any) -> Any:
+        raise ManifestError("Simulated disk I/O write failure")
+
+    monkeypatch.setattr("artifacts.pipeline.write_staged_run_manifest", _failing_write)
+
+    with pytest.raises(CADExportError) as exc_info:
+        finalize_request_artifacts(
+            executor,
+            initial_success,
+            output_root,
+            req_id,
+            manifest_context=manifest_ctx,
+        )
+
+    assert exc_info.value.error_code == "ARTIFACT_EXPORT_FAILED"
+    assert "Failed to assemble or publish run manifest" in str(exc_info.value)
+    assert not (output_root / req_id).exists()
+    assert len(list(output_root.glob(f"{STAGING_PREFIX}*"))) == 0
+
+
+def test_finalize_with_manifest_missing_manifest_in_staging_rejected_by_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Proves missing manifest in staging is rejected by pre-publication inventory gate."""
+    executor = FakePipelineExecutor()
+    req_id = "test-req-manifest-missing-staging"
+    output_root = tmp_path / "cad_output"
+
+    initial_success = ExecutionSuccess(
+        operations_executed=1,
+        inspection_report=_create_valid_inspection_report(),
+    )
+    manifest_ctx = _build_pipeline_test_context(request_id=req_id)
+
+    orig_capture = FileSnapshot.capture
+
+    def _capture_and_delete(target_file: Path) -> FileSnapshot:
+        snap = orig_capture(target_file)
+        if target_file.name == "run_manifest.json":
+            # Maliciously remove manifest right after snapshotting
+            target_file.unlink()
+        return snap
+
+    monkeypatch.setattr(FileSnapshot, "capture", staticmethod(_capture_and_delete))
+
+    with pytest.raises(CADExportError) as exc_info:
+        finalize_request_artifacts(
+            executor,
+            initial_success,
+            output_root,
+            req_id,
+            manifest_context=manifest_ctx,
+        )
+
+    assert exc_info.value.error_code == "ARTIFACT_EXPORT_FAILED"
+    assert "missing expected artifacts" in str(exc_info.value)
+    assert not (output_root / req_id).exists()
+
+
+def test_finalize_without_manifest_context_rejects_unexpected_manifest_in_staging(
+    tmp_path: Path,
+) -> None:
+    """Proves unexpected manifest in staging when manifest_context is None is rejected by inventory gate."""
+
+    class RogueManifestExecutor(FakePipelineExecutor):
+        def export_model(self, format_id: ArtifactFormat, output_path: Path) -> None:
+            super().export_model(format_id, output_path)
+            if format_id == "stl":
+                # Plant a rogue run_manifest.json when manifest_context is None
+                rogue = output_path.parent / "run_manifest.json"
+                rogue.write_text("{}", encoding="utf-8")
+
+    executor = RogueManifestExecutor()
+    req_id = "test-req-unexpected-manifest"
+    output_root = tmp_path / "cad_output"
+
+    initial_success = ExecutionSuccess(
+        operations_executed=1,
+        inspection_report=_create_valid_inspection_report(),
+    )
+
+    with pytest.raises(CADExportError) as exc_info:
+        finalize_request_artifacts(
+            executor,
+            initial_success,
+            output_root,
+            req_id,
+            manifest_context=None,
+        )
+
+    assert exc_info.value.error_code == "ARTIFACT_EXPORT_FAILED"
+    assert "Unexpected entry in staging directory prior to publication: 'run_manifest.json'" in str(exc_info.value)
+    assert not (output_root / req_id).exists()
+
+
+def test_finalize_with_manifest_snapshot_tampering_rejected_by_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Proves modifying run_manifest.json after snapshot capture is caught and rejected."""
+    executor = FakePipelineExecutor()
+    req_id = "test-req-manifest-tamper"
+    output_root = tmp_path / "cad_output"
+
+    initial_success = ExecutionSuccess(
+        operations_executed=1,
+        inspection_report=_create_valid_inspection_report(),
+    )
+    manifest_ctx = _build_pipeline_test_context(request_id=req_id)
+
+    orig_verify = artifacts.pipeline._verify_pre_publication_inventory
+
+    def _tamper_before_inventory(*args: Any, **kwargs: Any) -> None:
+        paths = kwargs.get("paths") or args[0]
+        # Tamper with the staged manifest before inventory verification
+        with open(paths.staging_manifest, "ab") as f:
+            f.write(b" ")
+        orig_verify(*args, **kwargs)
+
+    monkeypatch.setattr("artifacts.pipeline._verify_pre_publication_inventory", _tamper_before_inventory)
+
+    with pytest.raises(CADExportError) as exc_info:
+        finalize_request_artifacts(
+            executor,
+            initial_success,
+            output_root,
+            req_id,
+            manifest_context=manifest_ctx,
+        )
+
+    assert exc_info.value.error_code == "ARTIFACT_EXPORT_FAILED"
+    assert "Artifact file modified prior to publication: 'run_manifest.json'" in str(exc_info.value)
+    assert not (output_root / req_id).exists()
+
+
+def test_finalize_rejects_invalid_manifest_context_type(tmp_path: Path) -> None:
+    """Proves passing a non-RunManifestContext object to manifest_context raises CADExportError."""
+    executor = FakePipelineExecutor()
+    req_id = "test-req-bad-context-type"
+    output_root = tmp_path / "cad_output"
+
+    initial_success = ExecutionSuccess(
+        operations_executed=1,
+        inspection_report=_create_valid_inspection_report(),
+    )
+
+    with pytest.raises(CADExportError) as exc_info:
+        finalize_request_artifacts(
+            executor,
+            initial_success,
+            output_root,
+            req_id,
+            manifest_context={"invalid": "dict"},  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.error_code == "ARTIFACT_EXPORT_FAILED"
+    assert "manifest_context must be an instance of RunManifestContext" in str(exc_info.value)
+    assert not (output_root / req_id).exists()
+
+
+# ===========================================================================
+# 14. Fail-Closed Preview Warning Projection Privacy Tests
+# ===========================================================================
+
+
+@pytest.mark.parametrize(
+    "unsafe_string",
+    [
+        r"Error writing to C:\Users\Administrator\AppData\Local\Temp\preview.jpg",
+        r"\\server\share\preview.jpg failed to write",
+        "Invalid token: password=TOPSECRET_PW123 in payload",
+        "Authorization: Bearer sk-proj-12345678901234567890123456789012",
+        "Unexpected null pointer encountered during render pass",
+        "<details redacted>",
+        "\x00\x1b[31mError\x1b[0m with some text",
+        "",
+        "   \t\n  ",
+    ],
+)
+def test_project_preview_warning_unknown_string_privacy(unsafe_string: str) -> None:
+    """Proves unrecognized strings or strings containing sensitive tokens map strictly to generic fallback."""
+    projected = _project_preview_warning(unsafe_string)
+    assert projected == _GENERIC_WARNING_MESSAGE
+    for sensitive_needle in ("Administrator", "TOPSECRET", "sk-proj", "server", "redacted"):
+        assert sensitive_needle not in projected
+
+
+def test_project_preview_warning_non_string_objects_privacy() -> None:
+    """Proves arbitrary non-string/non-mapping types safely evaluate to generic fallback."""
+    for bad_obj in (None, 12345, 99.9, ["list"], object()):
+        assert _project_preview_warning(bad_obj) == _GENERIC_WARNING_MESSAGE
+
+
+def test_project_preview_warning_canonical_strings_pass_through() -> None:
+    """Proves recognized canonical warning codes and canonical messages map to canonical text."""
+    # Canonical warning code
+    assert _project_preview_warning("PREVIEW_EXPORT_FAILED") == _CANONICAL_WARNING_MESSAGES["PREVIEW_EXPORT_FAILED"]
+    # Direct canonical warning message
+    canonical_msg = _CANONICAL_WARNING_MESSAGES["PREVIEW_EXPORT_FAILED"]
+    assert _project_preview_warning(canonical_msg) == canonical_msg
+
+
+@pytest.mark.parametrize(
+    "unsafe_mapping",
+    [
+        {"code": "UNKNOWN_CODE", "message": r"Failed at C:\Users\Admin\preview.jpg with password=SECRET123"},
+        {"message": "secret Bearer sk-ant-12345678901234567890123456789012"},
+        {"code": "CUSTOM_LEAK", "extra": r"\\fileshare\cad\export"},
+        {},
+        {"warning": "UNKNOWN_WARN", "message": r"D:\vault\key.pem"},
+    ],
+)
+def test_project_preview_warning_unknown_mapping_privacy(unsafe_mapping: dict[str, Any]) -> None:
+    """Proves arbitrary mapping payloads or unknown warning codes map strictly to generic fallback."""
+    projected = _project_preview_warning(unsafe_mapping)
+    assert projected == _GENERIC_WARNING_MESSAGE
+    for sensitive_needle in ("Admin", "SECRET123", "sk-ant", "fileshare", "vault"):
+        assert sensitive_needle not in projected
+
+
+def test_project_preview_warning_canonical_mapping_privacy_ignores_arbitrary_message() -> None:
+    """Proves recognized canonical mapping code produces canonical string and ignores unsafe message payload."""
+    unsafe_mapping = {
+        "code": "PREVIEW_EXPORT_FAILED",
+        "warning": "PREVIEW_EXPORT_FAILED",
+        "message": r"Detailed crash dump at C:\Users\SensitiveUser\error.log with password=UNSAFE_PW",
+    }
+    projected = _project_preview_warning(unsafe_mapping)
+    assert projected == _CANONICAL_WARNING_MESSAGES["PREVIEW_EXPORT_FAILED"]
+    assert "SensitiveUser" not in projected
+    assert "UNSAFE_PW" not in projected
+    assert "C:\\" not in projected
+
+
+def test_finalize_with_manifest_preview_warning_privacy_probe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Proves end-to-end manifest publication strictly sanitizes preview warnings on disk."""
+    sensitive_path = r"C:\Users\AdminUser\AppData\Local\Temp\preview.jpg"
+    sensitive_pw = "password=LEAKED_PW99"
+    sensitive_token = "sk-proj-98765432109876543210987654321098"
+
+    # Executor preview fails with sensitive diagnostic text in exception
+    executor = FakePipelineExecutor(
+        preview_error=CADExportError(
+            f"Failed writing preview to {sensitive_path} using {sensitive_pw} and token {sensitive_token}",
+            error_code="PREVIEW_EXPORT_FAILED",
+        )
+    )
+    req_id = "test-req-manifest-privacy-probe"
+    output_root = tmp_path / "cad_output"
+
+    initial_success = ExecutionSuccess(
+        operations_executed=1,
+        inspection_report=_create_valid_inspection_report(),
+    )
+    manifest_ctx = _build_pipeline_test_context(request_id=req_id)
+
+    result = finalize_request_artifacts(
+        executor,
+        initial_success,
+        output_root,
+        req_id,
+        manifest_context=manifest_ctx,
+    )
+    assert isinstance(result, ExecutionSuccess)
+
+    published_dir = output_root / req_id
+    manifest_path = published_dir / "run_manifest.json"
+    assert manifest_path.is_file()
+
+    # Raw file text audit
+    raw_manifest_text = manifest_path.read_text(encoding="utf-8")
+    assert "AdminUser" not in raw_manifest_text
+    assert "LEAKED_PW99" not in raw_manifest_text
+    assert "98765432109876543210" not in raw_manifest_text
+    assert r"C:\Users" not in raw_manifest_text
+
+    # Parsed manifest schema validation and warning content check
+    manifest_json = json.loads(raw_manifest_text)
+    get_run_manifest_validator().validate(manifest_json)
+
+    # Preview warning was mapped to canonical safe message
+    assert _CANONICAL_WARNING_MESSAGES["PREVIEW_EXPORT_FAILED"] in manifest_json["warnings"]

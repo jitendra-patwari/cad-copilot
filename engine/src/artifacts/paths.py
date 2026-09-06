@@ -658,6 +658,8 @@ class ArtifactPaths:
     final_jpg: Path
     root_identity: tuple[int, int]
     staging_identity: tuple[int, int]
+    staging_manifest: Path
+    final_manifest: Path
 
     def assert_staging_active(self) -> None:
         """Verify staging directory and output root ownership, link safety, and identity."""
@@ -709,6 +711,18 @@ class ArtifactPaths:
         assert_contained(target, self.staging_dir)
         return target
 
+    def get_manifest_staging_path(self) -> Path:
+        """Get the verified staging path for run_manifest.json, rechecking active ownership and target containment."""
+        self.assert_staging_active()
+        target = self.staging_manifest
+        if is_symlink_or_reparse_point(target):
+            raise ArtifactPathError(
+                f"Staging target '{target.name}' must not be a symbolic link or reparse point",
+                error_code="OUTPUT_PATH_NOT_ALLOWED",
+            )
+        assert_contained(target, self.staging_dir)
+        return target
+
     def get_final_path(self, format_id: ArtifactFormat | str) -> Path:
         """Get the final path for a given format."""
         normalized = format_id.lower().strip().lstrip(".")
@@ -738,7 +752,7 @@ class ArtifactPaths:
         """Check if the final directory or any final artifact files already exist."""
         check_target_collisions(
             self.final_dir,
-            [self.final_par, self.final_step, self.final_stl, self.final_jpg],
+            [self.final_par, self.final_step, self.final_stl, self.final_jpg, self.final_manifest],
         )
 
     def publish(self) -> None:
@@ -787,13 +801,14 @@ def prepare_artifact_paths(
     final_step = final_dir / f"{valid_req_id}.step"
     final_stl = final_dir / f"{valid_req_id}.stl"
     final_jpg = final_dir / f"{valid_req_id}.jpg"
+    final_manifest = final_dir / "run_manifest.json"
 
     # Containment verification on all final paths
-    for p in (final_dir, final_par, final_step, final_stl, final_jpg):
+    for p in (final_dir, final_par, final_step, final_stl, final_jpg, final_manifest):
         assert_contained(p, resolved_root)
 
     # Check preflight collisions before allocating staging
-    check_target_collisions(final_dir, [final_par, final_step, final_stl, final_jpg])
+    check_target_collisions(final_dir, [final_par, final_step, final_stl, final_jpg, final_manifest])
 
     # Record root identity
     root_identity = get_path_identity(resolved_root)
@@ -807,9 +822,10 @@ def prepare_artifact_paths(
         staging_step = staging_dir / f"{valid_req_id}.step"
         staging_stl = staging_dir / f"{valid_req_id}.stl"
         staging_jpg = staging_dir / f"{valid_req_id}.jpg"
+        staging_manifest = staging_dir / "run_manifest.json"
 
         # Containment verification on all staging paths
-        for p in (staging_dir, staging_par, staging_step, staging_stl, staging_jpg):
+        for p in (staging_dir, staging_par, staging_step, staging_stl, staging_jpg, staging_manifest):
             assert_contained(p, resolved_root)
     except BaseException as alloc_exc:
         cleanup_error: str | None = None
@@ -853,6 +869,8 @@ def prepare_artifact_paths(
         final_jpg=final_jpg,
         root_identity=root_identity,
         staging_identity=staging_identity,
+        staging_manifest=staging_manifest,
+        final_manifest=final_manifest,
     )
 
 
