@@ -53,6 +53,7 @@ from drivers.solidedge.builders import (
 from drivers.solidedge.errors import describe_exception
 from drivers.solidedge.executor import SolidEdgeExecutor
 from drivers.solidedge.units import m3_to_mm3
+from example_catalog import resolve_example_plan
 from geometry.plan_models import (
     BodyPlacement,
     CircularThroughHoleFeature,
@@ -78,8 +79,14 @@ from interfaces.models import (
     ArtifactRecord,
     ExecutionFailure,
     ExecutionSuccess,
+    StandardInspectionReport,
 )
-from manifests import get_run_manifest_validator
+from manifests import (
+    FREE_TEXT_CREDENTIAL_PATTERN,
+    LOCAL_PATH_PATTERN,
+    compute_plan_fingerprint,
+    get_run_manifest_validator,
+)
 
 pytestmark = [pytest.mark.com]
 
@@ -1998,5 +2005,145 @@ def test_m44_live_02_example_plan_spur_gear_manifest(
 
     print(
         f"[M44-LIVE-02] Success: Spur gear example_plan published valid run_manifest.json on Solid Edge {diag.version_build}.",
+        flush=True,
+    )
+
+
+def test_m43_live_example_catalog_spur_gear(
+    live_runtime: SolidEdgeRuntime,
+    tmp_path: Path,
+) -> None:
+    """[M4.3-LIVE-01] Execute spur_gear example catalog plan on live Solid Edge runtime.
+
+    Proves:
+        1. GenerationService resolves ExampleGenerationRequest("spur_gear") via production resolve_example_plan.
+        2. Real Solid Edge Part document is created, constructed with gear outline and center bore, and closed.
+        3. Native inspection reports exactly 1 solid body with positive volume.
+        4. .par, STEP, STL, and optional JPG artifacts are published and structurally validated.
+        5. run_manifest.json is published with provenance.kind="example_plan", source_id="spur_gear",
+           and prompt_sha256=null.
+        6. No prompt, credential, workstation path, or placeholder leaked.
+    """
+    req_id = "live_m43_spur_gear"
+    captured_diagnostics: list[Any] = []
+
+    def spy_executor_factory(runtime: Any, doc: Any) -> SolidEdgeExecutor:
+        captured_diagnostics.append(runtime.get_diagnostics())
+        return SolidEdgeExecutor(runtime, doc)
+
+    service = GenerationService(
+        example_resolver=resolve_example_plan,
+        runtime_factory=lambda: live_runtime,
+        executor_factory=spy_executor_factory,
+    )
+
+    req = ExampleGenerationRequest(
+        contract_version="1.0",
+        request_id=req_id,
+        kind="example_plan",
+        unit="mm",
+        example_id="spur_gear",
+    )
+    resp = service.generate(req, output_root=tmp_path)
+    assert resp["status"] == "accepted"
+    assert resp["request_id"] == req_id
+    assert "warnings" in resp
+
+    assert len(captured_diagnostics) == 1
+    diag = captured_diagnostics[0]
+    assert diag.version_build is not None and len(diag.version_build.strip()) > 0
+
+    artifacts = resp["data"]["artifacts"]
+    assert len(artifacts) in (3, 4)
+    for record in artifacts:
+        assert not record["path"].endswith("run_manifest.json")
+
+    # Staging directory must NOT remain
+    staging_candidates = [p for p in tmp_path.iterdir() if p.name.startswith(".staging_")]
+    assert len(staging_candidates) == 0, f"Staging directory leaked: {staging_candidates}"
+
+    # Published directory verification
+    final_dir = tmp_path / req_id
+    assert final_dir.is_dir()
+    manifest_path = final_dir / "run_manifest.json"
+    assert manifest_path.is_file()
+
+    # Exact on-disk inventory: model artifacts + run_manifest.json
+    published_files = list(final_dir.iterdir())
+    assert len(published_files) == len(artifacts) + 1
+
+    # Validate published manifest against canonical schema
+    manifest_bytes = manifest_path.read_bytes()
+    manifest_data = json.loads(manifest_bytes.decode("utf-8"))
+    validator = get_run_manifest_validator()
+    validator.validate(manifest_data)
+
+    # Core manifest fields
+    assert manifest_data["manifest_version"] == "cad_copilot.run_manifest.v1"
+    assert manifest_data["request"]["request_id"] == req_id
+    assert manifest_data["request"]["kind"] == "example_plan"
+    assert manifest_data["provenance"]["kind"] == "example_plan"
+    assert manifest_data["provenance"]["source_id"] == "spur_gear"
+    assert manifest_data["engine"]["name"] == "cad-copilot"
+    assert manifest_data["cad_runtime"]["product"] == "solid_edge"
+    assert manifest_data["cad_runtime"]["version_build"] == diag.version_build
+    assert manifest_data["fingerprints"]["prompt_sha256"] is None
+    assert manifest_data["feature_plan"]["base_body"]["family"] == "spur_gear"
+    assert manifest_data["feature_plan"]["base_body"]["dimensions_mm"]["tooth_count"] == 24
+    assert manifest_data["feature_plan"]["base_body"]["dimensions_mm"]["module_mm"] == 2.0
+
+    # Independently recompute and verify plan fingerprint from feature_plan
+    assert manifest_data["fingerprints"]["plan_sha256"] == compute_plan_fingerprint(manifest_data["feature_plan"])
+
+    # Independently assert expected stable IDs from spur gear catalog template
+    assert manifest_data["stable_ids"]["part_id"] == "part.main"
+    assert manifest_data["stable_ids"]["body_ids"] == ["body.main"]
+    assert manifest_data["stable_ids"]["feature_ids"] == []
+
+    # Privacy checks: placeholder request ID, credentials, and local paths not leaked
+    manifest_json = json.dumps(manifest_data)
+    assert "replace-with-request-id" not in manifest_json
+    assert not FREE_TEXT_CREDENTIAL_PATTERN.search(manifest_json)
+    assert not LOCAL_PATH_PATTERN.search(manifest_json)
+
+    # Response privacy check: exclude intentional artifact destination paths
+    response_non_artifact_payload = {k: v for k, v in resp.items() if k != "data"}
+    assert not LOCAL_PATH_PATTERN.search(json.dumps(response_non_artifact_payload))
+    assert not FREE_TEXT_CREDENTIAL_PATTERN.search(json.dumps(resp))
+
+    # Artifact consistency: sizes and hashes match disk files exactly
+    assert len(manifest_data["artifacts"]) == len(artifacts)
+    for art in manifest_data["artifacts"]:
+        art_rel_path = art["path"]
+        assert art_rel_path in (f"{req_id}.par", f"{req_id}.step", f"{req_id}.stl", f"{req_id}.jpg")
+        art_disk_path = final_dir / art_rel_path
+        assert art_disk_path.is_file()
+        actual_sha256, actual_size = compute_file_sha256_and_size(art_disk_path)
+        assert art["sha256"] == actual_sha256
+        assert art["size_bytes"] == actual_size
+
+    # Inspection consistency: single solid body with positive finite volume
+    inspection = manifest_data["execution"]["inspection"]
+    assert inspection["body_count"] == 1
+    assert inspection["solid_body_count"] == 1
+    assert inspection["volume_mm3"] > 0.0
+
+    # Structural validation of published model artifacts
+    rep = StandardInspectionReport(
+        volume_mm3=float(inspection["volume_mm3"]),
+        mass_kg=float(inspection["mass_kg"]),
+        feature_count=int(inspection["feature_count"]),
+        body_count=int(inspection["body_count"]),
+        solid_body_count=int(inspection["solid_body_count"]),
+    )
+    validate_par_artifact(final_dir / f"{req_id}.par", rep)
+    validate_step_artifact(final_dir / f"{req_id}.step")
+    validate_stl_artifact(final_dir / f"{req_id}.stl")
+    jpg_path = final_dir / f"{req_id}.jpg"
+    if jpg_path.is_file():
+        validate_jpg_artifact(jpg_path)
+
+    print(
+        f"[M43-LIVE-01] Success: Deterministic spur gear catalog generated valid part and manifest on Solid Edge {diag.version_build}.",
         flush=True,
     )

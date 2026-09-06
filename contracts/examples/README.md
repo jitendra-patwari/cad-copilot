@@ -1,6 +1,6 @@
 # Canonical Examples: Feature Plan DSL AST Contracts
 
-This directory contains internal feature-plan JSON examples and Abstract Syntax Tree (AST) fixtures for CAD Copilot's pure parsing, validation, and lowering domain. Application orchestration exists (`GenerationService`), while the concrete AI proposal adapter (M4.2) and deterministic catalog loading (M4.3) remain planned.
+This directory contains internal feature-plan JSON examples and Abstract Syntax Tree (AST) fixtures for CAD Copilot's pure parsing, validation, and lowering domain. Application orchestration (`GenerationService`), run manifest publication (`manifests`), and deterministic catalog loading (`example_catalog`, M4.3) are implemented and verified; the concrete AI proposal adapter (M4.2) and stdio IPC (M4.5) remain planned.
 
 Current typed models, parser, validation, and lowering code define executable domain semantics. These examples illustrate that representation; their presence does not establish live CAD support. Boolean composition, sweep, and broader face combinations remain conditional, regardless of fixture coverage.
 
@@ -25,7 +25,15 @@ The eight JSON files are maintained here. There is no `engine/src/ai/fixtures/` 
 
 `engine/tests/contracts/test_schema_contracts.py::test_golden_dsl_examples_integrity` checks that the named files exist and load as non-empty JSON objects or lists. It does not assert byte-for-byte runtime synchronization, validate every example through the domain pipeline, or prove live Solid Edge execution.
 
-Geometry tests separately cover parsing, validation, and lowering. Application orchestration (`GenerationService`) accepts example plan requests via injected resolvers, while production catalog loading belongs to M4.3; changes to these fixtures should be reviewed against current domain semantics.
+Geometry tests separately cover parsing, validation, and lowering. Application orchestration (`GenerationService`) integrates production catalog loading via `example_catalog.resolve_example_plan`; changes to these fixtures should be reviewed against current domain semantics.
+
+---
+
+## Development Fixtures vs. Packaged Runtime Catalog
+
+This directory (`contracts/examples/`) contains repository-level test fixtures used to verify domain AST parsing, validation, and lowering across the offline test suite.
+
+In contrast, the production runtime example catalog is packaged within the Python wheel distribution under `engine/src/example_catalog/resources/` (initially `spur_gear_example_plan.json`). The runtime catalog is loaded via standard package resource APIs (`importlib.resources.files`) and does not depend on repository paths, working tree files, or `contracts/examples/`.
 
 ---
 
