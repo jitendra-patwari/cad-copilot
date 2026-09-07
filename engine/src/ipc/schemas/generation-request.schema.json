@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad-copilot.dev/schemas/generation-request.schema.json",
+  "title": "GenerationRequest",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "kind", "unit", "prompt"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "kind": { "const": "prompt_to_cad" },
+        "unit": { "const": "mm" },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000,
+          "pattern": "\\S"
+        },
+        "metadata": { "$ref": "#/$defs/metadataPayload" }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "kind", "unit", "example_id"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "kind": { "const": "example_plan" },
+        "unit": { "const": "mm" },
+        "example_id": {
+          "type": "string",
+          "enum": ["spur_gear"]
+        },
+        "metadata": { "$ref": "#/$defs/metadataPayload" }
+      }
+    }
+  ],
+  "$defs": {
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "metadataPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["desktop_app", "cad_copilot", "local_agent"]
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "job_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9._-]+$"
+        }
+      }
+    }
+  }
+}

@@ -25,6 +25,9 @@ dev = [
     "types-jsonschema>=4.20.0",
 ]
 
+[project.scripts]
+cad-copilot-generate = "ipc.stdio:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
@@ -32,6 +35,7 @@ package-dir = {"" = "src"}
 "manifests" = ["schemas/*.json"]
 "example_catalog" = ["resources/*.json"]
 "plan_providers" = ["schemas/*.json"]
+"ipc" = ["schemas/*.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

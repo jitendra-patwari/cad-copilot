@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad-copilot.dev/schemas/generation-response.schema.json",
+  "title": "GenerationResponse",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "status", "data", "warnings"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "status": { "const": "accepted" },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifacts"],
+          "properties": {
+            "artifacts": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 4,
+              "items": { "$ref": "#/$defs/artifactRecord" },
+              "allOf": [
+                {
+                  "contains": {
+                    "type": "object",
+                    "properties": { "format": { "const": "par" } },
+                    "required": ["format"]
+                  },
+                  "minContains": 1,
+                  "maxContains": 1
+                },
+                {
+                  "contains": {
+                    "type": "object",
+                    "properties": { "format": { "const": "step" } },
+                    "required": ["format"]
+                  },
+                  "minContains": 1,
+                  "maxContains": 1
+                },
+                {
+                  "contains": {
+                    "type": "object",
+                    "properties": { "format": { "const": "stl" } },
+                    "required": ["format"]
+                  },
+                  "minContains": 1,
+                  "maxContains": 1
+                },
+                {
+                  "contains": {
+                    "type": "object",
+                    "properties": { "format": { "const": "jpg" } },
+                    "required": ["format"]
+                  },
+                  "minContains": 0,
+                  "maxContains": 1
+                }
+              ]
+            }
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "status", "errors", "warnings"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "status": { "const": "rejected" },
+        "errors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/errorRecord" }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "status", "errors", "warnings"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "status": { "const": "failed" },
+        "errors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/errorRecord" }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "artifactRecord": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "format", "path", "origin"],
+          "properties": {
+            "type": { "const": "native_part" },
+            "format": { "const": "par" },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "origin": { "const": "cad_copilot" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "format", "path", "origin"],
+          "properties": {
+            "type": { "const": "geometry_step" },
+            "format": { "const": "step" },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "origin": { "const": "cad_copilot" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "format", "path", "origin"],
+          "properties": {
+            "type": { "const": "mesh_stl" },
+            "format": { "const": "stl" },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "origin": { "const": "cad_copilot" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "format", "path", "origin"],
+          "properties": {
+            "type": { "const": "preview_image" },
+            "format": { "const": "jpg" },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "origin": { "const": "cad_copilot" }
+          }
+        }
+      ]
+    },
+    "errorRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "INVALID_SCHEMA",
+            "UNSUPPORTED_REQUEST",
+            "PROMPT_INTERPRETATION_FAILED",
+            "CAD_PLAN_REJECTED",
+            "CAD_EXECUTION_FAILED",
+            "ARTIFACT_EXPORT_FAILED",
+            "OUTPUT_PATH_NOT_ALLOWED",
+            "INTERNAL_ERROR",
+            "NATIVE_QA_BLOCKED",
+            "PAYLOAD_TOO_LARGE",
+            "TARGET_ALREADY_EXISTS"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "field": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
