@@ -452,3 +452,108 @@ def test_batch_response_schema_rejects_incomplete_summary() -> None:
         ],
     }
     assert not validator.is_valid(payload)
+
+
+# ---------------------------------------------------------------------------
+# 7. Prompt Validation & Schema Parity Tests (FR-11 / M4.2)
+# ---------------------------------------------------------------------------
+
+
+def test_generation_request_schema_prompt_validation() -> None:
+    """Verifies that generation-request.schema.json validates prompt bounds and rejects whitespace-only."""
+    schema = _load_json(SCHEMAS_ROOT / "generation" / "generation-request.schema.json")
+    validator = Draft202012Validator(schema)
+
+    base_payload = {
+        "contract_version": "1.0",
+        "request_id": "req-prompt-parity-01",
+        "kind": "prompt_to_cad",
+        "unit": "mm",
+    }
+
+    # 1. Length 1 non-whitespace prompt is valid
+    assert validator.is_valid({**base_payload, "prompt": "X"})
+
+    # 2. Length 8,000 non-whitespace prompt is valid
+    assert validator.is_valid({**base_payload, "prompt": "A" * 8000})
+
+    # 3. Length 8,001 prompt is rejected
+    assert not validator.is_valid({**base_payload, "prompt": "A" * 8001})
+
+    # 4. Whitespace-only prompts are rejected
+    for ws_prompt in [" ", "    ", "\t\n  \r\n"]:
+        assert not validator.is_valid({**base_payload, "prompt": ws_prompt})
+
+    # 5. Empty string prompt is rejected
+    assert not validator.is_valid({**base_payload, "prompt": ""})
+
+
+def test_generation_request_prompt_schema_model_parity() -> None:
+    """Proves wire schema prompt definition matches application.models MAX_PROMPT_LENGTH and non-whitespace rule."""
+    from application.models import MAX_PROMPT_LENGTH
+
+    schema = _load_json(SCHEMAS_ROOT / "generation" / "generation-request.schema.json")
+    prompt_branch = next(
+        b for b in schema["oneOf"] if b.get("properties", {}).get("kind", {}).get("const") == "prompt_to_cad"
+    )
+    prompt_prop = prompt_branch["properties"]["prompt"]
+
+    assert prompt_prop["type"] == "string"
+    assert prompt_prop["minLength"] == 1
+    assert prompt_prop["maxLength"] == MAX_PROMPT_LENGTH == 8000
+    assert prompt_prop["pattern"] == "\\S"
+
+
+def test_prompt_generation_request_bounds_and_preservation() -> None:
+    """Proves PromptGenerationRequest validates length 1..8000, rejects whitespace, and preserves prompt verbatim."""
+    from application.models import MAX_PROMPT_LENGTH, PromptGenerationRequest
+
+    # Valid bounds
+    req_1 = PromptGenerationRequest(
+        contract_version="1.0",
+        request_id="req-p1",
+        kind="prompt_to_cad",
+        unit="mm",
+        prompt="X",
+    )
+    assert req_1.prompt == "X"
+
+    req_8000 = PromptGenerationRequest(
+        contract_version="1.0",
+        request_id="req-p8000",
+        kind="prompt_to_cad",
+        unit="mm",
+        prompt="A" * 8000,
+    )
+    assert req_8000.prompt == "A" * 8000
+
+    # Whitespace-padded prompt is preserved verbatim without stripping
+    padded_prompt = "  Create a 10mm hole  "
+    req_padded = PromptGenerationRequest(
+        contract_version="1.0",
+        request_id="req-padded",
+        kind="prompt_to_cad",
+        unit="mm",
+        prompt=padded_prompt,
+    )
+    assert req_padded.prompt == padded_prompt
+
+    # Length 8,001 rejected
+    with pytest.raises(ValueError, match=f"prompt must be a non-empty string of 1-{MAX_PROMPT_LENGTH} characters"):
+        PromptGenerationRequest(
+            contract_version="1.0",
+            request_id="req-toolong",
+            kind="prompt_to_cad",
+            unit="mm",
+            prompt="A" * 8001,
+        )
+
+    # Whitespace-only rejected
+    with pytest.raises(ValueError, match="prompt must be a non-empty string"):
+        PromptGenerationRequest(
+            contract_version="1.0",
+            request_id="req-blank",
+            kind="prompt_to_cad",
+            unit="mm",
+            prompt="   \t\n  ",
+        )

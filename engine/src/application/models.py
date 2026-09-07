@@ -21,6 +21,7 @@ from manifests import PreparedManifestData, RunManifestContext
 
 MAX_REQUEST_ID_LENGTH: int = 96
 MAX_SOURCE_ID_LENGTH: int = 128
+MAX_PROMPT_LENGTH: int = 8_000
 SOURCE_ID_PATTERN: re.Pattern[str] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
@@ -78,8 +79,12 @@ class PromptGenerationRequest:
             raise ValueError(f"Invalid kind '{self.kind}' for PromptGenerationRequest")
         if self.unit != "mm":
             raise ValueError(f"Unsupported unit '{self.unit}', expected 'mm'")
-        if not isinstance(self.prompt, str) or not self.prompt.strip():
-            raise ValueError("prompt must be a non-empty string")
+        if (
+            not isinstance(self.prompt, str)
+            or not (1 <= len(self.prompt) <= MAX_PROMPT_LENGTH)
+            or not self.prompt.strip()
+        ):
+            raise ValueError(f"prompt must be a non-empty string of 1-{MAX_PROMPT_LENGTH} characters")
         if self.metadata is not None and not isinstance(self.metadata, Mapping):
             raise ValueError("metadata must be a Mapping if provided")
 

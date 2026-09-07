@@ -1,6 +1,7 @@
 """Application layer orchestration for CAD Copilot generation workflows."""
 
 from application.models import (
+    MAX_PROMPT_LENGTH,
     ExampleGenerationRequest,
     GenerationRequest,
     PlanProposal,
@@ -9,6 +10,7 @@ from application.models import (
 from application.service import GenerationService
 
 __all__ = [
+    "MAX_PROMPT_LENGTH",
     "ExampleGenerationRequest",
     "GenerationRequest",
     "GenerationService",
