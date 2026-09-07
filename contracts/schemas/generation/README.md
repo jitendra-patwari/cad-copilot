@@ -4,7 +4,7 @@ The `generation` domain defines the wire protocol and contract schemas used by c
 
 The planned client application owns UI/UX, user prompt entry, example plan selection, and process execution. The planned application/driver path owns prompt interpretation, geometric planning, Solid Edge execution, and required artifact generation.
 
-**Status:** Schemas and fixtures exist. M3.1 (runtime/lifecycle), M3.2 (Solid Edge executor), M3.3 (artifact export pipeline), M4.1 (generation service orchestration), M4.3 (deterministic example catalog), and M4.4 (canonical run manifest publication) are implemented and verified; M4.2 (Gemini adapter) and M4.5 (stdio IPC launcher) remain planned. The process and output descriptions below define the target contract, not currently available end-to-end behavior.
+**Status:** Schemas and fixtures exist. M3.1 (runtime/lifecycle), M3.2 (Solid Edge executor), M3.3 (artifact export pipeline), M4.1 (generation service orchestration), M4.2 (Gemini plan proposal adapter), M4.3 (deterministic example catalog), and M4.4 (canonical run manifest publication) are implemented and verified; M4.5 (stdio IPC launcher) remains planned. The process and output descriptions below define the target contract, not currently available end-to-end behavior.
 
 ---
 

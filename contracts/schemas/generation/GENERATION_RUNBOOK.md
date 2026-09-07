@@ -2,7 +2,7 @@
 
 This runbook specifies the planned M4 generation subprocess integration for a later Tauri desktop client or local CLI.
 
-**Status:** `engine/scripts/generate.cmd` and the generation service do not exist in the current baseline (M3.1, M3.2, and M3.3 completed and verified). Commands below are planned M4 integration examples, not runnable setup instructions or evidence of generated artifacts.
+**Status:** The generation service and adapter components (M4.1–M4.4) are implemented and verified in the engine workspace. The stdio IPC launcher (`engine/scripts/generate.cmd` / M4.5) remains planned. Commands below are planned M4.5 invocation examples, not currently runnable scripts.
 
 ---
 
@@ -65,10 +65,10 @@ $env:CAD_OUTPUT_ROOT = "E:\cad-output"
 
 ## Runtime Environment & Prerequisites
 
-### Required Environment Variables
+### Environment Variables
 - `CAD_OUTPUT_ROOT`: Base output directory for generated CAD artifacts.
-- `GOOGLE_GENAI_API_KEY`: API key for Gemini foundation model (required for `prompt_to_cad` mode; not required for deterministic `example_plan` mode or M4.1 component testing).
-- `CAD_LLM_MODEL`: Configurable model identifier.
+- `GEMINI_API_KEY`: Optional caller-managed environment variable for Google Gemini API authentication (for future M4.5 `prompt_to_cad` orchestration; not required for deterministic `example_plan` mode).
+- `CAD_LLM_MODEL`: Reserved planned environment variable for M4.5 model selection (defaults to `gemini-3.5-flash-lite`; not inspected by the M4.2 adapter).
 
 ### System Requirements
 - Windows 10/11 x64.
