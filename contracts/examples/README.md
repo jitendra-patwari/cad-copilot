@@ -1,6 +1,6 @@
 # Canonical Examples: Feature Plan DSL AST Contracts
 
-This directory contains internal feature-plan JSON examples and Abstract Syntax Tree (AST) fixtures for CAD Copilot's pure parsing, validation, and lowering domain. Application orchestration (`GenerationService`), run manifest publication (`manifests`), deterministic catalog loading (`example_catalog`, M4.3), and the optional Gemini plan proposal adapter (`plan_providers`, M4.2) are implemented and verified; stdio IPC (M4.5) remains planned.
+This directory contains internal feature-plan JSON examples and Abstract Syntax Tree (AST) fixtures for CAD Copilot's pure parsing, validation, and lowering domain. Application orchestration (`GenerationService`), run manifest publication (`manifests`), deterministic catalog loading (`example_catalog`, M4.3), the optional Gemini plan proposal adapter (`plan_providers`, M4.2), and strict stdio IPC launchers (`ipc`, M4.5) are fully implemented and verified.
 
 Current typed models, parser, validation, and lowering code define executable domain semantics. These examples illustrate that representation; their presence does not establish live CAD support. Boolean composition, sweep, and broader face combinations remain conditional, regardless of fixture coverage.
 

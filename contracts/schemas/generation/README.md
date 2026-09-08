@@ -2,27 +2,30 @@
 
 The `generation` domain defines the wire protocol and contract schemas used by client applications (Tauri Desktop GUI and local CLI) to request 3D parametric generation from the CAD engine.
 
-The planned client application owns UI/UX, user prompt entry, example plan selection, and process execution. The planned application/driver path owns prompt interpretation, geometric planning, Solid Edge execution, and required artifact generation.
+A client application (such as the Tauri desktop GUI or local CLI launcher) owns UI/UX, user prompt entry, example plan selection, and process invocation. The engine application and driver path owns prompt interpretation, geometric planning, Solid Edge execution, and required artifact generation.
 
-**Status:** Schemas and fixtures exist. M3.1 (runtime/lifecycle), M3.2 (Solid Edge executor), M3.3 (artifact export pipeline), M4.1 (generation service orchestration), M4.2 (Gemini plan proposal adapter), M4.3 (deterministic example catalog), and M4.4 (canonical run manifest publication) are implemented and verified; M4.5 (stdio IPC launcher) remains planned. The process and output descriptions below define the target contract, not currently available end-to-end behavior.
+**Status:** Implemented and verified. M3.1 (runtime/lifecycle), M3.2 (Solid Edge executor), M3.3 (artifact export pipeline), M4.1 (generation service orchestration), M4.2 (Gemini plan proposal adapter), M4.3 (deterministic example catalog), M4.4 (canonical run manifest publication), and M4.5 (strict generation stdio IPC, launchers, and packaging) are fully implemented and verified. The process and output descriptions below define active production behavior.
 
 ---
 
 ## Process Contract
 
-- **Input**: Caller sends one UTF-8 JSON request object conforming to `generation-request.schema.json` via `stdin` (stdio IPC).
-- **Output**: The engine writes exactly one UTF-8 JSON response object conforming to `generation-response.schema.json` to `stdout`, followed by a newline.
-- **Diagnostics**: Non-contract runtime diagnostics and progress logs are written to `stderr` only.
-- **Exit Status**: Handled `accepted`, `rejected`, and `failed` requests all return status code `0` on IPC when the subprocess completes normally.
-
-The planned IPC launcher for Milestone 4 is `engine/scripts/generate.cmd` (or CLI entrypoint `cad-copilot-generate`).
+- **Input**: Caller sends one UTF-8 JSON request object conforming to `generation-request.schema.json` via `stdin` (stdio IPC). A raw input cap of 128 KiB (`131,072` bytes) is enforced; larger inputs are rejected immediately with `rejected/PAYLOAD_TOO_LARGE`. The caller closes `stdin` upon sending the request payload.
+- **Output**: The engine writes exactly one UTF-8 JSON response object conforming to `generation-response.schema.json` to `stdout`, followed by a newline (`\n`). `stdout` descriptor redirection guarantees zero console contamination from logging, libraries, or native code.
+- **Diagnostics**: Non-contract runtime progress events and fatal diagnostics are written to `stderr` exclusively as single-line JSONL objects (`{"type":"progress","phase":"...","message":"..."}`). Exactly 4 ordered progress events occur on handled execution (`request_received`, `request_validated`, `generation_started`, `response_ready`).
+- **Exit Status**:
+  - `0`: Handled `accepted`, `rejected`, and `failed` requests when the subprocess produces a valid response.
+  - `1`: Fatal bootstrap, packaged-schema resource, response serialization, or response-write failure before a valid contract response can be emitted (stdout remains empty).
+  - `130`: Caller-initiated cancellation (`CTRL_BREAK_EVENT` / `SIGINT`).
+- **Launchers**: Production launchers are the installed console entrypoint `cad-copilot-generate`, the Windows source-run wrapper `engine\scripts\generate.cmd`, or `python -m ipc`.
 
 ---
 
 ## Required Configuration
 
-* `CAD_OUTPUT_ROOT`: Output directory where the CAD engine creates isolated per-request artifact folders named after the `request_id`.
-* The engine resolves the output root to an absolute path, creates it if necessary, and ensures all emitted artifact paths reside safely within it.
+* `CAD_OUTPUT_ROOT`: Required base output directory where the CAD engine creates isolated per-request artifact folders named after the `request_id`. Must identify an existing directory; the engine validates containment, directory type, and absence of target collisions before execution.
+* `GEMINI_API_KEY`: Optional caller-managed environment variable for Google Gemini API authentication when executing `prompt_to_cad` requests. Not read or required in deterministic `example_plan` mode.
+* `CAD_LLM_MODEL`: Optional model identifier for `prompt_to_cad` mode (defaults to `gemini-3.5-flash-lite` if unset; an invalid or whitespace-only value fails safely).
 
 ---
 

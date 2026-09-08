@@ -1,32 +1,68 @@
 # CAD Copilot Generation Integration Runbook
 
-This runbook specifies the planned M4 generation subprocess integration for a later Tauri desktop client or local CLI.
+This runbook specifies the production M4 generation subprocess integration for a client application (such as the Tauri desktop client or local CLI tools).
 
-**Status:** The generation service and adapter components (M4.1–M4.4) are implemented and verified in the engine workspace. The stdio IPC launcher (`engine/scripts/generate.cmd` / M4.5) remains planned. Commands below are planned M4.5 invocation examples, not currently runnable scripts.
+**Status:** Implemented and verified. The generation service (M4.1), optional Gemini proposal adapter (M4.2), deterministic example catalog (M4.3), canonical run manifest publication (M4.4), and strict generation stdio IPC interface and launchers (M4.5) are fully operational. Commands below are executable on Windows workstations with the documented environment.
 
 ---
 
 ## Subprocess Invocation
 
-After the M4 launcher is implemented, the intended invocation from the monorepo root is:
+The generation engine provides two production launch surfaces:
 
-```powershell
-engine\scripts\generate.cmd
-```
+1. **Source-Run CMD Launcher**:
+   ```powershell
+   engine\scripts\generate.cmd
+   ```
+   *Requirement*: Requires an editable installation in the workspace virtual environment (`pip install -e "engine[dev]"` or `pip install -e "engine[dev,gemini]"`). The script performs a quiet preflight check verifying the interpreter, entrypoint, and distribution metadata without modifying `PYTHONPATH`.
+
+2. **Installed Console Entrypoint**:
+   ```powershell
+   cad-copilot-generate
+   ```
+
+Both launchers execute the shared `ipc.stdio:main` entrypoint over strict stdio IPC.
 
 ### Process Lifecycle Contract
-1. **Request**: Write exactly one UTF-8 JSON request object on `stdin`.
-2. **Response**: Read exactly one UTF-8 JSON response object from `stdout`.
-3. **Diagnostics**: Treat `stderr` as real-time diagnostic output only. Do not parse `stderr` as structured response JSON.
-4. **Exit Codes**: A handled `accepted`, `rejected`, or `failed` response exits with process code `0`.
+1. **Request**: Write exactly one UTF-8 JSON request object on `stdin` (capped at 128 KiB / `131,072` bytes; larger inputs are rejected with `rejected/PAYLOAD_TOO_LARGE`) and close `stdin`.
+2. **Response**: Read exactly one UTF-8 JSON response object from `stdout`, terminated by LF (`\n`). Stdout redirection guarantees zero console contamination.
+3. **Progress & Diagnostics**: `stderr` emits compact single-line JSONL progress events (`{"type":"progress","phase":"...","message":"..."}`) across four canonical phases: `request_received`, `request_validated`, `generation_started`, and `response_ready`. Fatal failures emit a JSONL diagnostic object.
+4. **Exit Codes**:
+   - `0`: Handled `accepted`, `rejected`, or `failed` response.
+   - `1`: Fatal bootstrap, packaged-schema resource, response serialization, or response-write failure (stdout remains empty).
+   - `130`: Process cancellation (`CTRL_BREAK_EVENT` / `SIGINT`).
+5. **Caller Deadline & Teardown**:
+   - The caller enforces an end-to-end deadline (default: **180 seconds**).
+   - On timeout or user cancellation, the caller sends `CTRL_BREAK_EVENT` to the child process group.
+   - Allow a **10-second grace period** for Python stack unwinding and native Solid Edge document teardown.
+   - If the child does not exit after the grace period, terminate only that child process handle. Never terminate unrelated CAD processes.
 
 ---
 
 ## Example Invocations
 
-### 1. Natural Language Prompt Request
+### 1. Deterministic Example Plan Request (No Key / No Network)
 ```powershell
-$env:CAD_OUTPUT_ROOT = "E:\cad-output"
+$env:CAD_OUTPUT_ROOT = "C:\cad-output"
+@'
+{
+  "contract_version": "1.0",
+  "request_id": "example-spur-gear-001",
+  "kind": "example_plan",
+  "unit": "mm",
+  "example_id": "spur_gear",
+  "metadata": {
+    "source": "desktop_app",
+    "label": "Spur gear example"
+  }
+}
+'@ | engine\scripts\generate.cmd
+```
+
+### 2. Natural Language Prompt Request (Requires Gemini API Key)
+```powershell
+$env:CAD_OUTPUT_ROOT = "C:\cad-output"
+$env:GEMINI_API_KEY = "AIzaSy..."
 @'
 {
   "contract_version": "1.0",
@@ -43,36 +79,18 @@ $env:CAD_OUTPUT_ROOT = "E:\cad-output"
 '@ | engine\scripts\generate.cmd
 ```
 
-### 2. Deterministic Example Plan Request
-```powershell
-$env:CAD_OUTPUT_ROOT = "E:\cad-output"
-@'
-{
-  "contract_version": "1.0",
-  "request_id": "example-spur-gear-001",
-  "kind": "example_plan",
-  "unit": "mm",
-  "example_id": "spur_gear",
-  "metadata": {
-    "source": "desktop_app",
-    "label": "Spur gear example"
-  }
-}
-'@ | engine\scripts\generate.cmd
-```
-
 ---
 
 ## Runtime Environment & Prerequisites
 
 ### Environment Variables
-- `CAD_OUTPUT_ROOT`: Base output directory for generated CAD artifacts.
-- `GEMINI_API_KEY`: Optional caller-managed environment variable for Google Gemini API authentication (for future M4.5 `prompt_to_cad` orchestration; not required for deterministic `example_plan` mode).
-- `CAD_LLM_MODEL`: Reserved planned environment variable for M4.5 model selection (defaults to `gemini-3.5-flash-lite`; not inspected by the M4.2 adapter).
+- `CAD_OUTPUT_ROOT`: Required directory where the CAD engine creates isolated per-request artifact folders named after the `request_id`. Must identify an existing directory.
+- `GEMINI_API_KEY`: Optional caller-managed environment variable for Google Gemini API authentication when running `prompt_to_cad` requests. Not read or required in deterministic `example_plan` mode.
+- `CAD_LLM_MODEL`: Optional model identifier for `prompt_to_cad` mode (defaults to `gemini-3.5-flash-lite` if unset).
 
 ### System Requirements
 - Windows 10/11 x64.
-- Python 3.14.3 virtual environment (`.venv\Scripts\python.exe`); other Python minors are not claimed until separately verified.
+- Python 3.14.3 virtual environment (`.venv\Scripts\python.exe`).
 - Siemens Solid Edge® installed and licensed.
 
 ---

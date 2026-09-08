@@ -2,11 +2,11 @@
 
 **Project**: CAD Copilot  
 **Scope**: Milestone 1 (Foundation & Domain Interfaces), Milestone 2 (Pure Domain Geometry Math), Milestone 3 (Solid Edge COM Driver & Artifact Pipeline), and Milestone 4 (Generation Application Orchestration, Examples, Manifest & Stdio IPC)
-**Status (6 September 2026)**: M1/M2 domain baseline and M3.0 reconciliation implemented; M3.1 runtime/lifecycle, M3.2 primitive execution and inspection, and M3.3 multi-format artifact export and pipeline finalization implemented, hardened, and verified. M4.1 generation application orchestration, M4.3 deterministic example catalog, and M4.4 canonical run manifest and sidecar publication are implemented, hardened, and verified; M4.2 (Gemini adapter) and M4.5 (stdio IPC) remain Planned, so Milestone 4 is not complete.
+**Status (8 September 2026)**: M1/M2 domain baseline and M3.0 reconciliation implemented; M3.1 runtime/lifecycle, M3.2 primitive execution and inspection, and M3.3 multi-format artifact export and pipeline finalization implemented, hardened, and verified. Milestone 4 is fully implemented, hardened, and verified across all components: M4.1 (generation application orchestration), M4.2 (optional text-only Gemini proposal adapter), M4.3 (deterministic example catalog), M4.4 (canonical run manifest and sidecar publication), and M4.5 (strict generation stdio IPC, launchers, and packaging). Milestone 4 is complete.
 
 ### Current evidence boundary
 
-- **Offline test suite**: 1,136 tests passed, 2 skipped, with 36 COM tests deselected; strict mypy passed across the verified component scope (71 source and test files checked: `mypy --config-file mypy.ini src tests/manifests tests/artifacts tests/application tests/example_catalog tests/drivers/test_solidedge_live.py`); Ruff lint passed and formatting clean; `git diff --check` clean.
+- **Offline test suite**: 1,383 tests passed, 2 skipped, with 40 tests deselected (36 COM driver tests, 2 COM live IPC tests, 1 live_ai provider test, 1 live_ai IPC test); strict mypy passed across the verified component scope (99 source and test files checked: `mypy --config-file mypy.ini src tests/manifests tests/artifacts tests/application tests/example_catalog tests/plan_providers tests/ipc tests/drivers/test_solidedge_live.py`); Ruff lint passed and formatting clean; `git diff --check` clean.
 - **Live integration evidence**: 31 passed, 0 skipped across 31 COM tests on a licensed Siemens Solid Edge 2026 session (`226.00.00.106`), verifying:
   1. M3.1 lifecycle isolation, Ordered mode readback `2`, and non-destructive process preservation (4 live gates).
   2. M3.2 3D primitives (cuboid, cylinder, 24-tooth conceptual spur gear at origin and translated with centered through-bore), 6-face circular cuts, localized +Z cuts, and sequential feature execution (15 live gates).
@@ -27,18 +27,22 @@
   2. Bounded strict JSON decoding, sealed proposal schema validation, local envelope binding, canonical AST parsing, geometric validation, exact dimension checks (50.0 x 40.0 x 10.0 mm), and canonical lowering.
   3. Clean stdout, stderr, and log output (zero leakage of prompts, keys, or provider logs).
   4. Process-level environment key removal verified after test execution.
+- **M4.5 live CLI verification evidence (8 September 2026)**: 3 passed, 0 skipped across live CLI gates on licensed local Siemens Solid Edge 2026 (`test_m45_live_01_example_plan_spur_gear_cmd_launcher`, `test_m45_live_02_prompt_to_cad_installed_entrypoint`, `test_m45_live_03_route_and_configuration_isolation`), verifying:
+  1. End-to-end execution of `spur_gear` example through `engine\scripts\generate.cmd` against live Solid Edge: byte-exact single-line stdout ending in LF, exactly 4 ordered JSONL progress records on stderr, zero console contamination, positive-volume solid inspection (`volume_mm3 > 0.0`), all 4 published artifacts (`.par`, STEP, STL, JPG), valid `run_manifest.json` sidecar with cryptographic SHA-256 hashes matching disk files, and staging cleanup.
+  2. End-to-end installed-entrypoint prompt execution (`cad-copilot-generate`) with opt-in live Gemini: resolves natural-language block prompt via `gemini-3.5-flash-lite`, generates 3D solid model in live Solid Edge with positive volume inspection (`volume_mm3 > 0.0`), publishes `.par`, `.step`, `.stl`, `.jpg` and schema-valid `run_manifest.json` sidecar (`provenance.kind="ai_proposal"`, cryptographic file hashes, prompt SHA-256 fingerprint), cleans staging, and enforces zero leakage of prompts or API keys across stdout, stderr, response, and manifest.
+  3. Configuration and route isolation through installed entrypoint (`cad-copilot-generate`): missing key and invalid model fail fast before CAD runtime acquisition, and subsequent example rerun executes cleanly on live Solid Edge.
 
 ---
 
 ## 1. Document Scope, Goals & Non-Goals
 
-This specification defines the functional, architectural, and quality requirements for the foundational milestones of the CAD Copilot project. Later milestones cover generation orchestration and optional Gemini, bounded sequential native-file batch operations, and the Tauri desktop showcase. Only approved conditional/follow-up capabilities may extend that scope; no later package is implied to exist by this specification.
+This specification defines the functional, architectural, and quality requirements for the foundational milestones of the CAD Copilot project. Later milestones cover bounded sequential native-file batch operations (Milestone 5) and the Tauri desktop showcase (Milestone 6). Only approved conditional/follow-up capabilities may extend that scope; no later package is implied to exist by this specification.
 
 ### Goals
 - **Milestone 1 (Foundation & Governance)**: Establish monorepo workspace configuration (`desktop/` and `engine/`), developer tooling, MIT licensing with an explicit Siemens trademark notice, vendor-agnostic abstract domain interfaces (`engine/src/interfaces/`), and canonical JSON Schemas (`contracts/`) for cross-boundary communication.
 - **Milestone 2 (Pure Domain Geometry)**: Implement a pure, deterministic geometry domain (`engine/src/geometry/`) containing planar coordinate transformations, parametric spur gear tooth math, feature plan AST parsing, lowering models, spatial containment validation, and STEP Part 21 smoke analysis.
 - **Milestone 3 (Solid Edge COM Driver & Artifacts)**: Implement the Windows Solid Edge® COM automation driver (`SolidEdgeRuntime` and `SolidEdgeExecutor` in `engine/src/drivers/solidedge/`) via standard public COM Dispatch, executing confirmed 3D base primitives, localized 2D cutouts, geometric recompute verification, and atomic multi-format artifact exports (`.par`, STEP, STL, preview JPG) on live Windows workstations.
-- **Milestone 4 (Generation Orchestration & Workflows — In Progress)**: Orchestrate single-request 3D parametric generation through a modular application coordinator (`GenerationService`), supporting deterministic example plans and an optional text-only Gemini proposal adapter, with canonical run manifest creation, safe error/warning projection, and strict stdio IPC. M4.1 (application orchestration), M4.2 (Gemini adapter), M4.3 (deterministic example catalog), and M4.4 (run manifest publication) are implemented and verified; M4.5 (strict generation stdio IPC) remains planned to complete Milestone 4.
+- **Milestone 4 (Generation Orchestration & Workflows — Complete)**: Orchestrate single-request 3D parametric generation through a modular application coordinator (`GenerationService`), supporting deterministic example plans (`example_catalog`) and an optional text-only Gemini proposal adapter (`plan_providers`), with canonical run manifest creation (`manifests`), safe error/warning projection, and strict stdio IPC (`ipc`). M4.1 (application orchestration), M4.2 (Gemini adapter), M4.3 (deterministic example catalog), M4.4 (run manifest publication), and M4.5 (strict generation stdio IPC) are fully implemented, hardened, and verified. Milestone 4 is complete.
 
 ### Explicit Non-Goals
 - **No Network or AI Calls in Engine Driver (Milestone 3)**: Zero network requests or LLM SDK dependencies within the core driver (LLM generation pipelines and prompt-to-CAD translation are encapsulated in Milestone 4).
@@ -69,7 +73,7 @@ This specification defines the functional, architectural, and quality requiremen
   - `contracts/schemas/generation/`: 3D CAD prompt generation request/response envelopes (`generation-request.schema.json`, `generation-response.schema.json`, `"origin": "cad_copilot"`).
   - `contracts/schemas/batch/`: Batch task definitions, export configurations, and summary schemas (`batch-request.schema.json`, `batch-response.schema.json`).
   - `contracts/schemas/edit/`: Historical, non-runtime edit schemas (`edit-request.schema.json`, `edit-response.schema.json`). Their legacy sessions, images, and selectable outputs are not initial capabilities. Future M7B editing is constrained by a manifest-based revision model, not a session database or rollback system.
-- **Runbooks & Fixtures**: Internal feature-plan examples (`contracts/examples/`) cover plates, conceptual gears, and conditional composition/sweep representations. JSON fixture integrity and public schema conformance tests do not establish end-to-end or live CAD support; generation and batch runbooks describe future launchers.
+- **Runbooks & Fixtures**: Internal feature-plan examples (`contracts/examples/`) cover plates, conceptual gears, and conditional composition/sweep representations. JSON fixture integrity and public schema conformance tests do not establish end-to-end or live CAD support; the generation runbook describes the implemented M4.5 stdio IPC launcher, whereas the batch runbook describes the future M5 launcher.
 
 ### FR-3: Abstract Domain Interfaces (Milestone 1)
 - **CAD Runtime Port (`CADRuntimeABC` in `engine/src/interfaces/`)**:
@@ -185,7 +189,7 @@ The implementation is in `engine/src/drivers/solidedge/`. The requirements below
 - **Model & Sampling Default**: Uses verified stable default `gemini-3.5-flash-lite` via `google-genai>=2.19.0,<3.0.0` with sampling parameters deliberately omitted per Gemini 3.x guidance and a bounded timeout (60,000 ms).
 - **Bounded Invocation & No Model Fallback**: One adapter call, with at most one SDK retry for transient failures; no adapter retry loop, response repair, or model fallback. If the proposal fails parsing, validation, or CAD execution, the failure is returned deterministically.
 - **Explicit Lifecycle**: The API client is initialized and scoped within caller-provided execution boundaries via context manager without global persistent connection pools or background daemons.
-- **Workflow Boundary**: Completes the M4.2 plan proposal adapter component; end-to-end stdio invocation remains planned for M4.5.
+- **Workflow Boundary**: Completes the M4.2 plan proposal adapter component; end-to-end stdio invocation is implemented and verified via M4.5.
 
 ### FR-12: Deterministic Example Catalog (M4.3 — Implemented and Verified)
 - **Deterministic Catalog Resolution**: Resolves schema-approved example IDs into canonical FeaturePlan AST payloads offline without AI providers, Gemini dependencies, API keys, network calls, or disk directory traversal.
@@ -208,18 +212,30 @@ The implementation is in `engine/src/drivers/solidedge/`. The requirements below
 - **Privacy Enforcement**: Manifest never contains raw user prompts, API keys, credentials, provider response payloads, workstation paths, or local host identifiers.
 - **Atomic Publication Invariant**: The manifest is validated against its canonical schema inside the isolated staging directory and published atomically alongside `.par`, STEP, STL, and optional JPG artifacts in the final publication transaction.
 
-### FR-14: Strict Generation Stdio IPC (M4.5 — Planned)
+### FR-14: Strict Generation Stdio IPC (M4.5 — Implemented and Verified)
 - **Stdio Framing & Protocol**:
   - Accepts exactly one bounded UTF-8 JSON request via `stdin` conforming to `generation-request.schema.json`.
+  - Enforces a 128 KiB raw payload limit (`131,072` bytes) before unbounded decoding or schema parsing, rejecting larger inputs with `rejected/PAYLOAD_TOO_LARGE`.
   - Emits exactly one newline-terminated UTF-8 JSON response to `stdout` conforming to `generation-response.schema.json`.
-  - Emits non-contract runtime diagnostics, progress events, and logging exclusively to `stderr`.
-  - Supports bounded timeouts and deterministic execution cancellation.
-- **Strict Stdout Purity**: Enforces complete `stdout` isolation—no driver output, banner strings, library logs, or debug prints may reach `stdout`.
-- **Process Architecture**:
+  - Emits non-contract runtime progress events and fatal diagnostics exclusively to `stderr` as bounded, compact JSON Lines objects (`{"type":"progress","phase":"...","message":"..."}`).
+  - Emits exactly 4 ordered progress events on handled execution: `request_received`, `request_validated`, `generation_started`, and `response_ready`.
+- **Strict Stdout & Stderr Isolation**:
+  - Establishes early C-runtime descriptor duplication and redirection (`os.dup2`) to null devices.
+  - On Windows, replaces `STD_OUTPUT_HANDLE` and `STD_ERROR_HANDLE` via `SetStdHandle` before production modules are imported.
+  - Guarantees zero console contamination: Python `print`, logging, SDK messages, COM client outputs, native extension writes, direct Win32 standard handle writes, and tracebacks cannot corrupt `stdout` or `stderr`.
+- **Packaging & Launch Surfaces**:
+  - Distributes byte-identical request and response schema resources under `ipc/schemas/` packaged in wheel data.
+  - Provides two supported launch surfaces sharing `ipc.stdio:main`:
+    1. Installed console entrypoint: `cad-copilot-generate`.
+    2. Windows source-run wrapper: `engine/scripts/generate.cmd` (requires documented editable installation, performs quiet distribution-metadata preflight, and never sets `PYTHONPATH`).
+- **Environment Composition**:
+  - Reads `CAD_OUTPUT_ROOT` from caller environment; requires an existing directory and delegates containment/collision checks to canonical artifact paths.
+  - Route-aware composition: `example_plan` never reads Gemini configuration, imports provider modules, or accesses the network; `prompt_to_cad` composes `GEMINI_API_KEY` and optional `CAD_LLM_MODEL` (defaulting to `gemini-3.5-flash-lite`).
+- **Process Lifecycle & Exit Policy**:
   - Operates as a stateless single-subprocess invocation per request (`one-subprocess-per-request`).
-  - Directly reuses the internal `GenerationService` coordinator without intermediate server processes.
-  - Explicit no-server boundary: no long-running HTTP/WebSocket daemon, background process pool, or persistent IPC listeners.
-  - Exits with status code `0` for handled contract responses (`accepted`, `rejected`, `failed`), reserving non-zero exit codes exclusively for abnormal process termination or runtime fatal crashes.
+  - Directly reuses the internal `GenerationService` coordinator without intermediate server processes, daemons, background workers, or listeners.
+  - Exit policy: exits `0` for handled responses (`accepted`, `rejected`, `failed`), exits `1` for fatal bootstrap, packaged-schema resource, response serialization, or response-write failure with empty stdout, and exits `130` for caller cancellation (`CTRL_BREAK_EVENT` / `SIGINT`).
+  - Caller enforces default 180s timeout; on cancellation, allows 10s graceful teardown through `GenerationService.finally` and ensures child-scoped cleanup without terminating unrelated processes.
 
 ---
 
@@ -230,7 +246,7 @@ The implementation is in `engine/src/drivers/solidedge/`. The requirements below
 | **NFR-1** | **Zero I/O Purity** | `engine/src/geometry/` must be 100% pure computational logic with zero disk I/O, zero network calls, and zero CAD runtime imports. |
 | **NFR-2** | **Mathematical Determinism** | Geometric transformations and profile generators must produce identical floating-point output across runs within a $10^{-4}\text{ mm}$ ($0.1\ \mu\text{m}$) tolerance. |
 | **NFR-3** | **Clean-Room Compliance** | Zero proprietary Siemens binary files, DLLs, typelibs, or copyrighted headers. Automation relies solely on open interfaces and standard public Dispatch. |
-| **NFR-4** | **Strict Static Typing** | Code in `engine/src/interfaces/`, `engine/src/geometry/`, and `engine/src/drivers/` must pass `mypy --strict` with zero type errors and pass Ruff lint checks. |
+| **NFR-4** | **Strict Static Typing** | Code across all verified engine packages (`interfaces`, `geometry`, `drivers`, `application`, `manifests`, `example_catalog`, `plan_providers`, `ipc`) must pass `mypy --strict` with zero type errors and pass Ruff lint checks. |
 | **NFR-5** | **COM Dispatch Isolation** | CAD automation is strictly confined to `pywin32` standard COM Dispatch (`win32com.client.Dispatch("SolidEdge.Application")`) without native Siemens binary SDKs or proprietary header bindings. |
 | **NFR-6** | **Ownership-Safe Lifecycle & Cleanup** | Close only request-owned documents without saving. Attempt graceful owned shutdown; force cleanup requires the explicit flag and reverified recorded owned PID after bounded failure. Never quit/kill borrowed or unknown applications, change their application settings, or close unrelated documents. |
 
@@ -282,7 +298,7 @@ These are milestone-wide acceptance gates. M3.1 lifecycle, M3.2 geometric primit
 
 ### Milestone 4.1 Component Acceptance Criteria (Implemented and Verified)
 
-This section defines acceptance criteria specifically for the Milestone 4.1 application orchestration component. Component acceptance establishes that `GenerationService` successfully coordinates preparation, execution, finalization, and response projection, but does **not** establish complete Milestone 4 readiness. Full Milestone 4 readiness additionally requires the optional text-only Gemini adapter (M4.2) and strict stdio IPC transport (M4.5).
+This section defines acceptance criteria specifically for the Milestone 4.1 application orchestration component. Component acceptance establishes that `GenerationService` successfully coordinates preparation, execution, finalization, and response projection across subsequent M4 components:
 
 1. **Generation Application Orchestration (FR-10)**:
    - `GenerationService` in `engine/src/application/` coordinates request dispatch, canonical preparation, CAD execution, artifact finalization, and response projection.
@@ -291,6 +307,29 @@ This section defines acceptance criteria specifically for the Milestone 4.1 appl
    - Preserves warning parity (`warnings: string[]`) across all response variants.
    - Full offline verification passes with fake runtime, fake executor, and pure projection unit tests (80 tests across `test_projection.py` and `test_service.py`).
    - Focused live execution cases in `engine/tests/drivers/test_solidedge_live.py` (`test_m41_live_01_prompt_to_cad_block_orchestration` and `test_m41_live_02_example_plan_spur_gear_orchestration`) pass for rectangular block and conceptual spur gear generation on licensed Solid Edge using injected resolvers.
+
+### Milestone 4.2 Component Acceptance Criteria (Implemented and Verified)
+
+This section defines acceptance criteria specifically for the Milestone 4.2 optional text-only Gemini plan proposal adapter component:
+
+1. **Untrusted Proposal Schema & Envelope Binding (FR-11)**:
+   - Sealed Draft 2020-12 schema resource `feature-plan-proposal-v1.schema.json` loaded offline from package resources.
+   - Decodes untrusted model output as strict JSON, validates against the proposal schema, rejects extraneous keys, and binds into canonical local envelope (`plan_version`, `request_id`, `units`, sanitized `part`).
+   - Proposal must pass canonical parsing, geometric validation, and lowering before any CAD runtime acquisition or document creation.
+
+2. **BYOK Privacy & Credential Protection (FR-11)**:
+   - Memory/session-only constructor injection (`GeminiPlanResolver(api_key=...)`).
+   - API key travels strictly over HTTPS for provider authentication; never logged, persisted, or exposed in diagnostics.
+   - Request sends only the user-derived prompt text, static system instructions, and response schema; zero local file paths, CAD geometry, environment variables, or session tokens cross the network.
+
+3. **Model Configuration & Bounded Lifecycle (FR-11)**:
+   - Uses verified default `gemini-3.5-flash-lite` via `google-genai>=2.19.0,<3.0.0` with sampling parameters omitted per Gemini 3.x guidance and a 60-second bounded timeout.
+   - One adapter invocation with at most one transient SDK retry; no model fallback, response repair, or heuristic retry loop.
+   - Injected client lifecycle scoped to invocation without persistent connection pools or daemons.
+
+4. **Automated & Live Verification Baseline**:
+   - Offline test suite: 130 dedicated plan provider tests across schema, decoding, lifecycle, failure status, and configuration.
+   - Live integration evidence: `test_live_gemini_proposal_resolution` passed in 3.87s, verifying live `gemini-3.5-flash-lite` resolution, 50x40x10 mm block lowering, clean streams, and key cleanup.
 
 ### Milestone 4.3 Component Acceptance Criteria (Implemented and Verified)
 
@@ -346,3 +385,48 @@ This section defines acceptance criteria specifically for the Milestone 4.4 cano
    - Strict mypy: 0 issues across 71 source and test files in verified component scope (`mypy --config-file mypy.ini src tests/manifests tests/artifacts tests/application tests/example_catalog tests/drivers/test_solidedge_live.py`).
    - Ruff linting and formatting: clean across engine codebase (`ruff check src tests` and `ruff format --check src tests`).
    - Live integration evidence on Siemens Solid Edge 2026 (version `226.00.00.106`): 5 passed live tests (`test_m41_live_01`, `test_m41_live_02`, `test_m44_live_01`, `test_m44_live_02`, `test_m43_live_example_catalog_spur_gear`) verifying end-to-end prompt and example generation with schema-valid `run_manifest.json` sidecar publication.
+
+### Milestone 4.5 Component Acceptance Criteria (Implemented and Verified)
+
+This section defines acceptance criteria specifically for the Milestone 4.5 strict generation stdio IPC interface component:
+
+1. **Input Bounding, Strict Decoding & Schema Parity (FR-14)**:
+   - Enforces a 128 KiB raw payload limit (`131,072` bytes) before decoding or schema traversal, returning `rejected/PAYLOAD_TOO_LARGE` on overlength input.
+   - Rejects duplicate keys, non-finite numbers, malformed JSON, and invalid UTF-8 with sanitized `rejected/INVALID_SCHEMA`.
+   - Distributes byte-identical Draft 2020-12 request/response schemas under `ipc/schemas/` packaged in wheel data, verifying installed loading without repository checkouts.
+   - Constructs typed `ExampleGenerationRequest` or `PromptGenerationRequest` and recovers safe request IDs.
+
+2. **Early Descriptor & Handle Redirection (FR-14)**:
+   - Early C-runtime descriptor duplication and redirection (`os.dup2`) to null devices before production imports.
+   - Early replacement of Windows `STD_OUTPUT_HANDLE` and `STD_ERROR_HANDLE` via `SetStdHandle` before production modules are imported.
+   - Complete console purity: stdout contains exactly one newline-terminated UTF-8 JSON response; stderr contains only compact JSONL progress events and diagnostics; zero contamination from `print`, logging, SDK messages, COM clients, or tracebacks.
+
+3. **Stderr Progress Protocol & Exit Status (FR-14)**:
+   - Emits exactly 4 ordered progress events on handled execution: `request_received`, `request_validated`, `generation_started`, and `response_ready`.
+   - Handled `accepted`, `rejected`, and `failed` responses exit with code `0`.
+   - Fatal bootstrap, packaged-schema resource, response serialization, or response-write failure emits no invalid stdout and exits `1`.
+   - Caller cancellation (`CTRL_BREAK_EVENT` / `SIGINT`) allows 10s graceful teardown through `GenerationService.finally` and exits `130`.
+
+4. **Packaging & Launch Surfaces (FR-14)**:
+   - Console entrypoint `cad-copilot-generate` mapped to `ipc.stdio:main`.
+   - Windows source wrapper `engine\scripts\generate.cmd` with editable install preflight, no `PYTHONPATH` dependency, and fatal diagnostic on missing installation.
+
+5. **Automated & Live Verification Baseline**:
+   - Offline test suite: 114 dedicated IPC tests passed (contracts, composition, descriptors, launcher, orchestration, progress, subprocess).
+   - Strict mypy: 0 issues across 99 source and test files in verified scope (`mypy --config-file mypy.ini src tests/manifests tests/artifacts tests/application tests/example_catalog tests/plan_providers tests/ipc tests/drivers/test_solidedge_live.py`).
+   - Live CLI verification on Siemens Solid Edge 2026 (version `226.00.00.106`): 3 passed live CLI gates (`test_m45_live_01` spur gear via `generate.cmd`, `test_m45_live_02` prompt-to-CAD via installed `cad-copilot-generate`, and `test_m45_live_03` route and configuration isolation).
+
+### Milestone 4 Milestone-Wide Acceptance Gate (Complete)
+
+Milestone 4 is 100% implemented, hardened, and verified across all five constituent components (M4.1–M4.5):
+1. **Single Orchestrator**: `GenerationService` coordinates preparation, execution, finalization, and pure response projection.
+2. **Deterministic Catalog**: Bundled `spur_gear` example plan resolves offline without external dependencies or network calls.
+3. **Canonical Run Manifest**: Cryptographic `run_manifest.json` sidecar published atomically with multi-format CAD artifacts.
+4. **Optional Gemini Adapter**: Text-only BYOK proposal generation with verified `gemini-3.5-flash-lite` default.
+5. **Strict Stdio IPC**: One-subprocess-per-request CLI and CMD launchers with descriptor isolation, 128 KiB limit, 4-phase stderr progress, and deterministic exit codes.
+
+**Final M4 Quality Metrics**:
+- **Full Offline Suite**: **1,383 passed, 2 skipped, 40 deselected in 44.53s** (`pytest -c pytest.ini -m "not com and not live_ai"`).
+- **Strict Mypy**: **Success: 0 issues across 99 source files**.
+- **Ruff Linter & Formatter**: Clean across all 132 engine files.
+- **Live Solid Edge 2026 Evidence**: Verified across M3, M4 component, and M4.5 CLI suites on Windows 11 with Siemens Solid Edge 2026 (all 3 live CLI gates verified: `test_m45_live_01`, `test_m45_live_02`, `test_m45_live_03`).

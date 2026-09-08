@@ -16,9 +16,9 @@ We are committed to providing a welcoming, inclusive, and harassment-free enviro
 - **Python**: `>=3.14.3,<3.15` (tested baseline: Python 3.14.3)
 - **Node.js / pnpm**: Node.js `>=20` and pnpm `>=9` for workspace scripts; the desktop package and frontend dependencies are not yet implemented.
 - **Rust**: Not required for the current Python/runtime baseline. Tauri/Rust setup belongs to the later desktop milestone.
-- **Operating System**: Windows 10/11 x64 with licensed Siemens Solid Edge® for live COM automation. Pure geometry and contract checks do not require COM; some offline driver tests use Windows process APIs. Exclude live tests explicitly with `-m "not com"`.
+- **Operating System**: Windows 10/11 x64 with licensed Siemens Solid Edge® for live COM automation. Pure geometry and contract checks do not require COM; some offline driver tests use Windows process APIs. Exclude live tests explicitly with `-m "not com and not live_ai"`.
 
-M3.1–M3.3, M4.1 generation service orchestration, M4.2 Gemini plan proposal adapter, M4.3 deterministic example catalog, and M4.4 canonical run manifest publication are implemented and verified; M4.5 generation stdio IPC, M5 batch execution, and M6 desktop UI remain planned. See [engine status](engine/README.md).
+M3.1–M3.3, M4.1 generation service orchestration, M4.2 Gemini plan proposal adapter, M4.3 deterministic example catalog, M4.4 canonical run manifest publication, and M4.5 strict generation stdio IPC are implemented and verified; Milestone 4 is complete. M5 batch execution and M6 desktop UI remain planned. See [engine status](engine/README.md).
 
 ### Initializing the Workspace
 ```powershell
@@ -102,14 +102,14 @@ All submitted code must pass strict static analysis and testing before review:
 ruff check engine/src engine/tests
 mypy --config-file engine/mypy.ini --strict engine/src
 
-# Python Unit & Contract Tests (offline, non-COM)
-pytest engine/tests -m "not com"
+# Python Unit & Contract Tests (offline, non-COM and non-live-AI)
+pytest engine/tests -m "not com and not live_ai"
 
 # Workspace Build Gate (runs only scripts that currently exist)
 pnpm run build
 ```
 
-A successful recursive build with `--if-present` is not evidence of a desktop build while `desktop/` is absent. Offline checks are not live COM evidence. Run `com`-marked tests only with explicit authorization and a suitable Windows/Solid Edge session; the marker alone does not exclude them from a default pytest invocation.
+A successful recursive build with `--if-present` is not evidence of a desktop build while `desktop/` is absent. Offline checks are not live COM or AI provider evidence. Run `com`-marked and `live_ai`-marked tests only with explicit authorization, valid credentials, and a suitable Windows/Solid Edge session; markers alone do not exclude them from a default pytest invocation without explicit `-m` selection.
 
 ---
 
@@ -118,7 +118,7 @@ A successful recursive build with `--if-present` is not evidence of a desktop bu
 1. **User-Furnished Solid Edge® License**:
    * CAD Copilot does **not** provide, bypass, crack, or redistribute Siemens software licenses.
    * Live CAD execution requires the user to have a valid, legally acquired license for Siemens Solid Edge® installed locally on their Windows workstation.
-   * Pure geometry, AST lowering, and contract verification do not require COM. Use `-m "not com"` for offline selection; this does not make Windows-specific driver/process tests portable.
+   * Pure geometry, AST lowering, and contract verification do not require COM or live AI providers. Use `-m "not com and not live_ai"` for offline selection; this prevents accidental provider execution in opted-in environments and does not make Windows-specific driver/process tests portable.
 
 2. **No Proprietary Binaries**:
    * Do not commit Siemens binary files (`*.par`, `*.psm`, `*.asm`, `*.dft`), typelib headers (`*.tlb`), or SDK DLLs.

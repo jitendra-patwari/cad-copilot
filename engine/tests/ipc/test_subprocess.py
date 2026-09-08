@@ -6,6 +6,10 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
+from typing import Any
+
+import pytest
 
 from ipc.progress import FATAL_DIAGNOSTIC_MESSAGE, ProgressPhase
 
@@ -188,3 +192,144 @@ with patch("ipc.stdio._redirect_windows_handles", side_effect=OSError("Forced ha
     assert diag["type"] == "diagnostic"
     assert diag["phase"] == "fatal"
     assert diag["message"] == FATAL_DIAGNOSTIC_MESSAGE
+
+
+def _install_recording_popen(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    signal_failure: bool = False,
+    signal_marker: Path | None = None,
+) -> tuple[list[subprocess.Popen[Any]], list[str]]:
+    """Record timeout cleanup events while preserving real child-process behavior."""
+    original_popen = subprocess.Popen
+    spawned: list[subprocess.Popen[Any]] = []
+    events: list[str] = []
+
+    def recording_popen(*args: Any, **kwargs: Any) -> subprocess.Popen[Any]:
+        process = original_popen(*args, **kwargs)
+        original_send_signal = process.send_signal
+        original_kill = process.kill
+
+        def recording_send_signal(sig: Any) -> None:
+            events.append("signal")
+            if signal_failure:
+                raise OSError("Simulated send_signal delivery failure")
+            if signal_marker is not None:
+                signal_marker.write_text("signalled", encoding="ascii")
+                return
+            original_send_signal(sig)
+
+        def recording_kill() -> None:
+            events.append("kill")
+            original_kill()
+
+        process.send_signal = recording_send_signal  # type: ignore[method-assign]
+        process.kill = recording_kill  # type: ignore[method-assign]
+        spawned.append(process)
+        return process
+
+    monkeypatch.setattr(subprocess, "Popen", recording_popen)
+    return spawned, events
+
+
+def test_run_live_subprocess_timeout_graceful_cancellation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Proves _run_live_subprocess sends cancellation signal and handles graceful exit."""
+    from tests.ipc.test_solidedge_live import _run_live_subprocess
+
+    runner_script = """
+import sys
+import time
+from pathlib import Path
+
+marker = Path(sys.argv[1])
+deadline = time.monotonic() + 30
+while time.monotonic() < deadline:
+    if marker.is_file():
+        sys.exit(130)
+    time.sleep(0.01)
+"""
+    signal_marker = tmp_path / "graceful-cancellation.marker"
+    spawned, events = _install_recording_popen(monkeypatch, signal_marker=signal_marker)
+
+    with pytest.raises(AssertionError, match=r"Live process timed out after 0\.5 seconds"):
+        _run_live_subprocess(
+            [sys.executable, "-c", runner_script, str(signal_marker)],
+            input_bytes=b"",
+            env=os.environ.copy(),
+            cwd=tmp_path,
+            timeout=0.5,
+            grace_seconds=2.0,
+        )
+
+    assert events == ["signal"]
+    assert signal_marker.read_text(encoding="ascii") == "signalled"
+    assert len(spawned) == 1
+    assert spawned[0].poll() is not None
+    assert spawned[0].returncode == 130
+
+
+def test_run_live_subprocess_timeout_forced_kill(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Proves _run_live_subprocess kills process when grace period expires."""
+    from tests.ipc.test_solidedge_live import _run_live_subprocess
+
+    runner_script = """
+import signal
+import sys
+import time
+
+if hasattr(signal, "SIGBREAK"):
+    signal.signal(signal.SIGBREAK, signal.SIG_IGN)
+else:
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+time.sleep(30)
+"""
+    spawned, events = _install_recording_popen(monkeypatch)
+
+    with pytest.raises(AssertionError, match=r"Live process timed out after 0\.5 seconds"):
+        _run_live_subprocess(
+            [sys.executable, "-c", runner_script],
+            input_bytes=b"",
+            env=os.environ.copy(),
+            cwd=tmp_path,
+            timeout=0.5,
+            grace_seconds=0.2,
+        )
+
+    assert events == ["signal", "kill"]
+    assert len(spawned) == 1
+    assert spawned[0].poll() is not None
+
+
+def test_run_live_subprocess_signal_failure_guarantees_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Proves _run_live_subprocess guarantees kill even if send_signal raises."""
+    from tests.ipc.test_solidedge_live import _run_live_subprocess
+
+    runner_script = """
+import time
+time.sleep(30)
+"""
+    spawned, events = _install_recording_popen(monkeypatch, signal_failure=True)
+
+    with pytest.raises(AssertionError, match=r"Live process timed out after 0\.2 seconds"):
+        _run_live_subprocess(
+            [sys.executable, "-c", runner_script],
+            input_bytes=b"",
+            env=os.environ.copy(),
+            cwd=tmp_path,
+            timeout=0.2,
+            grace_seconds=0.2,
+        )
+
+    assert events == ["signal", "kill"]
+    assert len(spawned) == 1
+    assert spawned[0].poll() is not None
