@@ -1,7 +1,12 @@
 {
+  "manifest_version": "1.0",
   "contract_version": "1.0",
   "request_id": "batch-cancelled-001",
   "status": "cancelled",
+  "operation": {
+    "type": "export_3d",
+    "formats": ["step", "stl"]
+  },
   "summary": {
     "total": 4,
     "accepted": 1,
@@ -17,11 +22,15 @@
       "artifacts": [
         {
           "format": "step",
-          "path": "C:/my_cad_parts/output/part1.step"
+          "relative_path": "part1.step",
+          "size_bytes": 1024,
+          "sha256": "bd391a89e9a0fb566662846f9e11c5ccc9aa7993a51cfb39e9481877ca2baea1"
         },
         {
           "format": "stl",
-          "path": "C:/my_cad_parts/output/part1.stl"
+          "relative_path": "part1.stl",
+          "size_bytes": 2048,
+          "sha256": "55730a11de2edafd19bdbd568d289847decbbd3d8f04d6a0137348ecc8916a74"
         }
       ],
       "warnings": []
@@ -34,7 +43,5 @@
     "part3.par",
     "part4.par"
   ],
-  "manifest": {
-    "path": "C:/my_cad_parts/output/batch-cancelled-001.batch_manifest.json"
-  }
+  "engine_version": "0.1.0"
 }

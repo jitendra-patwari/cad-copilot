@@ -5,7 +5,7 @@
   "errors": [
     {
       "code": "INPUT_PATH_NOT_ALLOWED",
-      "message": "input.files[0]: path traversal is not allowed: '../secret/part.par'"
+      "message": "Input path contains forbidden traversal or empty segment"
     }
   ]
 }

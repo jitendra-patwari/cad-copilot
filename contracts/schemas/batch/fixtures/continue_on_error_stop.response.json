@@ -1,0 +1,43 @@
+{
+  "contract_version": "1.0",
+  "request_id": "batch-stop-001",
+  "status": "completed",
+  "summary": {
+    "total": 3,
+    "accepted": 1,
+    "partial": 0,
+    "failed": 1,
+    "unprocessed": 1,
+    "cancelled": 0
+  },
+  "results": [
+    {
+      "input": "part1.par",
+      "status": "accepted",
+      "artifacts": [
+        {
+          "format": "step",
+          "path": "C:/my_cad_parts/output/part1.step"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "input": "part2.par",
+      "status": "failed",
+      "errors": [
+        {
+          "code": "DOCUMENT_OPEN_FAILED",
+          "message": "File format unreadable or corrupt: part2.par"
+        }
+      ],
+      "warnings": []
+    }
+  ],
+  "unprocessed_files": [
+    "part3.par"
+  ],
+  "manifest": {
+    "path": "C:/my_cad_parts/output/batch-stop-001.batch_manifest.json"
+  }
+}

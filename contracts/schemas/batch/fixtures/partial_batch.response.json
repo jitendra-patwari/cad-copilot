@@ -38,7 +38,8 @@
       "errors": [
         {
           "code": "ARTIFACT_EXPORT_FAILED",
-          "message": "Failed to generate STL mesh output for part2.par"
+          "message": "Failed to generate STL mesh output for part2.par",
+          "format": "stl"
         }
       ],
       "warnings": []
@@ -54,5 +55,8 @@
       ],
       "warnings": []
     }
-  ]
+  ],
+  "manifest": {
+    "path": "C:/my_cad_parts/output/batch-partial-001.batch_manifest.json"
+  }
 }

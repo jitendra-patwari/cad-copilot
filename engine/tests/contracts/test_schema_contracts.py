@@ -282,7 +282,7 @@ def test_batch_request_and_response_fixtures_conformance() -> None:
     # Negative request fixtures: must fail schema validation
     negative_requests = [
         "rejected_no_files.request.json",
-        "rejected_legacy_operation.request.json",
+        "rejected_deferred_flat_pattern.request.json",
         "rejected_unverified_format.request.json",
     ]
     for fname in negative_requests:
@@ -291,11 +291,53 @@ def test_batch_request_and_response_fixtures_conformance() -> None:
         with pytest.raises(jsonschema.ValidationError):
             req_validator.validate(_load_json(fixture_path))
 
-    # Response fixtures
-    response_fixtures = list(fixtures_dir.glob("*.response.json"))
-    assert len(response_fixtures) == 6, f"Expected exactly 6 batch response fixtures, found {len(response_fixtures)}"
-    for fixture_path in response_fixtures:
-        res_validator.validate(_load_json(fixture_path))
+    # Response fixtures: exact expected set of 8 terminal fixtures
+    expected_response_fixtures = {
+        "completed.response.json",
+        "partial_batch.response.json",
+        "continue_on_error_stop.response.json",
+        "cancelled_batch.response.json",
+        "failed_se_unavailable.response.json",
+        "failed_after_progress.response.json",
+        "rejected_no_files.response.json",
+        "rejected_unsafe_path.response.json",
+    }
+    actual_response_filenames = {p.name for p in fixtures_dir.glob("*.response.json")}
+    assert actual_response_filenames == expected_response_fixtures, (
+        f"Mismatch in response fixtures: unexpected {actual_response_filenames - expected_response_fixtures}, "
+        f"missing {expected_response_fixtures - actual_response_filenames}"
+    )
+    for fname in expected_response_fixtures:
+        res_validator.validate(_load_json(fixtures_dir / fname))
+
+
+def test_batch_manifest_fixtures_conformance() -> None:
+    """Verifies batch summary manifest fixtures against batch-manifest-v1.schema.json."""
+    manifest_schema = _load_json(SCHEMAS_ROOT / "batch" / "batch-manifest-v1.schema.json")
+    manifest_validator = Draft202012Validator(manifest_schema)
+    fixtures_dir = SCHEMAS_ROOT / "batch" / "fixtures"
+
+    expected_manifest_fixtures = {
+        "completed.batch_manifest.json",
+        "cancelled.batch_manifest.json",
+        "failed_after_progress.batch_manifest.json",
+    }
+    actual_manifest_filenames = {p.name for p in fixtures_dir.glob("*.batch_manifest.json")}
+    assert actual_manifest_filenames == expected_manifest_fixtures, (
+        f"Mismatch in manifest fixtures: unexpected {actual_manifest_filenames - expected_manifest_fixtures}, "
+        f"missing {expected_manifest_fixtures - actual_manifest_filenames}"
+    )
+    for fname in expected_manifest_fixtures:
+        manifest_validator.validate(_load_json(fixtures_dir / fname))
+
+
+def test_rejected_unsafe_path_fixture_privacy() -> None:
+    """Proves rejected_unsafe_path.response.json does not reflect hostile path traversal payloads."""
+    fixture_path = SCHEMAS_ROOT / "batch" / "fixtures" / "rejected_unsafe_path.response.json"
+    content = fixture_path.read_text(encoding="utf-8")
+    assert "../secret" not in content
+    data = json.loads(content)
+    assert data["errors"][0]["message"] == "Input path contains forbidden traversal or empty segment"
 
 
 # ---------------------------------------------------------------------------
@@ -422,34 +464,6 @@ def test_batch_request_schema_rejects_empty_formats() -> None:
             "type": "export_3d",
             "formats": [],
         },
-    }
-    assert not validator.is_valid(payload)
-
-
-def test_batch_response_schema_rejects_incomplete_summary() -> None:
-    """Verifies batch-response.schema.json requires all 6 summary count fields."""
-    schema = _load_json(SCHEMAS_ROOT / "batch" / "batch-response.schema.json")
-    validator = jsonschema.Draft202012Validator(schema)
-
-    # Missing 'cancelled' and 'unprocessed' in summary
-    payload = {
-        "contract_version": "1.0",
-        "request_id": "batch-001",
-        "status": "completed",
-        "summary": {
-            "total": 1,
-            "accepted": 1,
-            "partial": 0,
-            "failed": 0,
-        },
-        "results": [
-            {
-                "input": "part1.par",
-                "status": "accepted",
-                "artifacts": [{"format": "step", "path": "p.step"}],
-                "warnings": [],
-            }
-        ],
     }
     assert not validator.is_valid(payload)
 

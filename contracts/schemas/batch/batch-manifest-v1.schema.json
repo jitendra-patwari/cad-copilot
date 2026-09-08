@@ -1,121 +1,149 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad-copilot.dev/schemas/batch-response.schema.json",
-  "title": "BatchResponse",
+  "$id": "https://cad-copilot.dev/schemas/batch-manifest-v1.schema.json",
+  "title": "BatchManifest",
   "oneOf": [
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["contract_version", "request_id", "status", "summary", "results", "manifest"],
+      "required": [
+        "manifest_version",
+        "contract_version",
+        "request_id",
+        "status",
+        "operation",
+        "summary",
+        "results",
+        "engine_version"
+      ],
       "properties": {
+        "manifest_version": { "const": "1.0" },
         "contract_version": { "const": "1.0" },
         "request_id": { "$ref": "#/$defs/requestId" },
         "status": { "const": "completed" },
+        "operation": { "$ref": "#/$defs/operationRecord" },
         "summary": { "$ref": "#/$defs/summaryRecord" },
         "results": {
           "type": "array",
-          "items": { "$ref": "#/$defs/fileResult" }
+          "items": { "$ref": "#/$defs/manifestFileResult" }
         },
-        "manifest": { "$ref": "#/$defs/manifestRecord" },
         "unprocessed_files": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+          "items": { "$ref": "#/$defs/portablePath" }
         },
         "warnings": {
           "type": "array",
           "items": { "$ref": "#/$defs/errorRecord" }
+        },
+        "engine_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "cad_runtime_version_build": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
         }
       }
     },
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["contract_version", "request_id", "status", "summary", "results", "cancelled_files", "manifest"],
+      "required": [
+        "manifest_version",
+        "contract_version",
+        "request_id",
+        "status",
+        "operation",
+        "summary",
+        "results",
+        "cancelled_files",
+        "engine_version"
+      ],
       "properties": {
+        "manifest_version": { "const": "1.0" },
         "contract_version": { "const": "1.0" },
         "request_id": { "$ref": "#/$defs/requestId" },
         "status": { "const": "cancelled" },
+        "operation": { "$ref": "#/$defs/operationRecord" },
         "summary": { "$ref": "#/$defs/summaryRecord" },
         "results": {
           "type": "array",
-          "items": { "$ref": "#/$defs/fileResult" }
+          "items": { "$ref": "#/$defs/manifestFileResult" }
         },
         "cancelled_files": {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string", "minLength": 1 }
+          "items": { "$ref": "#/$defs/portablePath" }
         },
-        "manifest": { "$ref": "#/$defs/manifestRecord" },
         "unprocessed_files": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+          "items": { "$ref": "#/$defs/portablePath" }
         },
         "warnings": {
           "type": "array",
           "items": { "$ref": "#/$defs/errorRecord" }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["contract_version", "request_id", "status", "errors"],
-      "properties": {
-        "contract_version": { "const": "1.0" },
-        "request_id": { "$ref": "#/$defs/requestId" },
-        "status": { "const": "rejected" },
-        "errors": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/errorRecord" }
-        }
-      }
-    },
-    {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["contract_version", "request_id", "status", "errors"],
-      "properties": {
-        "contract_version": { "const": "1.0" },
-        "request_id": { "$ref": "#/$defs/requestId" },
-        "status": { "const": "failed" },
-        "errors": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/errorRecord" }
         },
-        "warnings": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/errorRecord" }
+        "engine_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "cad_runtime_version_build": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
         }
       }
     },
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["contract_version", "request_id", "status", "summary", "results", "errors"],
+      "required": [
+        "manifest_version",
+        "contract_version",
+        "request_id",
+        "status",
+        "operation",
+        "summary",
+        "results",
+        "errors",
+        "engine_version"
+      ],
       "properties": {
+        "manifest_version": { "const": "1.0" },
         "contract_version": { "const": "1.0" },
         "request_id": { "$ref": "#/$defs/requestId" },
         "status": { "const": "failed" },
+        "operation": { "$ref": "#/$defs/operationRecord" },
         "summary": { "$ref": "#/$defs/summaryRecord" },
         "results": {
           "type": "array",
-          "items": { "$ref": "#/$defs/fileResult" }
+          "items": { "$ref": "#/$defs/manifestFileResult" }
         },
         "errors": {
           "type": "array",
           "minItems": 1,
           "items": { "$ref": "#/$defs/errorRecord" }
         },
-        "manifest": { "$ref": "#/$defs/manifestRecord" },
         "unprocessed_files": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+          "items": { "$ref": "#/$defs/portablePath" }
         },
         "warnings": {
           "type": "array",
           "items": { "$ref": "#/$defs/errorRecord" }
+        },
+        "engine_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "cad_runtime_version_build": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
         }
       }
     }
@@ -127,18 +155,51 @@
       "maxLength": 96,
       "pattern": "^[A-Za-z0-9._-]+$"
     },
-    "manifestRecord": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["path"],
-      "properties": {
-        "path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 1024,
-          "pattern": "^[^\\0]+$"
+    "portablePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!\\.{1,2}(?:/|$))[^\\\\/:\\0]+(?:/(?!\\.{1,2}(?:/|$))[^\\\\/:\\0]+)*$"
+    },
+    "operationRecord": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "formats"],
+          "properties": {
+            "type": { "const": "export_3d" },
+            "formats": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "enum": ["step", "stl"]
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "formats"],
+          "properties": {
+            "type": { "const": "publish_drawing" },
+            "formats": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "enum": ["pdf", "dxf"]
+              }
+            }
+          }
         }
-      }
+      ]
     },
     "summaryRecord": {
       "type": "object",
@@ -153,19 +214,46 @@
         "cancelled": { "type": "integer", "minimum": 0 }
       }
     },
-    "fileResult": {
+    "manifestArtifactRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "relative_path", "size_bytes", "sha256"],
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": [
+            "step",
+            "stl",
+            "pdf",
+            "dxf"
+          ]
+        },
+        "relative_path": {
+          "$ref": "#/$defs/portablePath"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "manifestFileResult": {
       "oneOf": [
         {
           "type": "object",
           "additionalProperties": false,
           "required": ["input", "status", "artifacts"],
           "properties": {
-            "input": { "type": "string", "minLength": 1 },
+            "input": { "$ref": "#/$defs/portablePath" },
             "status": { "const": "accepted" },
             "artifacts": {
               "type": "array",
               "minItems": 1,
-              "items": { "$ref": "#/$defs/artifactRecord" }
+              "items": { "$ref": "#/$defs/manifestArtifactRecord" }
             },
             "warnings": {
               "type": "array",
@@ -178,12 +266,12 @@
           "additionalProperties": false,
           "required": ["input", "status", "artifacts", "errors"],
           "properties": {
-            "input": { "type": "string", "minLength": 1 },
+            "input": { "$ref": "#/$defs/portablePath" },
             "status": { "const": "partial" },
             "artifacts": {
               "type": "array",
               "minItems": 1,
-              "items": { "$ref": "#/$defs/artifactRecord" }
+              "items": { "$ref": "#/$defs/manifestArtifactRecord" }
             },
             "errors": {
               "type": "array",
@@ -201,7 +289,7 @@
           "additionalProperties": false,
           "required": ["input", "status", "errors"],
           "properties": {
-            "input": { "type": "string", "minLength": 1 },
+            "input": { "$ref": "#/$defs/portablePath" },
             "status": { "const": "failed" },
             "errors": {
               "type": "array",
@@ -215,26 +303,6 @@
           }
         }
       ]
-    },
-    "artifactRecord": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["format", "path"],
-      "properties": {
-        "format": {
-          "type": "string",
-          "enum": [
-            "step",
-            "stl",
-            "pdf",
-            "dxf"
-          ]
-        },
-        "path": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
     },
     "errorRecord": {
       "type": "object",

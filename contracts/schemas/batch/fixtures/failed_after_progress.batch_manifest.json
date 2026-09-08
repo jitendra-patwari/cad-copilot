@@ -1,0 +1,44 @@
+{
+  "manifest_version": "1.0",
+  "contract_version": "1.0",
+  "request_id": "batch-failed-prog-001",
+  "status": "failed",
+  "operation": {
+    "type": "export_3d",
+    "formats": ["step"]
+  },
+  "summary": {
+    "total": 3,
+    "accepted": 1,
+    "partial": 0,
+    "failed": 0,
+    "unprocessed": 2,
+    "cancelled": 0
+  },
+  "results": [
+    {
+      "input": "part1.par",
+      "status": "accepted",
+      "artifacts": [
+        {
+          "format": "step",
+          "relative_path": "part1.step",
+          "size_bytes": 1024,
+          "sha256": "bd391a89e9a0fb566662846f9e11c5ccc9aa7993a51cfb39e9481877ca2baea1"
+        }
+      ],
+      "warnings": []
+    }
+  ],
+  "unprocessed_files": [
+    "part2.par",
+    "part3.par"
+  ],
+  "errors": [
+    {
+      "code": "SOLID_EDGE_UNHEALTHY",
+      "message": "Solid Edge session became unresponsive during batch execution."
+    }
+  ],
+  "engine_version": "0.1.0"
+}

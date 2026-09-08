@@ -1,6 +1,6 @@
 {
   "contract_version": "1.0",
-  "request_id": "rejected-legacy-op-001",
+  "request_id": "rejected-deferred-flat-pattern-001",
   "kind": "batch_operation",
   "input": {
     "root": "C:/my_cad_parts",

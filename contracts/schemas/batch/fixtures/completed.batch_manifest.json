@@ -1,7 +1,12 @@
 {
+  "manifest_version": "1.0",
   "contract_version": "1.0",
   "request_id": "batch-001",
   "status": "completed",
+  "operation": {
+    "type": "export_3d",
+    "formats": ["step", "stl"]
+  },
   "summary": {
     "total": 2,
     "accepted": 2,
@@ -17,11 +22,15 @@
       "artifacts": [
         {
           "format": "step",
-          "path": "C:/my_cad_parts/output/part1.step"
+          "relative_path": "part1.step",
+          "size_bytes": 1024,
+          "sha256": "bd391a89e9a0fb566662846f9e11c5ccc9aa7993a51cfb39e9481877ca2baea1"
         },
         {
           "format": "stl",
-          "path": "C:/my_cad_parts/output/part1.stl"
+          "relative_path": "part1.stl",
+          "size_bytes": 2048,
+          "sha256": "55730a11de2edafd19bdbd568d289847decbbd3d8f04d6a0137348ecc8916a74"
         }
       ],
       "warnings": []
@@ -32,23 +41,25 @@
       "artifacts": [
         {
           "format": "step",
-          "path": "C:/my_cad_parts/output/subfolder/part2.step"
+          "relative_path": "subfolder/part2.step",
+          "size_bytes": 1536,
+          "sha256": "9124a85d8dab306f9ed2bb7891e8262f39e58db2b97be073ac53148e77ff586b"
         },
         {
           "format": "stl",
-          "path": "C:/my_cad_parts/output/subfolder/part2.stl"
+          "relative_path": "subfolder/part2.stl",
+          "size_bytes": 3072,
+          "sha256": "00346ee8b7346638090f9a50d37a1d66d0419f42b93c25860a9c07cc61065eb9"
         }
       ],
       "warnings": []
     }
   ],
-  "manifest": {
-    "path": "C:/my_cad_parts/output/batch-001.batch_manifest.json"
-  },
   "warnings": [
     {
       "code": "VERSION_METADATA_UNAVAILABLE",
       "message": "Solid Edge version information was not retrievable."
     }
-  ]
+  ],
+  "engine_version": "0.1.0"
 }

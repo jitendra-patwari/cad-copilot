@@ -71,9 +71,9 @@ This specification defines the functional, architectural, and quality requiremen
 - **Wire Protocol Standard**: Semantic `"contract_version": "1.0"` decoupled from domain operation `kind` across all payloads.
 - **Schema Contracts (`contracts/`)**:
   - `contracts/schemas/generation/`: 3D CAD prompt generation request/response envelopes (`generation-request.schema.json`, `generation-response.schema.json`, `"origin": "cad_copilot"`).
-  - `contracts/schemas/batch/`: Batch task definitions, export configurations, and summary schemas (`batch-request.schema.json`, `batch-response.schema.json`).
+  - `contracts/schemas/batch/`: Batch task definitions, export configurations, and summary manifest schemas (`batch-request.schema.json`, `batch-response.schema.json`, `batch-manifest-v1.schema.json`).
   - `contracts/schemas/edit/`: Historical, non-runtime edit schemas (`edit-request.schema.json`, `edit-response.schema.json`). Their legacy sessions, images, and selectable outputs are not initial capabilities. Future M7B editing is constrained by a manifest-based revision model, not a session database or rollback system.
-- **Runbooks & Fixtures**: Internal feature-plan examples (`contracts/examples/`) cover plates, conceptual gears, and conditional composition/sweep representations. JSON fixture integrity and public schema conformance tests do not establish end-to-end or live CAD support; the generation runbook describes the implemented M4.5 stdio IPC launcher, whereas the batch runbook describes the future M5 launcher.
+- **Runbooks & Fixtures**: Internal feature-plan examples (`contracts/examples/`) cover plates, conceptual gears, and conditional composition/sweep representations. JSON fixture integrity and public schema conformance tests do not establish end-to-end or live CAD support; the generation runbook describes the implemented M4.5 stdio IPC launcher, whereas `contracts/schemas/batch/README.md` serves as the canonical contract guide for the future M5 batch interface.
 
 ### FR-3: Abstract Domain Interfaces (Milestone 1)
 - **CAD Runtime Port (`CADRuntimeABC` in `engine/src/interfaces/`)**:
