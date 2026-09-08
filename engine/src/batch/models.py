@@ -21,7 +21,7 @@ FileResultStatus = Literal["accepted", "partial", "failed"]
 ManifestTerminalStatus = Literal["completed", "cancelled", "failed"]
 BatchMetadataSource = Literal["desktop_app", "cad_copilot", "local_agent"]
 
-# Canonical diagnostic error codes (20 approved codes)
+# Canonical diagnostic error codes (21 approved codes)
 APPROVED_DIAGNOSTIC_CODES: frozenset[str] = frozenset(
     {
         "INVALID_SCHEMA",
@@ -44,6 +44,7 @@ APPROVED_DIAGNOSTIC_CODES: frozenset[str] = frozenset(
         "MANIFEST_PUBLICATION_FAILED",
         "VERSION_METADATA_UNAVAILABLE",
         "INTERNAL_ERROR",
+        "BATCH_CANCELLED",
     }
 )
 

@@ -1,0 +1,37 @@
+{
+  "contract_version": "1.0",
+  "request_id": "batch-cancel-mid-001",
+  "status": "cancelled",
+  "summary": {
+    "total": 1,
+    "accepted": 0,
+    "partial": 1,
+    "failed": 0,
+    "unprocessed": 0,
+    "cancelled": 0
+  },
+  "results": [
+    {
+      "input": "part1.par",
+      "status": "partial",
+      "artifacts": [
+        {
+          "format": "step",
+          "path": "C:/my_cad_parts/output/part1.step"
+        }
+      ],
+      "errors": [
+        {
+          "code": "BATCH_CANCELLED",
+          "message": "Operation cancelled before stl export",
+          "format": "stl"
+        }
+      ],
+      "warnings": []
+    }
+  ],
+  "cancelled_files": [],
+  "manifest": {
+    "path": "C:/my_cad_parts/output/batch-cancel-mid-001.batch_manifest.json"
+  }
+}

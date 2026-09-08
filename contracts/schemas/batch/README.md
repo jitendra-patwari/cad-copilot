@@ -78,6 +78,7 @@ Request finished processing all files (or stopped early via `continue_on_error=f
 Request was stopped via cooperative client cancellation.
 - Required: `contract_version`, `request_id`, `status: "cancelled"`, `summary`, `results`, `cancelled_files`, `manifest`.
 - Optional: `unprocessed_files`, `warnings`.
+- Cancellation is permitted when either `cancelled_files` is non-empty or at least one per-file result contains the format-qualified `BATCH_CANCELLED` diagnostic.
 
 ### 3. Status: `rejected`
 Request failed validation or security bounds before CAD execution.
@@ -115,7 +116,7 @@ Canonical schema: `batch-manifest-v1.schema.json` (`$id: "https://cad-copilot.de
 - **Publication**: Written to a temporary file and atomically renamed in place in Milestone 5.6.
 - **Enforced Terminal Variants**:
   - `completed`: required `manifest_version`, `contract_version`, `request_id`, `status: "completed"`, `operation`, `summary`, `results`, `engine_version`; optional `unprocessed_files` and `warnings`; `cancelled_files` and `errors` are strictly prohibited.
-  - `cancelled`: required `manifest_version`, `contract_version`, `request_id`, `status: "cancelled"`, `operation`, `summary`, `results`, non-empty `cancelled_files`, `engine_version`; optional `unprocessed_files` and `warnings`; `errors` is strictly prohibited.
+  - `cancelled`: required `manifest_version`, `contract_version`, `request_id`, `status: "cancelled"`, `operation`, `summary`, `results`, `cancelled_files`, `engine_version`; optional `unprocessed_files` and `warnings`; `errors` is strictly prohibited. Requires either non-empty `cancelled_files` or at least one per-file `BATCH_CANCELLED` error.
   - `failed`: required `manifest_version`, `contract_version`, `request_id`, `status: "failed"`, `operation`, `summary`, `results`, non-empty `errors`, `engine_version`; optional `unprocessed_files` and `warnings`; `cancelled_files` is strictly prohibited.
 - **Paths**: Serialized paths (`input`, `relative_path`, `unprocessed_files`, `cancelled_files`) are strictly relative, forward-slash portable paths without drive letters, absolute prefixes, traversal (`..`), or backslashes.
 - **Artifact Records**: Contain `format`, `relative_path`, positive `size_bytes`, and lowercase 64-character hexadecimal `sha256`.
@@ -125,7 +126,7 @@ Canonical schema: `batch-manifest-v1.schema.json` (`$id: "https://cad-copilot.de
 
 ## Standardized Error Codes
 
-The 20 approved product error codes are:
+The 21 approved product error codes are:
 - `INVALID_SCHEMA` - Malformed JSON or schema constraint violation
 - `PAYLOAD_TOO_LARGE` - Request payload exceeds size limits
 - `UNSUPPORTED_OPERATION` - Unrecognized `operation.type`
@@ -146,6 +147,7 @@ The 20 approved product error codes are:
 - `MANIFEST_PUBLICATION_FAILED` - Atomic summary manifest write or rename failed
 - `VERSION_METADATA_UNAVAILABLE` - CAD runtime build version could not be queried (used in `warnings`)
 - `INTERNAL_ERROR` - Unhandled engine exception
+- `BATCH_CANCELLED` - Cooperative cancellation observed before starting a format (format-qualified per-file error)
 
 ---
 
@@ -166,6 +168,7 @@ Golden fixtures are maintained in `contracts/schemas/batch/fixtures/`:
 - `partial_batch.response.json`: Completed response with mixed accepted, partial, and failed results, format-attributed error, and manifest
 - `continue_on_error_stop.response.json`: Completed policy stop with `unprocessed_files` and manifest
 - `cancelled_batch.response.json`: Cancelled batch response with `cancelled_files` and manifest
+- `cancelled_mid_file.response.json`: Cancelled response where cancellation was observed mid-file with partial result, format-attributed BATCH_CANCELLED, and empty cancelled_files
 - `failed_se_unavailable.response.json`: Early failure response before processing began
 - `failed_after_progress.response.json`: Progressed failure preserving attempted results and manifest
 - `rejected_no_files.response.json`: Rejection response for empty files list
@@ -174,4 +177,5 @@ Golden fixtures are maintained in `contracts/schemas/batch/fixtures/`:
 ### Summary Manifest Fixtures
 - `completed.batch_manifest.json`: Completed manifest with SHA-256 hashes and version warning
 - `cancelled.batch_manifest.json`: Cancelled manifest with cancellation accounting
+- `cancelled_mid_file.batch_manifest.json`: Cancelled manifest where cancellation occurred mid-file
 - `failed_after_progress.batch_manifest.json`: Progressed failure manifest preserving completed artifacts

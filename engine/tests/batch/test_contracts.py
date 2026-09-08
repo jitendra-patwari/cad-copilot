@@ -146,6 +146,7 @@ class TestResponseFixtureRoundTrips:
             "partial_batch.response.json",
             "continue_on_error_stop.response.json",
             "cancelled_batch.response.json",
+            "cancelled_mid_file.response.json",
             "failed_se_unavailable.response.json",
             "failed_after_progress.response.json",
         ],
@@ -190,6 +191,7 @@ class TestManifestFixtureRoundTrips:
         [
             "completed.batch_manifest.json",
             "cancelled.batch_manifest.json",
+            "cancelled_mid_file.batch_manifest.json",
             "failed_after_progress.batch_manifest.json",
         ],
     )
@@ -287,6 +289,62 @@ class TestContractStrictnessAndSecurity:
         }
         with pytest.raises(BatchValidationError):
             parse_batch_response(payload)
+
+    def test_cancelled_response_with_empty_cancelled_files_and_no_batch_cancelled_rejected(self) -> None:
+        payload: dict[str, Any] = {
+            "contract_version": "1.0",
+            "request_id": "req-1",
+            "status": "cancelled",
+            "summary": {
+                "total": 1,
+                "accepted": 1,
+                "partial": 0,
+                "failed": 0,
+                "unprocessed": 0,
+                "cancelled": 0,
+            },
+            "results": [
+                {
+                    "input": "p.par",
+                    "status": "accepted",
+                    "artifacts": [{"format": "step", "path": "out/p.step"}],
+                }
+            ],
+            "cancelled_files": [],
+            "manifest": {"path": "out/m.json"},
+        }
+        with pytest.raises(BatchValidationError, match=r"requires.*cancelled_files or BATCH_CANCELLED"):
+            parse_batch_response(payload)
+
+    def test_cancelled_response_with_empty_cancelled_files_and_batch_cancelled_accepted(self) -> None:
+        payload: dict[str, Any] = {
+            "contract_version": "1.0",
+            "request_id": "req-1",
+            "status": "cancelled",
+            "summary": {
+                "total": 1,
+                "accepted": 0,
+                "partial": 1,
+                "failed": 0,
+                "unprocessed": 0,
+                "cancelled": 0,
+            },
+            "results": [
+                {
+                    "input": "p.par",
+                    "status": "partial",
+                    "artifacts": [{"format": "step", "path": "out/p.step"}],
+                    "errors": [{"code": "BATCH_CANCELLED", "message": "cancelled", "format": "stl"}],
+                }
+            ],
+            "cancelled_files": [],
+            "manifest": {"path": "out/m.json"},
+        }
+        resp = parse_batch_response(payload)
+        assert resp.status == "cancelled"
+        assert resp.cancelled_files == ()
+        projected = project_batch_response(resp)
+        assert projected["cancelled_files"] == []
 
 
 class TestSchemaFailureNonReflectionAndBounding:

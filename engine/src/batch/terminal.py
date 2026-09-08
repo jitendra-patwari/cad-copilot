@@ -11,10 +11,27 @@ from batch.accounting import (
 from batch.models import BatchValidationError
 
 if TYPE_CHECKING:
-    from batch.models import BatchManifest, BatchResponse
+    from batch.models import BatchDiagnostic, BatchFileResult, BatchManifest, BatchResponse, ManifestFileResult
 
 VALID_RESPONSE_STATUSES: frozenset[str] = frozenset({"completed", "cancelled", "rejected", "failed"})
 VALID_MANIFEST_STATUSES: frozenset[str] = frozenset({"completed", "cancelled", "failed"})
+_FATAL_RESPONSE_TOP_LEVEL_CODES: frozenset[str] = frozenset(
+    {
+        "SOLID_EDGE_UNHEALTHY",
+        "DOCUMENT_CLOSE_FAILED",
+        "SOURCE_INTEGRITY_FAILED",
+        "INTERNAL_ERROR",
+        "MANIFEST_PUBLICATION_FAILED",
+    }
+)
+_FATAL_MANIFEST_TOP_LEVEL_CODES: frozenset[str] = frozenset(
+    {
+        "SOLID_EDGE_UNHEALTHY",
+        "DOCUMENT_CLOSE_FAILED",
+        "SOURCE_INTEGRITY_FAILED",
+        "INTERNAL_ERROR",
+    }
+)
 
 
 def validate_batch_response_semantics(response: BatchResponse, *, request_id: str = "unknown") -> None:
@@ -32,10 +49,58 @@ def validate_batch_response_semantics(response: BatchResponse, *, request_id: st
     validate_diagnostics(response.warnings, is_warning=True, request_id=req_id)
     validate_diagnostics(response.errors, is_warning=False, request_id=req_id)
 
+    # BATCH_CANCELLED is strictly forbidden as a top-level error
+    for e in response.errors:
+        if e.code == "BATCH_CANCELLED":
+            raise BatchValidationError(
+                "BATCH_CANCELLED is not permitted as a top-level error",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
+
     # Validate per-file result diagnostics
     for r in response.results:
         validate_diagnostics(r.warnings, is_warning=True, request_id=req_id)
         validate_diagnostics(r.errors, is_warning=False, request_id=req_id)
+
+    # Collect all BATCH_CANCELLED diagnostics across all per-file results
+    cancel_errors: list[tuple[BatchFileResult, BatchDiagnostic]] = [
+        (r, e) for r in response.results for e in r.errors if e.code == "BATCH_CANCELLED"
+    ]
+    if len(cancel_errors) > 1:
+        raise BatchValidationError(
+            "Only one BATCH_CANCELLED error marker is permitted across all file results",
+            code="INVALID_SCHEMA",
+            request_id=req_id,
+        )
+    if cancel_errors:
+        canc_file, canc_diag = cancel_errors[0]
+        if canc_diag.format is None:
+            raise BatchValidationError(
+                "BATCH_CANCELLED error must specify a format",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
+        if response.results and response.results[-1] is not canc_file:
+            raise BatchValidationError(
+                "BATCH_CANCELLED must be on the final attempted file result",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
+        artifact_formats = {a.format for a in canc_file.artifacts}
+        if canc_diag.format in artifact_formats:
+            raise BatchValidationError(
+                f"Contradictory result: format '{canc_diag.format}' has both an artifact and BATCH_CANCELLED",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
+        other_error_formats = {oe.format for oe in canc_file.errors if oe is not canc_diag and oe.format is not None}
+        if canc_diag.format in other_error_formats:
+            raise BatchValidationError(
+                f"Contradictory result: format '{canc_diag.format}' has both an execution error and BATCH_CANCELLED",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
 
     if response.status == "completed":
         if response.summary is None:
@@ -53,6 +118,12 @@ def validate_batch_response_semantics(response: BatchResponse, *, request_id: st
         if response.errors:
             raise BatchValidationError(
                 "Completed response must not have top-level errors",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
+        if cancel_errors:
+            raise BatchValidationError(
+                "Completed response must not contain BATCH_CANCELLED errors",
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
@@ -89,9 +160,11 @@ def validate_batch_response_semantics(response: BatchResponse, *, request_id: st
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
-        if response.summary.cancelled == 0 or len(response.cancelled_files) == 0:
+        has_cancelled_files = len(response.cancelled_files) > 0
+        has_batch_cancelled = len(cancel_errors) > 0
+        if not has_cancelled_files and not has_batch_cancelled:
             raise BatchValidationError(
-                "Cancelled response must have at least one cancelled file",
+                "Cancelled response requires at least one cancelled file or BATCH_CANCELLED per-file diagnostic",
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
@@ -170,6 +243,14 @@ def validate_batch_response_semantics(response: BatchResponse, *, request_id: st
                     code="INVALID_SCHEMA",
                     request_id=req_id,
                 )
+            if cancel_errors:
+                has_fatal_top_level = any(e.code in _FATAL_RESPONSE_TOP_LEVEL_CODES for e in response.errors)
+                if not has_fatal_top_level:
+                    raise BatchValidationError(
+                        "BATCH_CANCELLED in failed response requires a fatal top-level error",
+                        code="INVALID_SCHEMA",
+                        request_id=req_id,
+                    )
             validate_summary_accounting(
                 response.summary,
                 response.results,
@@ -206,6 +287,15 @@ def validate_batch_manifest_semantics(manifest: BatchManifest, *, request_id: st
     # Validate diagnostics
     validate_diagnostics(manifest.warnings, is_warning=True, request_id=req_id)
     validate_diagnostics(manifest.errors, is_warning=False, request_id=req_id)
+
+    # BATCH_CANCELLED is strictly forbidden as a top-level error
+    for e in manifest.errors:
+        if e.code == "BATCH_CANCELLED":
+            raise BatchValidationError(
+                "BATCH_CANCELLED is not permitted as a top-level error",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
 
     # Validate per-file result diagnostics
     for r in manifest.results:
@@ -252,10 +342,80 @@ def validate_batch_manifest_semantics(manifest: BatchManifest, *, request_id: st
                 request_id=req_id,
             )
 
+    # Collect all BATCH_CANCELLED diagnostics across all per-file results
+    cancel_errors: list[tuple[ManifestFileResult, BatchDiagnostic]] = [
+        (r, e) for r in manifest.results for e in r.errors if e.code == "BATCH_CANCELLED"
+    ]
+    if len(cancel_errors) > 1:
+        raise BatchValidationError(
+            "Only one BATCH_CANCELLED error marker is permitted across all file results",
+            code="INVALID_SCHEMA",
+            request_id=req_id,
+        )
+    if cancel_errors:
+        canc_file, canc_diag = cancel_errors[0]
+        if canc_diag.format is None:
+            raise BatchValidationError(
+                "BATCH_CANCELLED error must specify a format",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
+        if manifest.results and manifest.results[-1] is not canc_file:
+            raise BatchValidationError(
+                "BATCH_CANCELLED must be on the final attempted file result",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
+        if canc_diag.format not in allowed_formats:
+            raise BatchValidationError(
+                f"BATCH_CANCELLED format '{canc_diag.format}' not in manifest operation formats",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
+        artifact_formats = {a.format for a in canc_file.artifacts}
+        if canc_diag.format in artifact_formats:
+            raise BatchValidationError(
+                f"Contradictory result: format '{canc_diag.format}' has both an artifact and BATCH_CANCELLED",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
+        other_error_formats = {oe.format for oe in canc_file.errors if oe is not canc_diag and oe.format is not None}
+        if canc_diag.format in other_error_formats:
+            raise BatchValidationError(
+                f"Contradictory result: format '{canc_diag.format}' has both an execution error and BATCH_CANCELLED",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
+
+        # Enforce first-unattempted-format semantics using manifest operation format order
+        attempted_formats = artifact_formats | other_error_formats
+        cancel_idx = manifest.operation.formats.index(canc_diag.format)
+        for prev_fmt in manifest.operation.formats[:cancel_idx]:
+            if prev_fmt not in attempted_formats:
+                raise BatchValidationError(
+                    f"BATCH_CANCELLED format '{canc_diag.format}' is not the first unattempted format; "
+                    f"prior format '{prev_fmt}' was not attempted",
+                    code="INVALID_SCHEMA",
+                    request_id=req_id,
+                )
+        for post_fmt in manifest.operation.formats[cancel_idx + 1 :]:
+            if post_fmt in attempted_formats:
+                raise BatchValidationError(
+                    f"Contradictory result: format '{post_fmt}' was attempted after BATCH_CANCELLED on '{canc_diag.format}'",
+                    code="INVALID_SCHEMA",
+                    request_id=req_id,
+                )
+
     if manifest.status == "completed":
         if manifest.errors:
             raise BatchValidationError(
                 "Completed manifest must not have top-level errors",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
+        if cancel_errors:
+            raise BatchValidationError(
+                "Completed manifest must not contain BATCH_CANCELLED errors",
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
@@ -279,9 +439,11 @@ def validate_batch_manifest_semantics(manifest: BatchManifest, *, request_id: st
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
-        if manifest.summary.cancelled == 0 or len(manifest.cancelled_files) == 0:
+        has_cancelled_files = len(manifest.cancelled_files) > 0
+        has_batch_cancelled = len(cancel_errors) > 0
+        if not has_cancelled_files and not has_batch_cancelled:
             raise BatchValidationError(
-                "Cancelled manifest must have at least one cancelled file",
+                "Cancelled manifest requires at least one cancelled file or BATCH_CANCELLED per-file diagnostic",
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
@@ -305,6 +467,14 @@ def validate_batch_manifest_semantics(manifest: BatchManifest, *, request_id: st
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
+        if cancel_errors:
+            has_fatal_top_level = any(e.code in _FATAL_MANIFEST_TOP_LEVEL_CODES for e in manifest.errors)
+            if not has_fatal_top_level:
+                raise BatchValidationError(
+                    "BATCH_CANCELLED in failed manifest requires a fatal top-level error",
+                    code="INVALID_SCHEMA",
+                    request_id=req_id,
+                )
         validate_summary_accounting(
             manifest.summary,
             manifest.results,

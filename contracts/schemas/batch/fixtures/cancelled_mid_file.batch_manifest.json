@@ -1,0 +1,45 @@
+{
+  "manifest_version": "1.0",
+  "contract_version": "1.0",
+  "request_id": "batch-cancel-mid-001",
+  "status": "cancelled",
+  "operation": {
+    "type": "export_3d",
+    "formats": [
+      "step",
+      "stl"
+    ]
+  },
+  "summary": {
+    "total": 1,
+    "accepted": 0,
+    "partial": 1,
+    "failed": 0,
+    "unprocessed": 0,
+    "cancelled": 0
+  },
+  "results": [
+    {
+      "input": "part1.par",
+      "status": "partial",
+      "artifacts": [
+        {
+          "format": "step",
+          "relative_path": "part1.step",
+          "size_bytes": 1024,
+          "sha256": "bd391a89e9a0fb566662846f9e11c5ccc9aa7993a51cfb39e9481877ca2baea1"
+        }
+      ],
+      "errors": [
+        {
+          "code": "BATCH_CANCELLED",
+          "message": "Operation cancelled before stl export",
+          "format": "stl"
+        }
+      ],
+      "warnings": []
+    }
+  ],
+  "cancelled_files": [],
+  "engine_version": "0.1.0"
+}

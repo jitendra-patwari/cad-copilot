@@ -189,7 +189,7 @@ def project_batch_response(response: BatchResponse) -> dict[str, Any]:
     if response.unprocessed_files:
         data["unprocessed_files"] = list(response.unprocessed_files)
 
-    if response.cancelled_files:
+    if response.status == "cancelled" or response.cancelled_files:
         data["cancelled_files"] = list(response.cancelled_files)
 
     if response.errors:
@@ -291,7 +291,7 @@ def project_batch_manifest(manifest: BatchManifest) -> dict[str, Any]:
         results_out.append(r_dict)
     data["results"] = results_out
 
-    if manifest.cancelled_files:
+    if manifest.status == "cancelled" or manifest.cancelled_files:
         data["cancelled_files"] = list(manifest.cancelled_files)
 
     if manifest.unprocessed_files:

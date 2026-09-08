@@ -292,9 +292,10 @@ def parse_batch_response(payload: Mapping[str, Any]) -> BatchResponse:
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
-        if not cancelled_files:
+        has_batch_cancelled = any(e.code == "BATCH_CANCELLED" for r in results_list for e in r.errors)
+        if not cancelled_files and not has_batch_cancelled:
             raise BatchValidationError(
-                "Cancelled response requires cancelled_files",
+                "Cancelled response requires cancelled_files or BATCH_CANCELLED per-file diagnostic",
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )

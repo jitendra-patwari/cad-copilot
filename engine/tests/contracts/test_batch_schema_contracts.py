@@ -501,3 +501,115 @@ def test_batch_manifest_schema_defensive_negative_rules() -> None:
     bad_manifest = json.loads(json.dumps(valid_base))
     bad_manifest["unexpected_field"] = "not_allowed"
     assert not validator.is_valid(bad_manifest)
+
+
+# ---------------------------------------------------------------------------
+# 8. Cancellation Schema Semantics
+# ---------------------------------------------------------------------------
+
+
+def test_batch_response_schema_permits_empty_cancelled_files() -> None:
+    """Proves batch-response.schema.json permits empty cancelled_files array in cancelled status."""
+    res_schema = _load_json(SCHEMAS_ROOT / "batch" / "batch-response.schema.json")
+    validator = Draft202012Validator(res_schema)
+
+    payload: dict[str, Any] = {
+        "contract_version": "1.0",
+        "request_id": "batch-cancel-empty-001",
+        "status": "cancelled",
+        "summary": _summary(total=1, partial=1),
+        "results": [
+            _file_result(
+                "part1.par",
+                "partial",
+                artifacts=[{"format": "step", "path": "C:/out/part1.step"}],
+                errors=[{"code": "BATCH_CANCELLED", "message": "cancelled", "format": "stl"}],
+            )
+        ],
+        "cancelled_files": [],
+        "manifest": {"path": "C:/out/manifest.json"},
+    }
+    validator.validate(payload)
+
+
+def test_batch_manifest_schema_permits_empty_cancelled_files() -> None:
+    """Proves batch-manifest-v1.schema.json permits empty cancelled_files array in cancelled status."""
+    manifest_schema = _load_json(SCHEMAS_ROOT / "batch" / "batch-manifest-v1.schema.json")
+    validator = Draft202012Validator(manifest_schema)
+
+    payload: dict[str, Any] = {
+        "manifest_version": "1.0",
+        "contract_version": "1.0",
+        "request_id": "batch-cancel-empty-001",
+        "status": "cancelled",
+        "operation": {"type": "export_3d", "formats": ["step", "stl"]},
+        "summary": _summary(total=1, partial=1),
+        "results": [
+            {
+                "input": "part1.par",
+                "status": "partial",
+                "artifacts": [_manifest_artifact("step", "part1.step")],
+                "errors": [{"code": "BATCH_CANCELLED", "message": "cancelled", "format": "stl"}],
+            }
+        ],
+        "cancelled_files": [],
+        "engine_version": "0.1.0",
+    }
+    validator.validate(payload)
+
+
+def test_batch_schemas_accept_batch_cancelled_error_code() -> None:
+    """Proves BATCH_CANCELLED is recognized in errorRecord code enum across response and manifest schemas."""
+    res_schema = _load_json(SCHEMAS_ROOT / "batch" / "batch-response.schema.json")
+    man_schema = _load_json(SCHEMAS_ROOT / "batch" / "batch-manifest-v1.schema.json")
+    res_validator = Draft202012Validator(res_schema)
+    man_validator = Draft202012Validator(man_schema)
+
+    res_payload: dict[str, Any] = {
+        "contract_version": "1.0",
+        "request_id": "batch-code-001",
+        "status": "cancelled",
+        "summary": _summary(total=1, partial=1),
+        "results": [
+            _file_result(
+                "p.par",
+                "partial",
+                artifacts=[{"format": "step", "path": "C:/out/p.step"}],
+                errors=[{"code": "BATCH_CANCELLED", "message": "cancelled", "format": "stl"}],
+            )
+        ],
+        "cancelled_files": [],
+        "manifest": {"path": "C:/out/manifest.json"},
+    }
+    res_validator.validate(res_payload)
+
+    # Reject unapproved code
+    bad_res = json.loads(json.dumps(res_payload))
+    bad_res["results"][0]["errors"][0]["code"] = "UNAPPROVED_CODE"
+    with pytest.raises(jsonschema.ValidationError):
+        res_validator.validate(bad_res)
+
+    man_payload: dict[str, Any] = {
+        "manifest_version": "1.0",
+        "contract_version": "1.0",
+        "request_id": "batch-code-001",
+        "status": "cancelled",
+        "operation": {"type": "export_3d", "formats": ["step", "stl"]},
+        "summary": _summary(total=1, partial=1),
+        "results": [
+            {
+                "input": "p.par",
+                "status": "partial",
+                "artifacts": [_manifest_artifact("step", "p.step")],
+                "errors": [{"code": "BATCH_CANCELLED", "message": "cancelled", "format": "stl"}],
+            }
+        ],
+        "cancelled_files": [],
+        "engine_version": "0.1.0",
+    }
+    man_validator.validate(man_payload)
+
+    bad_man = json.loads(json.dumps(man_payload))
+    bad_man["results"][0]["errors"][0]["code"] = "UNAPPROVED_CODE"
+    with pytest.raises(jsonschema.ValidationError):
+        man_validator.validate(bad_man)

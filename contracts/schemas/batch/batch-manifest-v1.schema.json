@@ -74,7 +74,6 @@
         },
         "cancelled_files": {
           "type": "array",
-          "minItems": 1,
           "items": { "$ref": "#/$defs/portablePath" }
         },
         "unprocessed_files": {
@@ -331,7 +330,8 @@
             "SOURCE_INTEGRITY_FAILED",
             "MANIFEST_PUBLICATION_FAILED",
             "VERSION_METADATA_UNAVAILABLE",
-            "INTERNAL_ERROR"
+            "INTERNAL_ERROR",
+            "BATCH_CANCELLED"
           ]
         },
         "message": {

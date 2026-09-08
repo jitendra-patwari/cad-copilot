@@ -60,9 +60,11 @@ class TestBatchDiagnostic:
     """Invariants for BatchDiagnostic (errors and warnings)."""
 
     def test_approved_codes_count(self) -> None:
-        assert len(APPROVED_DIAGNOSTIC_CODES) == 20
+        assert len(APPROVED_DIAGNOSTIC_CODES) == 21
+        assert "BATCH_CANCELLED" in APPROVED_DIAGNOSTIC_CODES
         assert "VERSION_METADATA_UNAVAILABLE" in APPROVED_WARNING_CODES
         assert len(APPROVED_WARNING_CODES) == 1
+        assert "BATCH_CANCELLED" not in APPROVED_WARNING_CODES
 
     def test_valid_diagnostic_with_and_without_format(self) -> None:
         diag1 = BatchDiagnostic(code="INVALID_SCHEMA", message="Invalid syntax")

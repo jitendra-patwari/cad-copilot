@@ -297,6 +297,7 @@ def test_batch_request_and_response_fixtures_conformance() -> None:
         "partial_batch.response.json",
         "continue_on_error_stop.response.json",
         "cancelled_batch.response.json",
+        "cancelled_mid_file.response.json",
         "failed_se_unavailable.response.json",
         "failed_after_progress.response.json",
         "rejected_no_files.response.json",
@@ -320,6 +321,7 @@ def test_batch_manifest_fixtures_conformance() -> None:
     expected_manifest_fixtures = {
         "completed.batch_manifest.json",
         "cancelled.batch_manifest.json",
+        "cancelled_mid_file.batch_manifest.json",
         "failed_after_progress.batch_manifest.json",
     }
     actual_manifest_filenames = {p.name for p in fixtures_dir.glob("*.batch_manifest.json")}

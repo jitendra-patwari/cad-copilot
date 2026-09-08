@@ -167,8 +167,8 @@ class TestTerminalSemanticInvariants:
             )
 
     def test_cancelled_response_rejects_zero_cancelled_files(self) -> None:
-        """Cancelled response must have at least one cancelled file."""
-        with pytest.raises(ValueError, match="Cancelled response must have at least one cancelled file"):
+        """Cancelled response must have at least one cancelled file or BATCH_CANCELLED."""
+        with pytest.raises(ValueError, match="requires at least one cancelled file or BATCH_CANCELLED"):
             BatchResponse(
                 contract_version="1.0",
                 request_id="req-canc-zero",
