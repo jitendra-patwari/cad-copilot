@@ -218,21 +218,6 @@ class FakePipelineExecutor(CADExecutorABC):
     def recompute_physical_properties(self) -> None:
         pass
 
-    def generate_flat_pattern(self, output_path: Path) -> None:
-        raise NotImplementedError
-
-    def generate_draft(self, output_path: Path) -> None:
-        raise NotImplementedError
-
-    def publish_drawing(self, output_path: Path) -> None:
-        raise NotImplementedError
-
-    def read_custom_properties(self) -> dict[str, Any]:
-        return {}
-
-    def write_custom_properties(self, properties: dict[str, Any]) -> None:
-        pass
-
     def update_document(self) -> None:
         pass
 

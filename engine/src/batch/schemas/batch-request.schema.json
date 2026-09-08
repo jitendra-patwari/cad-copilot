@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad-copilot.dev/schemas/batch-request.schema.json",
+  "title": "BatchRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "request_id", "kind", "input", "output_root", "operation"],
+  "properties": {
+    "contract_version": { "const": "1.0" },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "kind": { "const": "batch_operation" },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "files"],
+      "properties": {
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 500,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        }
+      }
+    },
+    "output_root": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "operation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "formats"],
+          "properties": {
+            "type": { "const": "export_3d" },
+            "formats": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "enum": ["step", "stl"]
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "formats"],
+          "properties": {
+            "type": { "const": "publish_drawing" },
+            "formats": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "enum": ["pdf", "dxf"]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "continue_on_error": {
+          "type": "boolean",
+          "default": true
+        },
+        "max_files": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500,
+          "default": 100
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["desktop_app", "cad_copilot", "local_agent"]
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "job_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9._-]+$"
+        }
+      }
+    }
+  }
+}

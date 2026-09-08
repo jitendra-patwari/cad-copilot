@@ -1,0 +1,281 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad-copilot.dev/schemas/batch-response.schema.json",
+  "title": "BatchResponse",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "status", "summary", "results", "manifest"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "status": { "const": "completed" },
+        "summary": { "$ref": "#/$defs/summaryRecord" },
+        "results": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fileResult" }
+        },
+        "manifest": { "$ref": "#/$defs/manifestRecord" },
+        "unprocessed_files": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/errorRecord" }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "status", "summary", "results", "cancelled_files", "manifest"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "status": { "const": "cancelled" },
+        "summary": { "$ref": "#/$defs/summaryRecord" },
+        "results": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fileResult" }
+        },
+        "cancelled_files": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "manifest": { "$ref": "#/$defs/manifestRecord" },
+        "unprocessed_files": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/errorRecord" }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "status", "errors"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "status": { "const": "rejected" },
+        "errors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/errorRecord" }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "status", "errors"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "status": { "const": "failed" },
+        "errors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/errorRecord" }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/errorRecord" }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "request_id", "status", "summary", "results", "errors"],
+      "properties": {
+        "contract_version": { "const": "1.0" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "status": { "const": "failed" },
+        "summary": { "$ref": "#/$defs/summaryRecord" },
+        "results": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fileResult" }
+        },
+        "errors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/errorRecord" }
+        },
+        "manifest": { "$ref": "#/$defs/manifestRecord" },
+        "unprocessed_files": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/errorRecord" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "manifestRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^[^\\0]+$"
+        }
+      }
+    },
+    "summaryRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "accepted", "partial", "failed", "unprocessed", "cancelled"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "accepted": { "type": "integer", "minimum": 0 },
+        "partial": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "unprocessed": { "type": "integer", "minimum": 0 },
+        "cancelled": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "fileResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["input", "status", "artifacts"],
+          "properties": {
+            "input": { "type": "string", "minLength": 1 },
+            "status": { "const": "accepted" },
+            "artifacts": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/artifactRecord" }
+            },
+            "warnings": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/errorRecord" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["input", "status", "artifacts", "errors"],
+          "properties": {
+            "input": { "type": "string", "minLength": 1 },
+            "status": { "const": "partial" },
+            "artifacts": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/artifactRecord" }
+            },
+            "errors": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/errorRecord" }
+            },
+            "warnings": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/errorRecord" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["input", "status", "errors"],
+          "properties": {
+            "input": { "type": "string", "minLength": 1 },
+            "status": { "const": "failed" },
+            "errors": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/errorRecord" }
+            },
+            "warnings": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/errorRecord" }
+            }
+          }
+        }
+      ]
+    },
+    "artifactRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "path"],
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": [
+            "step",
+            "stl",
+            "pdf",
+            "dxf"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "errorRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "INVALID_SCHEMA",
+            "PAYLOAD_TOO_LARGE",
+            "UNSUPPORTED_OPERATION",
+            "UNSUPPORTED_FORMAT",
+            "INPUT_ROOT_NOT_FOUND",
+            "INPUT_PATH_NOT_ALLOWED",
+            "INPUT_FILE_NOT_FOUND",
+            "INPUT_EXTENSION_NOT_ALLOWED",
+            "OUTPUT_ROOT_UNAVAILABLE",
+            "OUTPUT_TARGET_COLLISION",
+            "TARGET_ALREADY_EXISTS",
+            "SOLID_EDGE_UNAVAILABLE",
+            "SOLID_EDGE_UNHEALTHY",
+            "DOCUMENT_OPEN_FAILED",
+            "ARTIFACT_EXPORT_FAILED",
+            "DOCUMENT_CLOSE_FAILED",
+            "SOURCE_INTEGRITY_FAILED",
+            "MANIFEST_PUBLICATION_FAILED",
+            "VERSION_METADATA_UNAVAILABLE",
+            "INTERNAL_ERROR"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "format": {
+          "type": "string",
+          "enum": ["step", "stl", "pdf", "dxf"]
+        }
+      }
+    }
+  }
+}

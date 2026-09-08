@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -389,14 +390,9 @@ def test_executor_out_of_scope_methods_raise_immediate_unsupported(
     executor = SolidEdgeExecutor(runtime, doc_handle)
     initial_log_len = len(worker.call_log)
 
-    methods_to_test = [
+    methods_to_test: list[Callable[[], Any]] = [
         lambda: executor.create_prism_body(10.0, 10.0, 10.0),
         lambda: executor.add_cylindrical_cutout(5.0),
-        lambda: executor.generate_flat_pattern(Path("flat.dxf")),
-        lambda: executor.generate_draft(Path("draft.dft")),
-        lambda: executor.publish_drawing(Path("draw.pdf")),
-        lambda: executor.read_custom_properties(),
-        lambda: executor.write_custom_properties({"author": "test"}),
     ]
 
     for meth in methods_to_test:

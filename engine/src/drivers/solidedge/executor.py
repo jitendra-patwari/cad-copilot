@@ -1334,35 +1334,5 @@ class SolidEdgeExecutor(CADExecutorABC):
                 self._close_failed = True
                 raise
 
-    def generate_flat_pattern(self, output_path: Path) -> None:
-        raise CADExecutionError(
-            "generate_flat_pattern is out of scope for Milestone 3",
-            error_code="UNSUPPORTED_EXECUTION_OPERATION",
-        )
-
-    def generate_draft(self, output_path: Path) -> None:
-        raise CADExecutionError(
-            "generate_draft is out of scope for Milestone 3",
-            error_code="UNSUPPORTED_EXECUTION_OPERATION",
-        )
-
-    def publish_drawing(self, output_path: Path) -> None:
-        raise CADExecutionError(
-            "publish_drawing is out of scope for Milestone 3",
-            error_code="UNSUPPORTED_EXECUTION_OPERATION",
-        )
-
-    def read_custom_properties(self) -> dict[str, Any]:
-        raise CADExecutionError(
-            "read_custom_properties is out of scope for Milestone 3",
-            error_code="UNSUPPORTED_EXECUTION_OPERATION",
-        )
-
-    def write_custom_properties(self, properties: dict[str, Any]) -> None:
-        raise CADExecutionError(
-            "write_custom_properties is out of scope for Milestone 3",
-            error_code="UNSUPPORTED_EXECUTION_OPERATION",
-        )
-
 
 __all__ = ["SolidEdgeExecutor"]

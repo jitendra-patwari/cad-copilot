@@ -91,27 +91,6 @@ class CADExecutorABC(abc.ABC):
     def recompute_physical_properties(self) -> None:
         """Force recomputation of physical and mass properties in the CAD kernel."""
 
-    # --- Batch Operations & Drawing Generation ---
-    @abc.abstractmethod
-    def generate_flat_pattern(self, output_path: Path) -> None:
-        """Generate a sheet metal flat pattern (DXF)."""
-
-    @abc.abstractmethod
-    def generate_draft(self, output_path: Path) -> None:
-        """Generate a 2D engineering draft/drawing."""
-
-    @abc.abstractmethod
-    def publish_drawing(self, output_path: Path) -> None:
-        """Publish an engineering drawing to PDF or DWG format."""
-
-    @abc.abstractmethod
-    def read_custom_properties(self) -> dict[str, Any]:
-        """Read custom document metadata and properties."""
-
-    @abc.abstractmethod
-    def write_custom_properties(self, properties: dict[str, Any]) -> None:
-        """Write custom document metadata and properties."""
-
     @abc.abstractmethod
     def update_document(self) -> None:
         """Force geometric recompute on the active document."""

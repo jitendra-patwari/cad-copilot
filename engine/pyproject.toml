@@ -36,6 +36,7 @@ package-dir = {"" = "src"}
 "example_catalog" = ["resources/*.json"]
 "plan_providers" = ["schemas/*.json"]
 "ipc" = ["schemas/*.json"]
+"batch" = ["schemas/*.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -136,21 +136,6 @@ class ConcreteCADExecutor(CADExecutorABC):
     def recompute_physical_properties(self) -> None:
         pass
 
-    def generate_flat_pattern(self, output_path: Path) -> None:
-        pass
-
-    def generate_draft(self, output_path: Path) -> None:
-        pass
-
-    def publish_drawing(self, output_path: Path) -> None:
-        pass
-
-    def read_custom_properties(self) -> dict[str, Any]:
-        return {"Material": "Steel"}
-
-    def write_custom_properties(self, properties: dict[str, Any]) -> None:
-        pass
-
     def update_document(self) -> None:
         pass
 
@@ -163,7 +148,7 @@ class ConcreteCADExecutor(CADExecutorABC):
 def test_cad_runtime_abc_cannot_be_instantiated_directly() -> None:
     """Proves that CADRuntimeABC cannot be instantiated without implementing abstract methods."""
     with pytest.raises(TypeError, match="Can't instantiate abstract class CADRuntimeABC"):
-        CADRuntimeABC()
+        CADRuntimeABC()  # type: ignore[abstract]
 
 
 def test_cad_runtime_partial_implementation_fails() -> None:
@@ -174,7 +159,7 @@ def test_cad_runtime_partial_implementation_fails() -> None:
             return "app"
 
     with pytest.raises(TypeError, match="Can't instantiate abstract class IncompleteRuntime"):
-        IncompleteRuntime()
+        IncompleteRuntime()  # type: ignore[abstract]
 
 
 def test_concrete_cad_runtime_lifecycle() -> None:
@@ -217,7 +202,7 @@ def test_concrete_cad_runtime_lifecycle() -> None:
 def test_cad_executor_abc_cannot_be_instantiated_directly() -> None:
     """Proves that CADExecutorABC cannot be instantiated without implementing abstract methods."""
     with pytest.raises(TypeError, match="Can't instantiate abstract class CADExecutorABC"):
-        CADExecutorABC()
+        CADExecutorABC()  # type: ignore[abstract]
 
 
 def test_cad_executor_partial_implementation_fails() -> None:
@@ -229,15 +214,16 @@ def test_cad_executor_partial_implementation_fails() -> None:
             length_mm: float,
             width_mm: float,
             thickness_mm: float,
-            center_x_mm: float = 0.0,
-            center_y_mm: float = 0.0,
-            center_z_mm: float = 0.0,
+            placement_x_mm: float = 0.0,
+            placement_y_mm: float = 0.0,
+            placement_z_mm: float = 0.0,
+            body_id: str = "body.main",
             **kwargs: Any,
-        ) -> Any:
-            return "prism"
+        ) -> BodyRef:
+            return BodyRef("prism")
 
     with pytest.raises(TypeError, match="Can't instantiate abstract class IncompleteExecutor"):
-        IncompleteExecutor()
+        IncompleteExecutor()  # type: ignore[abstract]
 
 
 def test_concrete_cad_executor_methods_and_defaults() -> None:
@@ -274,9 +260,6 @@ def test_concrete_cad_executor_methods_and_defaults() -> None:
     assert executor.document_closed is False
     executor.close_request_document()
     assert executor.document_closed is True
-
-    # Test custom properties
-    assert executor.read_custom_properties() == {"Material": "Steel"}
 
 
 # ---------------------------------------------------------------------------

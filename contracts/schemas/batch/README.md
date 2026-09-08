@@ -4,7 +4,7 @@ The `batch` domain defines the wire protocol and contract schemas used by client
 
 The planned client application owns UI/UX, file selection, and process orchestration. The planned batch engine owns local Solid Edge automation, multi-format artifact export, per-file isolation, and atomic summary manifest publication.
 
-**Status (8 September 2026):** Canonical wire schemas, manifest schemas, and fixtures are established in this directory. Typed contract models and the operation metadata registry remain subsequent M5.1 work under `engine/src/batch/`. The Milestone 5 batch execution engine, launchers, and desktop client remain planned for M5.2+. The process and safety rules below are authoritative requirements for that future implementation, not verified runtime behavior.
+**Status (8 September 2026):** Canonical wire schemas, manifest schemas, fixtures, typed immutable contract models, Draft 2020-12 validators, and the operation metadata registry foundation are established, implemented, and verified under this directory and `engine/src/batch/`. Milestone 5.1 foundation is complete. Milestone 5.2+ batch runtime execution, CLI launchers, and desktop client integration remain planned. The process and safety rules below are authoritative requirements for runtime execution, not active runtime behavior in M5.1.
 
 ---
 
