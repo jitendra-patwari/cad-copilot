@@ -33,8 +33,12 @@ class CADRuntimeABC(abc.ABC):
         """Release or close an open CAD document handle unconditionally without saving."""
 
     @abc.abstractmethod
-    def teardown(self, force_kill_on_failure: bool = False) -> None:
-        """Cleanly close request documents, restore application state, and terminate owned CAD processes."""
+    def teardown(self, force_kill_on_failure: bool = False) -> bool:
+        """Cleanly close request documents, restore application state, and terminate owned CAD processes.
+
+        Returns True if all cleanup operations completed cleanly; False if any tracked document,
+        application shutdown, worker termination, or owned-process cleanup was incomplete.
+        """
 
     @abc.abstractmethod
     def is_healthy(self) -> bool:

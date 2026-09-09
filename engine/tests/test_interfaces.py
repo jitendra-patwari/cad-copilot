@@ -70,8 +70,9 @@ class ConcreteCADRuntime(CADRuntimeABC):
     def close_document(self, doc_handle: Any) -> None:
         pass
 
-    def teardown(self, force_kill_on_failure: bool = False) -> None:
+    def teardown(self, force_kill_on_failure: bool = False) -> bool:
         self.connected = False
+        return True
 
     def is_healthy(self) -> bool:
         return self.connected
@@ -193,8 +194,8 @@ def test_concrete_cad_runtime_lifecycle() -> None:
     assert doc == "mock_doc_handle:test.par"
     assert runtime.open_docs == [Path("test.par")]
 
-    runtime.close_document(doc)
-    runtime.teardown(force_kill_on_failure=False)
+    clean = runtime.teardown(force_kill_on_failure=False)
+    assert clean is True
     assert runtime.connected is False
     assert runtime.is_healthy() is False
 

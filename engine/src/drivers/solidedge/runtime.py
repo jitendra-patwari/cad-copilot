@@ -527,14 +527,14 @@ class SolidEdgeRuntime(CADRuntimeABC):
 
     def run_document_task(
         self,
-        doc_handle: SolidEdgePartDocumentHandle,
+        doc_handle: SolidEdgePartDocumentHandle | SolidEdgeDocumentHandle,
         task: Callable[[Any, STAThreadWorker], T],
         timeout: float = 120.0,
     ) -> T:
-        """Driver-internal seam to execute a modeling task against an explicit tracked Part document on the STA thread.
+        """Driver-internal seam to execute a task against an explicit tracked CAD document on the STA thread.
 
         Args:
-            doc_handle: The explicit request-owned SolidEdgePartDocumentHandle.
+            doc_handle: The explicit request-owned SolidEdgePartDocumentHandle or SolidEdgeDocumentHandle.
             task: Callable receiving `(raw_doc, worker)` and executing entirely on the STA worker thread.
             timeout: Bounded timeout in seconds for the entire document task (default 120s).
 
@@ -543,7 +543,7 @@ class SolidEdgeRuntime(CADRuntimeABC):
 
         Raises:
             CADRuntimeError: If runtime is poisoned, uninitialized, or worker is not running.
-            CADDocumentError: If doc_handle is invalid, untracked, wrong type, or closed.
+            CADDocumentError: If doc_handle is invalid, untracked, mismatched, forged, or closed.
             TimeoutError: If task execution exceeds timeout, poisoning the runtime.
         """
         if self._is_poisoned:
@@ -553,10 +553,10 @@ class SolidEdgeRuntime(CADRuntimeABC):
         if worker is None or not worker.is_alive():
             raise CADRuntimeError("Cannot execute document task: STA worker thread is not running")
 
-        if not isinstance(doc_handle, SolidEdgePartDocumentHandle):
+        if not isinstance(doc_handle, (SolidEdgePartDocumentHandle, SolidEdgeDocumentHandle)):
             handle_type = type(doc_handle).__name__
             raise CADDocumentError(
-                f"Invalid document handle type: expected SolidEdgePartDocumentHandle, got {handle_type}"
+                f"Invalid document handle type: expected SolidEdgePartDocumentHandle or SolidEdgeDocumentHandle, got {handle_type}"
             )
 
         if not doc_handle.handle_id:
@@ -566,10 +566,15 @@ class SolidEdgeRuntime(CADRuntimeABC):
         if tracked_handle is None:
             raise CADDocumentError("Untracked or closed document handle", error_code="DOCUMENT_LOST")
 
-        if not isinstance(tracked_handle, SolidEdgePartDocumentHandle):
+        if type(doc_handle) is not type(tracked_handle):
+            doc_type = type(doc_handle).__name__
             tracked_type = type(tracked_handle).__name__
+            raise CADDocumentError(f"Tracked document handle type mismatch: expected {tracked_type}, got {doc_type}")
+
+        if doc_handle != tracked_handle:
             raise CADDocumentError(
-                f"Tracked document handle is not a Part document: expected SolidEdgePartDocumentHandle, got {tracked_type}"
+                "Document handle metadata does not match tracked handle",
+                error_code="DOCUMENT_LOST",
             )
 
         handle_id = doc_handle.handle_id
@@ -615,42 +620,104 @@ class SolidEdgeRuntime(CADRuntimeABC):
         except Exception:
             return False
 
-    def teardown(self, force_kill_on_failure: bool = False) -> None:
-        """Cleanly close request documents, restore state, and safely terminate owned processes."""
+    def teardown(self, force_kill_on_failure: bool = False) -> bool:
+        """Cleanly close request documents, restore state, and safely terminate owned processes.
+
+        Returns:
+            True if all cleanup operations completed cleanly; False if any tracked document,
+            application shutdown, worker termination, or owned-process cleanup was incomplete.
+        """
         worker = self._worker
 
-        # Stage 1: Close remaining tracked open documents
-        if not self._is_poisoned and worker is not None and worker.is_alive():
-            for handle_id in list(self._open_document_handles.keys()):
-                try:
+        # Check if already completely torn down (idempotent no-op)
+        if (
+            worker is None
+            and self._application is None
+            and not self._open_document_handles
+            and self._owned_process_identity is None
+        ):
+            return True
 
-                    def _close_doc(hid: str = handle_id) -> None:
-                        raw_doc = worker._document_registry.get(hid)
-                        if raw_doc is not None:
+        # Stage 1: Close remaining tracked open documents
+        docs_clean = True
+        if self._open_document_handles:
+            if self._is_poisoned or worker is None or not worker.is_alive():
+                docs_clean = False
+            else:
+                for handle_id in list(self._open_document_handles.keys()):
+                    try:
+
+                        def _close_doc(hid: str = handle_id) -> None:
+                            raw_doc = worker._document_registry.get(hid)
+                            if raw_doc is None:
+                                raise CADDocumentError(
+                                    "Document object not found in STA worker registry during teardown",
+                                    error_code="DOCUMENT_LOST",
+                                )
                             worker._invoke_com(lambda: raw_doc.Close(False))
                             worker._document_registry.pop(hid, None)
 
-                    worker.call(_close_doc, timeout=DEFAULT_DOC_CLOSE_TIMEOUT)
-                except Exception as close_exc:
-                    describe_exception(close_exc, "Teardown document close timeout/error")
-                    self._is_poisoned = True
-                    break
+                        worker.call(_close_doc, timeout=DEFAULT_DOC_CLOSE_TIMEOUT)
+                        self._open_document_handles.pop(handle_id, None)
+                    except Exception as close_exc:
+                        describe_exception(close_exc, "Teardown document close timeout/error")
+                        self._is_poisoned = True
+                        docs_clean = False
+                        break
+
+        # Stage 2: Quiesce still-running connection worker if application handle was never published
+        if self._application is None and worker is not None and worker.is_alive():
+            try:
+                worker.shutdown(timeout=2.0)
+            except Exception as quiesce_exc:
+                describe_exception(quiesce_exc, "Teardown connection worker quiesce error")
+
+            # If worker remains alive and ownership remains unknown, connection is still in flight:
+            # preserve unresolved state and return False cleanly.
+            if worker.is_alive() and self._owned_process_identity is None:
+                self._is_poisoned = True
+                return False
+
+        if self._application is None and self._owned_process_identity is not None:
+            self._is_poisoned = True
 
         # Stage 2: Borrowed/Unknown Protection - Zero termination
-        is_owned = self._application is not None and self._application.ownership == OwnershipMode.OWNED
+        # Re-check identity after quiescing any in-flight worker: _owned_process_identity is authoritative owned state.
+        is_owned = self._owned_process_identity is not None or (
+            self._application is not None and self._application.ownership == OwnershipMode.OWNED
+        )
 
         if not is_owned:
-            if worker is not None:
-                worker.shutdown(timeout=2.0)
-            self._worker = None
-            self._application = None
-            self._open_document_handles.clear()
-            self._owned_process_identity = None
-            self._is_poisoned = False
-            return
+            worker_clean = True
+            if worker is not None and worker.is_alive():
+                try:
+                    worker.shutdown(timeout=2.0)
+                    if worker.is_alive():
+                        worker_clean = False
+                except Exception as worker_exc:
+                    describe_exception(worker_exc, "Teardown worker shutdown error")
+                    worker_clean = False
+
+            # If identity appeared during shutdown, switch to owned cleanup rather than wiping
+            if self._owned_process_identity is not None:
+                is_owned = True
+            else:
+                clean_teardown = docs_clean and worker_clean
+                if clean_teardown:
+                    self._worker = None
+                    self._application = None
+                    self._open_document_handles.clear()
+                    self._owned_process_identity = None
+                    self._is_poisoned = False
+                else:
+                    if worker is not None and not worker.is_alive():
+                        self._worker = None
+                return clean_teardown
 
         # Stage 3: Graceful Quit for Owned Instances
-        if not self._is_poisoned and worker is not None and worker.is_alive():
+        graceful_quit_attempted = False
+        if not self._is_poisoned and self._application is not None and worker is not None and worker.is_alive():
+            graceful_quit_attempted = True
             try:
 
                 def _quit() -> None:
@@ -671,7 +738,7 @@ class SolidEdgeRuntime(CADRuntimeABC):
                 self._is_poisoned = True
 
         # Stage 4: Process Exit Polling
-        if not self._is_poisoned and self._owned_process_identity is not None:
+        if graceful_quit_attempted and not self._is_poisoned and self._owned_process_identity is not None:
             poll_start = time.time()
             while (time.time() - poll_start) < DEFAULT_EXIT_POLL_TIMEOUT:
                 if not is_process_alive(self._owned_process_identity.pid):
@@ -680,19 +747,45 @@ class SolidEdgeRuntime(CADRuntimeABC):
 
         # Stage 5: Identity-Checked Force Cleanup
         if self._owned_process_identity is not None:
-            still_alive = is_process_alive(self._owned_process_identity.pid)
-            if (self._is_poisoned or still_alive) and force_kill_on_failure:
-                kill_orphan_processes([self._owned_process_identity])
+            if not is_process_alive(self._owned_process_identity.pid):
+                self._owned_process_identity = None
+            elif force_kill_on_failure:
+                try:
+                    terminated_pids = kill_orphan_processes([self._owned_process_identity])
+                    if self._owned_process_identity.pid in terminated_pids or not is_process_alive(
+                        self._owned_process_identity.pid
+                    ):
+                        self._owned_process_identity = None
+                except Exception as kill_exc:
+                    describe_exception(kill_exc, "Teardown force kill error")
 
         # Stage 6: Worker Shutdown & State Reset
-        if worker is not None:
-            worker.shutdown(timeout=2.0)
+        worker_clean = True
+        if worker is not None and worker.is_alive():
+            try:
+                worker.shutdown(timeout=2.0)
+                if worker.is_alive():
+                    worker_clean = False
+            except Exception as worker_exc:
+                describe_exception(worker_exc, "Teardown worker shutdown error")
+                worker_clean = False
 
-        self._worker = None
-        self._application = None
-        self._open_document_handles.clear()
-        self._owned_process_identity = None
-        self._is_poisoned = False
+        process_clean = self._owned_process_identity is None or not is_process_alive(self._owned_process_identity.pid)
+        if process_clean:
+            self._owned_process_identity = None
+
+        clean_teardown = process_clean and worker_clean
+        if clean_teardown:
+            self._worker = None
+            self._application = None
+            self._open_document_handles.clear()
+            self._owned_process_identity = None
+            self._is_poisoned = False
+        else:
+            if worker is not None and not worker.is_alive():
+                self._worker = None
+
+        return clean_teardown
 
 
 __all__ = [

@@ -113,6 +113,7 @@ class FakeRuntime(CADRuntimeABC):
         self.fail_connect = False
         self.fail_create_doc = False
         self.fail_close_doc = False
+        self.fail_teardown = False
 
     def connect_application(self) -> Any:
         self.connect_count += 1
@@ -145,9 +146,10 @@ class FakeRuntime(CADRuntimeABC):
         if self.fail_close_doc:
             raise RuntimeError("Fake document close failure")
 
-    def teardown(self, force_kill_on_failure: bool = False) -> None:
+    def teardown(self, force_kill_on_failure: bool = False) -> bool:
         self.teardown_count += 1
         self.teardown_args.append(force_kill_on_failure)
+        return not self.fail_teardown
 
     def is_healthy(self) -> bool:
         return True
@@ -1508,3 +1510,27 @@ def test_generation_service_with_production_example_resolver_publishes_manifest_
 
     # Document was closed by artifact finalizer
     assert runtime.close_doc_count == 1
+
+
+def test_generation_service_retains_outcome_when_teardown_returns_false(tmp_path: Path) -> None:
+    """Proves that GenerationService retains its existing outcome and lifecycle behavior while ignoring teardown result."""
+    runtime = FakeRuntime(version_build="Solid Edge 2026 (226.00.00.106)")
+    runtime.fail_teardown = True
+
+    service = GenerationService(
+        example_resolver=resolve_example_plan,
+        runtime_factory=lambda: runtime,
+        executor_factory=lambda rt, dh: FakeProductionExecutor(rt, dh),
+        artifact_finalizer=finalize_request_artifacts,
+    )
+    req = ExampleGenerationRequest(
+        request_id="req-ignore-teardown-res",
+        contract_version="1.0",
+        kind="example_plan",
+        unit="mm",
+        example_id="spur_gear",
+    )
+    resp = service.generate(req, output_root=tmp_path)
+    assert resp["status"] == "accepted"
+    assert runtime.teardown_count == 1
+    assert runtime.teardown_args == [False]

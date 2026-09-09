@@ -81,16 +81,51 @@ def test_run_document_task_success_executes_on_worker_thread(
     assert task_thread_id[0] != caller_thread_id
 
 
-def test_run_document_task_rejects_non_part_handle(
+def test_run_document_task_generic_document_success(
     runtime_with_mock_doc: tuple[SolidEdgeRuntime, SolidEdgePartDocumentHandle, MagicMock],
 ) -> None:
-    """Proves that non-part document handles are rejected before worker execution."""
+    """Proves that a valid SolidEdgeDocumentHandle executes on the dedicated STA worker thread."""
     runtime, _, _ = runtime_with_mock_doc
+    worker = runtime._worker
+    assert worker is not None
 
-    non_part_handle = SolidEdgeDocumentHandle(handle_id="doc-2", path=Path("part.par"))
+    generic_id = "test-generic-doc-1"
+    generic_handle = SolidEdgeDocumentHandle(handle_id=generic_id, doc_type="draft", path=Path("drawing.dft"))
+    mock_raw_dft = MagicMock()
+    mock_raw_dft.Type = 2
 
-    with pytest.raises(CADDocumentError, match="Invalid document handle type: expected SolidEdgePartDocumentHandle"):
-        runtime.run_document_task(non_part_handle, lambda doc, w: None)  # type: ignore[arg-type]
+    worker._document_registry[generic_id] = mock_raw_dft
+    runtime._open_document_handles[generic_id] = generic_handle
+
+    caller_thread_id = threading.get_ident()
+    task_thread_id: list[int | None] = []
+
+    def _draft_task(raw_doc: Any, w: STAThreadWorker) -> dict[str, Any]:
+        task_thread_id.append(threading.get_ident())
+        assert raw_doc is mock_raw_dft
+        assert w is worker
+        return {"doc_type": "draft", "raw_type": raw_doc.Type}
+
+    result = runtime.run_document_task(generic_handle, _draft_task, timeout=5.0)
+
+    assert result == {"doc_type": "draft", "raw_type": 2}
+    assert len(task_thread_id) == 1
+    assert task_thread_id[0] == worker.thread_id
+    assert task_thread_id[0] != caller_thread_id
+
+
+def test_run_document_task_rejects_invalid_handle_type(
+    runtime_with_mock_doc: tuple[SolidEdgeRuntime, SolidEdgePartDocumentHandle, MagicMock],
+) -> None:
+    """Proves that non-document handle objects and unsupported types are rejected before worker execution."""
+    runtime, _, _ = runtime_with_mock_doc
+    app_handle = SolidEdgeApplicationHandle(handle_id="app-1")
+
+    with pytest.raises(
+        CADDocumentError,
+        match="Invalid document handle type: expected SolidEdgePartDocumentHandle or SolidEdgeDocumentHandle",
+    ):
+        runtime.run_document_task(app_handle, lambda doc, w: None)  # type: ignore[arg-type]
 
     with pytest.raises(CADDocumentError, match="Invalid document handle type"):
         runtime.run_document_task("invalid-handle-string", lambda doc, w: None)  # type: ignore[arg-type]
@@ -215,9 +250,57 @@ def test_run_document_task_rejects_forged_part_handle_for_tracked_generic_docume
 
     with pytest.raises(
         CADDocumentError,
-        match="Tracked document handle is not a Part document: expected SolidEdgePartDocumentHandle, got SolidEdgeDocumentHandle",
+        match="Tracked document handle type mismatch: expected SolidEdgeDocumentHandle, got SolidEdgePartDocumentHandle",
     ):
         runtime.run_document_task(forged_part_handle, lambda doc, w: None)
+
+
+def test_run_document_task_rejects_forged_generic_handle_for_tracked_part_document(
+    runtime_with_mock_doc: tuple[SolidEdgeRuntime, SolidEdgePartDocumentHandle, MagicMock],
+) -> None:
+    """Proves that a forged generic handle matching a tracked Part document ID is rejected."""
+    runtime, part_handle, _ = runtime_with_mock_doc
+
+    # Caller creates a forged generic handle with the same handle_id
+    forged_generic_handle = SolidEdgeDocumentHandle(
+        handle_id=part_handle.handle_id, doc_type="part", path=part_handle.path
+    )
+
+    with pytest.raises(
+        CADDocumentError,
+        match="Tracked document handle type mismatch: expected SolidEdgePartDocumentHandle, got SolidEdgeDocumentHandle",
+    ):
+        runtime.run_document_task(forged_generic_handle, lambda doc, w: None)
+
+
+def test_run_document_task_rejects_same_type_metadata_mismatch(
+    runtime_with_mock_doc: tuple[SolidEdgeRuntime, SolidEdgePartDocumentHandle, MagicMock],
+) -> None:
+    """Proves that same-class handles with mismatched path or doc_type metadata are rejected."""
+    runtime, part_handle, _ = runtime_with_mock_doc
+
+    # Case A: SolidEdgePartDocumentHandle with mismatched path
+    mismatched_part = SolidEdgePartDocumentHandle(handle_id=part_handle.handle_id, path=Path("different/path.par"))
+    with pytest.raises(CADDocumentError, match="Document handle metadata does not match tracked handle"):
+        runtime.run_document_task(mismatched_part, lambda doc, w: None)
+
+    # Case B: SolidEdgeDocumentHandle with mismatched doc_type
+    generic_id = "test-generic-meta-1"
+    generic_handle = SolidEdgeDocumentHandle(handle_id=generic_id, doc_type="draft", path=Path("drawing.dft"))
+    assert runtime._worker is not None
+    runtime._worker._document_registry[generic_id] = MagicMock()
+    runtime._open_document_handles[generic_id] = generic_handle
+
+    mismatched_generic_type = SolidEdgeDocumentHandle(
+        handle_id=generic_id, doc_type="assembly", path=Path("drawing.dft")
+    )
+    with pytest.raises(CADDocumentError, match="Document handle metadata does not match tracked handle"):
+        runtime.run_document_task(mismatched_generic_type, lambda doc, w: None)
+
+    # Case C: SolidEdgeDocumentHandle with mismatched path
+    mismatched_generic_path = SolidEdgeDocumentHandle(handle_id=generic_id, doc_type="draft", path=Path("other.dft"))
+    with pytest.raises(CADDocumentError, match="Document handle metadata does not match tracked handle"):
+        runtime.run_document_task(mismatched_generic_path, lambda doc, w: None)
 
 
 def test_run_document_task_rejects_leaked_raw_doc_result(
