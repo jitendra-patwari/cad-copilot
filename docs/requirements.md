@@ -1,12 +1,12 @@
-# System Requirements Specification: Milestones 1, 2, 3 & 4
+# System Requirements Specification: Milestones 1, 2, 3, 4 & 5
 
 **Project**: CAD Copilot  
-**Scope**: Milestone 1 (Foundation & Domain Interfaces), Milestone 2 (Pure Domain Geometry Math), Milestone 3 (Solid Edge COM Driver & Artifact Pipeline), and Milestone 4 (Generation Application Orchestration, Examples, Manifest & Stdio IPC)
-**Status (8 September 2026)**: M1/M2 domain baseline and M3.0 reconciliation implemented; M3.1 runtime/lifecycle, M3.2 primitive execution and inspection, and M3.3 multi-format artifact export and pipeline finalization implemented, hardened, and verified. Milestone 4 is fully implemented, hardened, and verified across all components: M4.1 (generation application orchestration), M4.2 (optional text-only Gemini proposal adapter), M4.3 (deterministic example catalog), M4.4 (canonical run manifest and sidecar publication), and M4.5 (strict generation stdio IPC, launchers, and packaging). Milestone 4 is complete. Milestone 5.1 (canonical batch request/response/manifest contracts, schemas, typed models, and operation metadata registry) is implemented and verified under `contracts/schemas/batch/` and `engine/src/batch/`; Milestone 5.2+ batch runtime execution remains planned.
+**Scope**: Milestone 1 (Foundation & Domain Interfaces), Milestone 2 (Pure Domain Geometry Math), Milestone 3 (Solid Edge COM Driver & Artifact Pipeline), Milestone 4 (Generation Application Orchestration, Examples, Manifest & Stdio IPC), and Milestone 5 (Batch Automation Contracts, Execution Infrastructure, Safety Boundary & Sequential Processing)
+**Status (9 September 2026)**: M1/M2 domain baseline and M3.0 reconciliation implemented; M3.1 runtime/lifecycle, M3.2 primitive execution and inspection, and M3.3 multi-format artifact export and pipeline finalization implemented, hardened, and verified. Milestone 4 is fully implemented, hardened, and verified across all components: M4.1 (generation application orchestration), M4.2 (optional text-only Gemini proposal adapter), M4.3 (deterministic example catalog), M4.4 (canonical run manifest and sidecar publication), and M4.5 (strict generation stdio IPC, launchers, and packaging). Milestone 4 is complete. Milestone 5.1 (canonical batch request/response/manifest contracts, schemas, typed models, and operation metadata registry) is implemented and verified under `contracts/schemas/batch/` and `engine/src/batch/`. Milestone 5.2 batch execution infrastructure, typed bindings, pure work allocation, tracked-document task generalization, and observable teardown are implemented under `engine/src/batch/` and verified; shared sequential batch service orchestration remains in progress.
 
 ### Current evidence boundary
 
-- **Offline test suite**: 1,589 tests passed, 2 skipped, with 40 tests deselected (36 COM driver tests, 2 COM live IPC tests, 1 live_ai provider test, 1 live_ai IPC test); strict mypy passed across the verified component scope (120 source and test files checked: `mypy --config-file mypy.ini --strict src tests/manifests tests/artifacts tests/application tests/example_catalog tests/plan_providers tests/ipc tests/batch tests/contracts/test_schema_contracts.py tests/contracts/test_batch_schema_contracts.py tests/test_interfaces.py tests/drivers/test_executor.py tests/drivers/test_solidedge_live.py`); Ruff lint passed and formatting clean; `git diff --check` clean.
+- **Offline test suite**: 1,710 tests passed, 2 skipped, with 40 tests deselected (36 COM driver tests, 2 COM live IPC tests, 1 live_ai provider test, 1 live_ai IPC test); strict mypy passed across the verified component scope (127 source and test files checked: `mypy --config-file mypy.ini --strict src tests/manifests tests/artifacts tests/application tests/example_catalog tests/plan_providers tests/ipc tests/batch tests/contracts/test_schema_contracts.py tests/contracts/test_batch_schema_contracts.py tests/test_interfaces.py tests/drivers/test_executor.py tests/drivers/test_solidedge_live.py`); Ruff lint passed and formatting clean; `git diff --check` clean.
 - **Live integration evidence**: 31 passed, 0 skipped across 31 COM tests on a licensed Siemens Solid Edge 2026 session (`226.00.00.106`), verifying:
   1. M3.1 lifecycle isolation, Ordered mode readback `2`, and non-destructive process preservation (4 live gates).
   2. M3.2 3D primitives (cuboid, cylinder, 24-tooth conceptual spur gear at origin and translated with centered through-bore), 6-face circular cuts, localized +Z cuts, and sequential feature execution (15 live gates).
@@ -236,6 +236,22 @@ The implementation is in `engine/src/drivers/solidedge/`. The requirements below
   - Directly reuses the internal `GenerationService` coordinator without intermediate server processes, daemons, background workers, or listeners.
   - Exit policy: exits `0` for handled responses (`accepted`, `rejected`, `failed`), exits `1` for fatal bootstrap, packaged-schema resource, response serialization, or response-write failure with empty stdout, and exits `130` for caller cancellation (`CTRL_BREAK_EVENT` / `SIGINT`).
   - Caller enforces default 180s timeout; on cancellation, allows 10s graceful teardown through `GenerationService.finally` and ensures child-scoped cleanup without terminating unrelated processes.
+
+### FR-15: Shared Sequential Batch Execution Infrastructure (Milestone 5.2)
+- **Batch Execution Models & Decoupled Specification**:
+  - `BatchExecutionSpec`: Internal, immutable execution view decoupling wire contract schemas from execution logic; preserves canonical input and format order and enables test-only operation extensibility without hub modification.
+  - `BatchItemContext`: Request-scoped, immutable dispatch context providing boundary-prepared absolute source, temporary work, and target `Path` values for a single format execution pass; strictly excludes COM handles, worker threads, and transport state.
+  - `BatchItemOutcome`: Pure per-format handler outcome representing either clean single-artifact success or failure with approved error diagnostics; verifies artifact format and target path against dispatch context.
+  - `BatchExecutionOutcome`: Pre-manifest terminal outcome aggregating per-file results, summary accounting, and partition disjointness across accepted, partial, failed, unprocessed, and cancelled sets.
+  - `BatchProgressUpdate`: Structured lifecycle progress updates across 6 discrete phases (`batch_started`, `file_started`, `format_started`, `format_finished`, `file_finished`, `batch_finished`).
+- **Pure Relative Work Allocation & Collision Detection**:
+  - `allocate_batch_work`: Pure relative path mapping replacing only final file extensions with approved static suffixes (`.step`, `.stl`, `.pdf`, `.dxf`) and preserving directory nesting with zero filesystem I/O.
+  - Case-Insensitive Collision Detection: Detects in-request target path collisions (e.g. `part.par` and `part.psm` both targeting `part.step`), failing preflight with sanitized `OUTPUT_TARGET_COLLISION` without exposing internal workstation roots.
+- **Injected Safety Boundary Seam (M5.3 Seam)**:
+  - `BatchSafetyBoundary` protocol defining exact lifecycle attachment points (`prepare`, `verify_before_open`, `verify_after_close`) for future filesystem containment and security checks; provides no unchecked production default in M5.2.
+- **Lightweight Typed Handler Bindings**:
+  - `BatchOperationHandler` and `BatchHandlerFactory` protocols defining single-format document execution and runtime binding.
+  - `OperationBinding` & `OperationBindings`: Immutable lookup container validating exact 1-to-1 parity against `OperationRegistry` metadata; detects missing, duplicate, unknown, or non-callable bindings before runtime acquisition.
 
 ---
 

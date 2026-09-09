@@ -1,7 +1,35 @@
-"""Batch automation contracts, typed models, validation, and metadata registry."""
+"""Batch automation contracts, typed models, validation, metadata registry, and execution bindings."""
 
 from __future__ import annotations
 
+from batch.allocation import (
+    AllocatedBatchFile,
+    AllocatedBatchFormat,
+    AllocatedBatchWork,
+    BatchAllocationCollisionError,
+    BatchSafetyBoundary,
+    BatchSafetyRejectionError,
+    PreparedBatchFile,
+    PreparedBatchFormat,
+    PreparedBatchWork,
+    allocate_batch_work,
+    build_collision_rejection,
+    validate_prepared_work_consistency,
+)
+from batch.bindings import (
+    BatchHandlerFactory,
+    BatchOperationHandler,
+    OperationBinding,
+    OperationBindings,
+)
+from batch.execution import (
+    BatchExecutionOutcome,
+    BatchExecutionSpec,
+    BatchItemContext,
+    BatchItemOutcome,
+    BatchProgressPhase,
+    BatchProgressUpdate,
+)
 from batch.models import (
     BatchArtifactRecord,
     BatchConfigurationError,
@@ -30,26 +58,48 @@ from batch.registry import (
 )
 
 __all__: list[str] = [
+    "AllocatedBatchFile",
+    "AllocatedBatchFormat",
+    "AllocatedBatchWork",
+    "BatchAllocationCollisionError",
     "BatchArtifactRecord",
     "BatchConfigurationError",
     "BatchContractError",
     "BatchDiagnostic",
+    "BatchExecutionOutcome",
+    "BatchExecutionSpec",
     "BatchFileResult",
+    "BatchHandlerFactory",
     "BatchInputSelection",
+    "BatchItemContext",
+    "BatchItemOutcome",
     "BatchManifest",
     "BatchManifestReference",
     "BatchMetadata",
     "BatchOperation",
+    "BatchOperationHandler",
     "BatchOperationType",
     "BatchOptions",
+    "BatchProgressPhase",
+    "BatchProgressUpdate",
     "BatchRequest",
     "BatchResponse",
+    "BatchSafetyBoundary",
+    "BatchSafetyRejectionError",
     "BatchSummary",
     "BatchValidationError",
     "FileResultStatus",
     "ManifestArtifactRecord",
     "ManifestFileResult",
+    "OperationBinding",
+    "OperationBindings",
     "OperationDescriptor",
     "OperationRegistry",
+    "PreparedBatchFile",
+    "PreparedBatchFormat",
+    "PreparedBatchWork",
+    "allocate_batch_work",
+    "build_collision_rejection",
     "build_initial_registry",
+    "validate_prepared_work_consistency",
 ]

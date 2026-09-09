@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from batch.accounting import (
@@ -11,7 +12,14 @@ from batch.accounting import (
 from batch.models import BatchValidationError
 
 if TYPE_CHECKING:
-    from batch.models import BatchDiagnostic, BatchFileResult, BatchManifest, BatchResponse, ManifestFileResult
+    from batch.models import (
+        BatchDiagnostic,
+        BatchFileResult,
+        BatchManifest,
+        BatchResponse,
+        BatchSummary,
+        ManifestFileResult,
+    )
 
 VALID_RESPONSE_STATUSES: frozenset[str] = frozenset({"completed", "cancelled", "rejected", "failed"})
 VALID_MANIFEST_STATUSES: frozenset[str] = frozenset({"completed", "cancelled", "failed"})
@@ -34,23 +42,33 @@ _FATAL_MANIFEST_TOP_LEVEL_CODES: frozenset[str] = frozenset(
 )
 
 
-def validate_batch_response_semantics(response: BatchResponse, *, request_id: str = "unknown") -> None:
-    """Validate terminal response semantic relationships, accounting, and warning rules."""
-    req_id = response.request_id or request_id
+def validate_terminal_semantics_core(
+    *,
+    status: str,
+    summary: BatchSummary | None,
+    results: Sequence[BatchFileResult],
+    unprocessed_files: Sequence[str],
+    cancelled_files: Sequence[str],
+    errors: Sequence[BatchDiagnostic],
+    warnings: Sequence[BatchDiagnostic],
+    request_id: str = "unknown",
+) -> None:
+    """Validate terminal semantic invariants common to BatchResponse and BatchExecutionOutcome."""
+    req_id = request_id
 
-    if response.status not in VALID_RESPONSE_STATUSES:
+    if status not in VALID_RESPONSE_STATUSES:
         raise BatchValidationError(
-            f"Invalid response status '{response.status}'",
+            f"Invalid response status '{status}'",
             code="INVALID_SCHEMA",
             request_id=req_id,
         )
 
     # Validate diagnostics
-    validate_diagnostics(response.warnings, is_warning=True, request_id=req_id)
-    validate_diagnostics(response.errors, is_warning=False, request_id=req_id)
+    validate_diagnostics(warnings, is_warning=True, request_id=req_id)
+    validate_diagnostics(errors, is_warning=False, request_id=req_id)
 
     # BATCH_CANCELLED is strictly forbidden as a top-level error
-    for e in response.errors:
+    for e in errors:
         if e.code == "BATCH_CANCELLED":
             raise BatchValidationError(
                 "BATCH_CANCELLED is not permitted as a top-level error",
@@ -59,13 +77,13 @@ def validate_batch_response_semantics(response: BatchResponse, *, request_id: st
             )
 
     # Validate per-file result diagnostics
-    for r in response.results:
+    for r in results:
         validate_diagnostics(r.warnings, is_warning=True, request_id=req_id)
         validate_diagnostics(r.errors, is_warning=False, request_id=req_id)
 
     # Collect all BATCH_CANCELLED diagnostics across all per-file results
     cancel_errors: list[tuple[BatchFileResult, BatchDiagnostic]] = [
-        (r, e) for r in response.results for e in r.errors if e.code == "BATCH_CANCELLED"
+        (r, e) for r in results for e in r.errors if e.code == "BATCH_CANCELLED"
     ]
     if len(cancel_errors) > 1:
         raise BatchValidationError(
@@ -81,7 +99,7 @@ def validate_batch_response_semantics(response: BatchResponse, *, request_id: st
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
-        if response.results and response.results[-1] is not canc_file:
+        if results and results[-1] is not canc_file:
             raise BatchValidationError(
                 "BATCH_CANCELLED must be on the final attempted file result",
                 code="INVALID_SCHEMA",
@@ -102,20 +120,14 @@ def validate_batch_response_semantics(response: BatchResponse, *, request_id: st
                 request_id=req_id,
             )
 
-    if response.status == "completed":
-        if response.summary is None:
+    if status == "completed":
+        if summary is None:
             raise BatchValidationError(
                 "Completed response requires a summary",
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
-        if response.manifest is None:
-            raise BatchValidationError(
-                "Completed response requires a manifest reference",
-                code="INVALID_SCHEMA",
-                request_id=req_id,
-            )
-        if response.errors:
+        if errors:
             raise BatchValidationError(
                 "Completed response must not have top-level errors",
                 code="INVALID_SCHEMA",
@@ -127,40 +139,34 @@ def validate_batch_response_semantics(response: BatchResponse, *, request_id: st
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
-        if response.summary.cancelled != 0 or len(response.cancelled_files) != 0:
+        if summary.cancelled != 0 or len(cancelled_files) != 0:
             raise BatchValidationError(
                 "Completed response must have zero cancelled files",
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
         validate_summary_accounting(
-            response.summary,
-            response.results,
-            response.unprocessed_files,
-            response.cancelled_files,
+            summary,
+            results,
+            unprocessed_files,
+            cancelled_files,
             request_id=req_id,
         )
 
-    elif response.status == "cancelled":
-        if response.summary is None:
+    elif status == "cancelled":
+        if summary is None:
             raise BatchValidationError(
                 "Cancelled response requires a summary",
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
-        if response.manifest is None:
-            raise BatchValidationError(
-                "Cancelled response requires a manifest reference",
-                code="INVALID_SCHEMA",
-                request_id=req_id,
-            )
-        if response.errors:
+        if errors:
             raise BatchValidationError(
                 "Cancelled response must not have top-level errors",
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
-        has_cancelled_files = len(response.cancelled_files) > 0
+        has_cancelled_files = len(cancelled_files) > 0
         has_batch_cancelled = len(cancel_errors) > 0
         if not has_cancelled_files and not has_batch_cancelled:
             raise BatchValidationError(
@@ -169,67 +175,55 @@ def validate_batch_response_semantics(response: BatchResponse, *, request_id: st
                 request_id=req_id,
             )
         validate_summary_accounting(
-            response.summary,
-            response.results,
-            response.unprocessed_files,
-            response.cancelled_files,
+            summary,
+            results,
+            unprocessed_files,
+            cancelled_files,
             request_id=req_id,
         )
 
-    elif response.status == "rejected":
-        if response.summary is not None:
+    elif status == "rejected":
+        if summary is not None:
             raise BatchValidationError(
                 "Rejected response must not include summary",
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
-        if response.manifest is not None:
-            raise BatchValidationError(
-                "Rejected response must not include manifest",
-                code="INVALID_SCHEMA",
-                request_id=req_id,
-            )
-        if response.results:
+        if results:
             raise BatchValidationError(
                 "Rejected response must not include results",
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
-        if response.unprocessed_files or response.cancelled_files:
+        if unprocessed_files or cancelled_files:
             raise BatchValidationError(
                 "Rejected response must not include unprocessed or cancelled files",
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
-        if response.warnings:
+        if warnings:
             raise BatchValidationError(
                 "Rejected response must not include warnings",
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
-        if not response.errors:
+        if not errors:
             raise BatchValidationError(
                 "Rejected response requires at least one top-level error",
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
 
-    elif response.status == "failed":
-        if not response.errors:
+    elif status == "failed":
+        if not errors:
             raise BatchValidationError(
                 "Failed response requires at least one top-level error",
                 code="INVALID_SCHEMA",
                 request_id=req_id,
             )
-        if response.summary is None:
+        if summary is None:
             # Early failure before processing began
-            if response.manifest is not None:
-                raise BatchValidationError(
-                    "Early failed response must not include manifest reference",
-                    code="INVALID_SCHEMA",
-                    request_id=req_id,
-                )
-            if response.results or response.unprocessed_files or response.cancelled_files:
+            if results or unprocessed_files or cancelled_files:
                 raise BatchValidationError(
                     "Early failed response must not include results or skipped files",
                     code="INVALID_SCHEMA",
@@ -237,14 +231,14 @@ def validate_batch_response_semantics(response: BatchResponse, *, request_id: st
                 )
         else:
             # Progressed failure after processing began
-            if response.summary.cancelled != 0 or len(response.cancelled_files) != 0:
+            if summary.cancelled != 0 or len(cancelled_files) != 0:
                 raise BatchValidationError(
                     "Failed response must have zero cancelled files",
                     code="INVALID_SCHEMA",
                     request_id=req_id,
                 )
             if cancel_errors:
-                has_fatal_top_level = any(e.code in _FATAL_RESPONSE_TOP_LEVEL_CODES for e in response.errors)
+                has_fatal_top_level = any(e.code in _FATAL_RESPONSE_TOP_LEVEL_CODES for e in errors)
                 if not has_fatal_top_level:
                     raise BatchValidationError(
                         "BATCH_CANCELLED in failed response requires a fatal top-level error",
@@ -252,12 +246,59 @@ def validate_batch_response_semantics(response: BatchResponse, *, request_id: st
                         request_id=req_id,
                     )
             validate_summary_accounting(
-                response.summary,
-                response.results,
-                response.unprocessed_files,
-                response.cancelled_files,
+                summary,
+                results,
+                unprocessed_files,
+                cancelled_files,
                 request_id=req_id,
             )
+
+
+def validate_batch_response_semantics(response: BatchResponse, *, request_id: str = "unknown") -> None:
+    """Validate terminal response semantic relationships, accounting, and warning rules."""
+    req_id = response.request_id or request_id
+
+    validate_terminal_semantics_core(
+        status=response.status,
+        summary=response.summary,
+        results=response.results,
+        unprocessed_files=response.unprocessed_files,
+        cancelled_files=response.cancelled_files,
+        errors=response.errors,
+        warnings=response.warnings,
+        request_id=req_id,
+    )
+
+    if response.status == "completed":
+        if response.manifest is None:
+            raise BatchValidationError(
+                "Completed response requires a manifest reference",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
+
+    elif response.status == "cancelled":
+        if response.manifest is None:
+            raise BatchValidationError(
+                "Cancelled response requires a manifest reference",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
+
+    elif response.status == "rejected":
+        if response.manifest is not None:
+            raise BatchValidationError(
+                "Rejected response must not include manifest",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
+
+    elif response.status == "failed" and response.summary is None and response.manifest is not None:
+        raise BatchValidationError(
+            "Early failed response must not include manifest reference",
+            code="INVALID_SCHEMA",
+            request_id=req_id,
+        )
 
 
 def validate_batch_manifest_semantics(manifest: BatchManifest, *, request_id: str = "unknown") -> None:
@@ -489,4 +530,5 @@ __all__ = [
     "VALID_RESPONSE_STATUSES",
     "validate_batch_manifest_semantics",
     "validate_batch_response_semantics",
+    "validate_terminal_semantics_core",
 ]
