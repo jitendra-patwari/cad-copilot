@@ -204,6 +204,33 @@ class TestPreparedWorkModels:
         )
         assert prep_file.preflight_error == err
 
+    def test_prepared_format_rejects_warning_preflight_error(self, tmp_path: Path) -> None:
+        warn = BatchDiagnostic(code="VERSION_METADATA_UNAVAILABLE", message="Warning")
+        with pytest.raises(ValueError, match="preflight_error must not be a warning diagnostic"):
+            PreparedBatchFormat(
+                format="step",
+                target_relative_path="a.step",
+                work_path=tmp_path / "work" / "a.step",
+                target_path=tmp_path / "out" / "a.step",
+                preflight_error=warn,
+            )
+
+    def test_prepared_file_rejects_warning_preflight_error(self, tmp_path: Path) -> None:
+        warn = BatchDiagnostic(code="VERSION_METADATA_UNAVAILABLE", message="Warning")
+        prep_fmt = PreparedBatchFormat(
+            format="step",
+            target_relative_path="a.step",
+            work_path=tmp_path / "work" / "a.step",
+            target_path=tmp_path / "out" / "a.step",
+        )
+        with pytest.raises(ValueError, match="preflight_error must not be a warning diagnostic"):
+            PreparedBatchFile(
+                input="a.par",
+                source_path=tmp_path / "src" / "a.par",
+                formats=(prep_fmt,),
+                preflight_error=warn,
+            )
+
     def test_prepared_work_requires_absolute_output_root(self, tmp_path: Path) -> None:
         work_p = tmp_path / "work" / "a.step"
         target_p = tmp_path / "out" / "a.step"
@@ -414,3 +441,22 @@ class TestPreparedWorkConsistency:
             match=r"target_relative_path 'different/path\.step' does not match allocated 'part1\.step'",
         ):
             validate_prepared_work_consistency(allocated, bad_prep)
+
+    def test_consistency_rejects_warning_preflight_error(
+        self, sample_work: tuple[AllocatedBatchWork, PreparedBatchWork]
+    ) -> None:
+        allocated, prepared = sample_work
+        tampered_file = PreparedBatchFile(
+            input=prepared.files[0].input,
+            source_path=prepared.files[0].source_path,
+            formats=prepared.files[0].formats,
+        )
+        warn = BatchDiagnostic(code="VERSION_METADATA_UNAVAILABLE", message="Warning")
+        object.__setattr__(tampered_file, "preflight_error", warn)
+
+        tampered_prep = PreparedBatchWork(
+            files=(tampered_file, prepared.files[1]),
+            output_root=prepared.output_root,
+        )
+        with pytest.raises(ValueError, match="contains invalid preflight error"):
+            validate_prepared_work_consistency(allocated, tampered_prep)

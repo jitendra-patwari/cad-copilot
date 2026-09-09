@@ -14,6 +14,7 @@ from typing import Protocol
 
 from batch.execution import BatchExecutionOutcome, BatchExecutionSpec
 from batch.models import (
+    APPROVED_WARNING_CODES,
     BatchContractError,
     BatchDiagnostic,
     BatchValidationError,
@@ -180,10 +181,13 @@ class PreparedBatchFormat:
             raise ValueError(f"work_path must be an absolute Path, got {self.work_path!r}")
         if not isinstance(self.target_path, Path) or not self.target_path.is_absolute():
             raise ValueError(f"target_path must be an absolute Path, got {self.target_path!r}")
-        if self.preflight_error is not None and not isinstance(self.preflight_error, BatchDiagnostic):
-            raise TypeError(
-                f"preflight_error must be BatchDiagnostic or None, got {type(self.preflight_error).__name__}"
-            )
+        if self.preflight_error is not None:
+            if not isinstance(self.preflight_error, BatchDiagnostic):
+                raise TypeError(
+                    f"preflight_error must be BatchDiagnostic or None, got {type(self.preflight_error).__name__}"
+                )
+            if self.preflight_error.code in APPROVED_WARNING_CODES:
+                raise ValueError(f"preflight_error must not be a warning diagnostic, got '{self.preflight_error.code}'")
 
 
 @dataclass(frozen=True)
@@ -206,10 +210,13 @@ class PreparedBatchFile:
         for fmt in self.formats:
             if not isinstance(fmt, PreparedBatchFormat):
                 raise TypeError(f"formats items must be PreparedBatchFormat, got {type(fmt).__name__}")
-        if self.preflight_error is not None and not isinstance(self.preflight_error, BatchDiagnostic):
-            raise TypeError(
-                f"preflight_error must be BatchDiagnostic or None, got {type(self.preflight_error).__name__}"
-            )
+        if self.preflight_error is not None:
+            if not isinstance(self.preflight_error, BatchDiagnostic):
+                raise TypeError(
+                    f"preflight_error must be BatchDiagnostic or None, got {type(self.preflight_error).__name__}"
+                )
+            if self.preflight_error.code in APPROVED_WARNING_CODES:
+                raise ValueError(f"preflight_error must not be a warning diagnostic, got '{self.preflight_error.code}'")
 
 
 @dataclass(frozen=True)
@@ -262,6 +269,12 @@ def validate_prepared_work_consistency(
                 f"Prepared work file[{i}] input '{prep_file.input}' does not match allocated input '{alloc_file.input}'"
             )
 
+        if prep_file.preflight_error is not None and (
+            not isinstance(prep_file.preflight_error, BatchDiagnostic)
+            or prep_file.preflight_error.code in APPROVED_WARNING_CODES
+        ):
+            raise ValueError(f"Prepared work file[{i}] ('{prep_file.input}') contains invalid preflight error")
+
         if len(alloc_file.formats) != len(prep_file.formats):
             raise ValueError(
                 f"Prepared work file[{i}] ('{alloc_file.input}') format count ({len(prep_file.formats)}) "
@@ -278,6 +291,13 @@ def validate_prepared_work_consistency(
                 raise ValueError(
                     f"Prepared work file[{i}] ('{alloc_file.input}') format[{j}] target_relative_path "
                     f"'{prep_fmt.target_relative_path}' does not match allocated '{alloc_fmt.target_relative_path}'"
+                )
+            if prep_fmt.preflight_error is not None and (
+                not isinstance(prep_fmt.preflight_error, BatchDiagnostic)
+                or prep_fmt.preflight_error.code in APPROVED_WARNING_CODES
+            ):
+                raise ValueError(
+                    f"Prepared work file[{i}] ('{prep_file.input}') format[{j}] contains invalid preflight error"
                 )
 
 

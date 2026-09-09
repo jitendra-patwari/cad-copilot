@@ -56,6 +56,7 @@ from batch.registry import (
     OperationRegistry,
     build_initial_registry,
 )
+from batch.service import BatchService
 
 __all__: list[str] = [
     "AllocatedBatchFile",
@@ -86,6 +87,7 @@ __all__: list[str] = [
     "BatchResponse",
     "BatchSafetyBoundary",
     "BatchSafetyRejectionError",
+    "BatchService",
     "BatchSummary",
     "BatchValidationError",
     "FileResultStatus",

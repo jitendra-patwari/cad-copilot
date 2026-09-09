@@ -2,11 +2,11 @@
 
 **Project**: CAD Copilot  
 **Scope**: Milestone 1 (Foundation & Domain Interfaces), Milestone 2 (Pure Domain Geometry Math), Milestone 3 (Solid Edge COM Driver & Artifact Pipeline), Milestone 4 (Generation Application Orchestration, Examples, Manifest & Stdio IPC), and Milestone 5 (Batch Automation Contracts, Execution Infrastructure, Safety Boundary & Sequential Processing)
-**Status (9 September 2026)**: M1/M2 domain baseline and M3.0 reconciliation implemented; M3.1 runtime/lifecycle, M3.2 primitive execution and inspection, and M3.3 multi-format artifact export and pipeline finalization implemented, hardened, and verified. Milestone 4 is fully implemented, hardened, and verified across all components: M4.1 (generation application orchestration), M4.2 (optional text-only Gemini proposal adapter), M4.3 (deterministic example catalog), M4.4 (canonical run manifest and sidecar publication), and M4.5 (strict generation stdio IPC, launchers, and packaging). Milestone 4 is complete. Milestone 5.1 (canonical batch request/response/manifest contracts, schemas, typed models, and operation metadata registry) is implemented and verified under `contracts/schemas/batch/` and `engine/src/batch/`. Milestone 5.2 batch execution infrastructure, typed bindings, pure work allocation, tracked-document task generalization, and observable teardown are implemented under `engine/src/batch/` and verified; shared sequential batch service orchestration remains in progress.
+**Status (9 September 2026)**: M1/M2 domain baseline and M3.0 reconciliation implemented; M3.1 runtime/lifecycle, M3.2 primitive execution and inspection, and M3.3 multi-format artifact export and pipeline finalization implemented, hardened, and verified. Milestone 4 is fully implemented, hardened, and verified across all components: M4.1 (generation application orchestration), M4.2 (optional text-only Gemini proposal adapter), M4.3 (deterministic example catalog), M4.4 (canonical run manifest and sidecar publication), and M4.5 (strict generation stdio IPC, launchers, and packaging). Milestone 4 is complete. Milestone 5.1 (canonical batch request/response/manifest contracts, schemas, typed models, and operation metadata registry) and Milestone 5.2 (batch execution infrastructure, typed bindings, pure work allocation, tracked-document task generalization, observable teardown, and shared sequential batch service orchestration) are implemented, hardened, and verified under `contracts/schemas/batch/` and `engine/src/batch/`. Filesystem safety boundary (M5.3) and manifest publication (M5.6) remain planned.
 
 ### Current evidence boundary
 
-- **Offline test suite**: 1,710 tests passed, 2 skipped, with 40 tests deselected (36 COM driver tests, 2 COM live IPC tests, 1 live_ai provider test, 1 live_ai IPC test); strict mypy passed across the verified component scope (127 source and test files checked: `mypy --config-file mypy.ini --strict src tests/manifests tests/artifacts tests/application tests/example_catalog tests/plan_providers tests/ipc tests/batch tests/contracts/test_schema_contracts.py tests/contracts/test_batch_schema_contracts.py tests/test_interfaces.py tests/drivers/test_executor.py tests/drivers/test_solidedge_live.py`); Ruff lint passed and formatting clean; `git diff --check` clean.
+- **Offline test suite**: 1,764 tests passed, 2 skipped, with 40 tests deselected (36 COM driver tests, 2 COM live IPC tests, 1 live_ai provider test, 1 live_ai IPC test); the focused runtime lifecycle/security suite passed all 73 tests; strict mypy passed across the verified component scope (138 source files checked: `mypy --config-file mypy.ini --strict src tests/manifests tests/artifacts tests/application tests/example_catalog tests/plan_providers tests/ipc tests/batch tests/contracts/test_schema_contracts.py tests/contracts/test_batch_schema_contracts.py tests/test_interfaces.py tests/drivers/test_executor.py tests/drivers/test_runtime_document_task.py tests/drivers/test_runtime_lifecycle.py tests/drivers/test_ownership_teardown_safety.py tests/drivers/test_error_sanitization.py tests/drivers/test_solidedge_live.py`); Ruff lint passed and formatting clean; `git diff --check` clean.
 - **Live integration evidence**: 31 passed, 0 skipped across 31 COM tests on a licensed Siemens Solid Edge 2026 session (`226.00.00.106`), verifying:
   1. M3.1 lifecycle isolation, Ordered mode readback `2`, and non-destructive process preservation (4 live gates).
   2. M3.2 3D primitives (cuboid, cylinder, 24-tooth conceptual spur gear at origin and translated with centered through-bore), 6-face circular cuts, localized +Z cuts, and sequential feature execution (15 live gates).
@@ -73,7 +73,7 @@ This specification defines the functional, architectural, and quality requiremen
   - `contracts/schemas/generation/`: 3D CAD prompt generation request/response envelopes (`generation-request.schema.json`, `generation-response.schema.json`, `"origin": "cad_copilot"`).
   - `contracts/schemas/batch/`: Batch task definitions, export configurations, and summary manifest schemas (`batch-request.schema.json`, `batch-response.schema.json`, `batch-manifest-v1.schema.json`).
   - `contracts/schemas/edit/`: Historical, non-runtime edit schemas (`edit-request.schema.json`, `edit-response.schema.json`). Their legacy sessions, images, and selectable outputs are not initial capabilities. Future M7B editing is constrained by a manifest-based revision model, not a session database or rollback system.
-- **Runbooks & Fixtures**: Internal feature-plan examples (`contracts/examples/`) cover plates, conceptual gears, and conditional composition/sweep representations. JSON fixture integrity and public schema conformance tests do not establish end-to-end or live CAD support; the generation runbook describes the implemented M4.5 stdio IPC launcher, whereas `contracts/schemas/batch/README.md` serves as the canonical contract guide for the M5.1 batch interface (contracts, schemas, typed models, and metadata registry implemented; M5.2+ runtime execution planned).
+- **Runbooks & Fixtures**: Internal feature-plan examples (`contracts/examples/`) cover plates, conceptual gears, and conditional composition/sweep representations. JSON fixture integrity and public schema conformance tests do not establish end-to-end or live CAD support; the generation runbook describes the implemented M4.5 stdio IPC launcher, whereas `contracts/schemas/batch/README.md` serves as the canonical contract guide for the batch interface (M5.1 contracts, schemas, typed models, and metadata registry, and M5.2 sequential batch execution infrastructure implemented; M5.3+ filesystem safety boundary, manifest publication, and desktop client integration remain planned).
 
 ### FR-3: Abstract Domain Interfaces (Milestone 1)
 - **CAD Runtime Port (`CADRuntimeABC` in `engine/src/interfaces/`)**:
@@ -252,6 +252,11 @@ The implementation is in `engine/src/drivers/solidedge/`. The requirements below
 - **Lightweight Typed Handler Bindings**:
   - `BatchOperationHandler` and `BatchHandlerFactory` protocols defining single-format document execution and runtime binding.
   - `OperationBinding` & `OperationBindings`: Immutable lookup container validating exact 1-to-1 parity against `OperationRegistry` metadata; detects missing, duplicate, unknown, or non-callable bindings before runtime acquisition.
+- **Shared Sequential Execution Hub (`BatchService`)**:
+  - Orchestrates sequential batch execution through discrete lifecycle phases: preflight validation and fast configuration failure, pure work allocation and collision checking, safety boundary preparation seam, single runtime connection with health verification, caller-ordered per-file and per-format dispatch, error isolation with caller-selected continue policy, and observable teardown.
+  - Enforces strict at-most-one-open-document invariant and mandatory document close without saving.
+  - Enforces authoritative fatal lifecycle failure precedence (`DOCUMENT_CLOSE_FAILED`, `SOURCE_INTEGRITY_FAILED`, `SOLID_EDGE_UNHEALTHY`, teardown failure) over cooperative cancellation, preserving `BATCH_CANCELLED` markers while upgrading terminal status to `failed`.
+  - Dispatches balanced 6-phase progress events with fail-safe observer exception isolation.
 
 ---
 
@@ -446,3 +451,29 @@ Milestone 4 is 100% implemented, hardened, and verified across all five constitu
 - **Strict Mypy**: **Success: 0 issues across 99 source files**.
 - **Ruff Linter & Formatter**: Clean across all 132 engine files.
 - **Live Solid Edge 2026 Evidence**: Verified across M3, M4 component, and M4.5 CLI suites on Windows 11 with Siemens Solid Edge 2026 (all 3 live CLI gates verified: `test_m45_live_01`, `test_m45_live_02`, `test_m45_live_03`).
+
+### Milestone 5.2 Component Acceptance Criteria (Implemented and Verified)
+
+This section defines acceptance criteria specifically for the Milestone 5.2 batch execution infrastructure component:
+
+1. **Shared Sequential Execution Hub (FR-15)**:
+   - `BatchService` in `engine/src/batch/service.py` coordinates preflight validation, work allocation, boundary seam preparation, CAD runtime acquisition, sequential document dispatch, error isolation, cancellation, and observable teardown.
+   - Enforces the strict invariant that at most one CAD document is open at any time and guarantees mandatory document close without saving.
+   - Preserves caller input and format ordering deterministically throughout execution.
+   - Supports extensible custom batch operations and formats through decoupled `BatchExecutionSpec` and `OperationBindings` without modifying the execution hub.
+
+2. **Error Isolation & Lifecycle Precedence (FR-15)**:
+   - Per-format handler failures produce `partial` or `failed` file results without crashing the batch run, respecting `continue_on_error`.
+   - Lifecycle failures (`DOCUMENT_CLOSE_FAILED`, `SOURCE_INTEGRITY_FAILED`, `SOLID_EDGE_UNHEALTHY`, teardown failure) strictly supersede cooperative cancellation: terminal status is upgraded to `failed`, untouched files are moved to `unprocessed_files`, and `cancelled_files` is cleared.
+   - Mid-file cooperative cancellation emits `BATCH_CANCELLED` error diagnostics on the active file while cleanly partitioning remaining inputs to `cancelled_files`.
+
+3. **Progress Observation & Event Safety (FR-15)**:
+   - Emits 6 discrete lifecycle progress events (`batch_started`, `file_started`, `format_started`, `format_finished`, `file_finished`, `batch_finished`) with completed counts and lifecycle phase.
+   - Isolates all progress observer exceptions (`contextlib.suppress(Exception)`), guaranteeing that faulty observers cannot abort or corrupt batch execution.
+
+4. **Automated Verification Baseline**:
+   - Dedicated batch test suite: **346 passed** across 14 `test_*.py` test modules (`test_accounting.py`, `test_allocation.py`, `test_bindings.py`, `test_contracts.py`, `test_execution.py`, `test_models.py`, `test_paths.py`, `test_registry.py`, `test_service_cancellation.py`, `test_service_failures.py`, `test_service_lifecycle.py`, `test_service_progress.py`, `test_terminal.py`, `test_terminal_cancellation.py`).
+   - Full offline test suite: **1,764 passed, 2 skipped, 40 deselected** across all domain packages.
+   - Focused runtime lifecycle/security suite: **73 passed** across `test_runtime_document_task.py`, `test_runtime_lifecycle.py`, `test_ownership_teardown_safety.py`, and `test_error_sanitization.py`.
+   - Strict mypy: **Success: 0 issues across 138 source files** using the complete M5.2 verification scope.
+   - Ruff linting and formatting: clean across all 164 engine files.
