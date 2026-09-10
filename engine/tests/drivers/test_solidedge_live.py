@@ -10,6 +10,8 @@ import contextlib
 import hashlib
 import json
 import math
+import os
+import shutil
 import sys
 import time
 from collections.abc import Generator
@@ -31,6 +33,10 @@ from artifacts.validation import (
     validate_par_artifact,
     validate_step_artifact,
     validate_stl_artifact,
+)
+from batch.source_integrity import (
+    capture_source_snapshot,
+    verify_snapshot_equality,
 )
 from drivers.solidedge import (
     OwnershipMode,
@@ -2145,5 +2151,110 @@ def test_m43_live_example_catalog_spur_gear(
 
     print(
         f"[M43-LIVE-01] Success: Deterministic spur gear catalog generated valid part and manifest on Solid Edge {diag.version_build}.",
+        flush=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# M5.3 Batch Safety Boundary Live Gate
+# ---------------------------------------------------------------------------
+
+
+def test_m53_live_01_source_immutability_and_close_lifecycle(
+    live_runtime: SolidEdgeRuntime,
+    tmp_path: Path,
+) -> None:
+    """M5.3 Live Gate: Proves prompt-free close and cryptographic source immutability on native CAD files."""
+    if os.environ.get("CAD_COPILOT_RUN_LIVE_COM") != "1":
+        pytest.skip("Skipping M5.3 live test: CAD_COPILOT_RUN_LIVE_COM is not set to '1'")
+
+    fixtures_dir = Path(__file__).resolve().parent.parent / "live_fixtures"
+    if not fixtures_dir.is_dir():
+        pytest.skip(f"Live fixtures directory not found: {fixtures_dir.name}")
+
+    # Discover candidate files in live_fixtures
+    part_files = sorted(fixtures_dir.glob("*.par"))
+    draft_files = sorted(fixtures_dir.glob("*.dft"))
+    sheetmetal_files = sorted(fixtures_dir.glob("*.psm"))
+    assembly_files = sorted(fixtures_dir.glob("*.asm"))
+
+    if not part_files or not draft_files:
+        pytest.skip("M5.3 live gate requires at least one .par and one .dft file in live_fixtures")
+
+    # Select representative files across available formats
+    test_files_to_open: list[Path] = [part_files[0], draft_files[0]]
+    if sheetmetal_files:
+        test_files_to_open.append(sheetmetal_files[0])
+    if assembly_files:
+        test_files_to_open.append(assembly_files[0])
+
+    # Copy all fixtures into disposable temporary sandbox so originals are never touched
+    sandbox_dir = tmp_path / "sandbox"
+    sandbox_dir.mkdir(parents=True, exist_ok=True)
+
+    for src_file in fixtures_dir.iterdir():
+        if src_file.is_file():
+            shutil.copy2(src_file, sandbox_dir / src_file.name)
+
+    # Map target files to their sandbox copies
+    sandbox_targets = [sandbox_dir / f.name for f in test_files_to_open]
+
+    # Connect to Solid Edge
+    app_handle = live_runtime.connect_application()
+    diag = live_runtime.get_diagnostics()
+    assert live_runtime.is_healthy() is True
+
+    verified_extensions: list[str] = []
+
+    for target in sandbox_targets:
+        ext = target.suffix.lower()
+        # 1. Capture pre-open cryptographic snapshot
+        pre_snapshot = capture_source_snapshot(target)
+        assert pre_snapshot.size_bytes > 0
+        assert len(pre_snapshot.sha256) == 64
+
+        # 2. Open document through production tracked runtime
+        t0 = time.perf_counter()
+        doc_handle = live_runtime.open_document(app_handle, target)
+        open_duration = time.perf_counter() - t0
+
+        assert doc_handle.handle_id in live_runtime._open_document_handles
+        assert doc_handle.handle_id not in live_runtime._closed_pending_idle_handles
+
+        # 3. Read document name via driver-internal document task seam without export or refresh
+        doc_name = live_runtime.run_document_task(
+            doc_handle,
+            lambda raw_doc, worker: str(getattr(raw_doc, "Name", "")),
+            timeout=15.0,
+        )
+        assert bool(doc_name)
+
+        # 4. Close document through the centralized no-save close primitive
+        t_close = time.perf_counter()
+        live_runtime.close_document(doc_handle)
+        close_duration = time.perf_counter() - t_close
+
+        # Invariant: Handled cleanly, prompt-free within bounded timeout
+        assert doc_handle.handle_id not in live_runtime._open_document_handles
+        assert doc_handle.handle_id not in live_runtime._closed_pending_idle_handles
+        assert live_runtime.is_healthy() is True
+
+        # 5. Capture post-close snapshot and enforce exact cryptographic equality
+        post_snapshot = capture_source_snapshot(target)
+        verify_snapshot_equality(pre_snapshot, post_snapshot)
+        assert pre_snapshot.sha256 == post_snapshot.sha256
+        assert pre_snapshot.size_bytes == post_snapshot.size_bytes
+        assert pre_snapshot.mtime_ns == post_snapshot.mtime_ns
+        assert pre_snapshot.identity == post_snapshot.identity
+
+        verified_extensions.append(ext)
+        print(
+            f"[M53-LIVE] Verified {ext}: open={open_duration:.2f}s, close={close_duration:.2f}s, sha256_match=True",
+            flush=True,
+        )
+
+    print(
+        f"[M53-LIVE-01] Success: Verified prompt-free close and source immutability on Solid Edge {diag.version_build} "
+        f"(PID {diag.process_id}, mode={app_handle.ownership.value}) across formats: {', '.join(verified_extensions)}.",
         flush=True,
     )

@@ -59,6 +59,7 @@ src-tauri/gen/
 *.stl
 outputs/
 output/
+engine/tests/live_fixtures/
 
 # IDE & Editor Metadata
 .idea/

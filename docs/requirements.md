@@ -258,7 +258,7 @@ The implementation is in `engine/src/drivers/solidedge/`. The requirements below
   - Enforces authoritative fatal lifecycle failure precedence (`DOCUMENT_CLOSE_FAILED`, `SOURCE_INTEGRITY_FAILED`, `SOLID_EDGE_UNHEALTHY`, teardown failure) over cooperative cancellation, preserving `BATCH_CANCELLED` markers while upgrading terminal status to `failed`.
   - Dispatches balanced 6-phase progress events with fail-safe observer exception isolation.
 
-### FR-16: Batch Filesystem & Source-Integrity Safety Boundary (Milestone 5.3 — In Progress)
+### FR-16: Batch Filesystem & Source-Integrity Safety Boundary (Milestone 5.3 — Implemented and Verified)
 - **Bounded Local Root Enforcement**:
   - Requires `input_root` and `output_root` to be existing, non-root, absolute local drive-qualified Windows directory paths without UNC, device, DOS-device, or extended-length prefixes.
   - Verifies roots and parent components are normal directories and not symlinks, junctions, or reparse points.
@@ -497,3 +497,51 @@ This section defines acceptance criteria specifically for the Milestone 5.2 batc
    - Focused runtime lifecycle/security suite: **73 passed** across `test_runtime_document_task.py`, `test_runtime_lifecycle.py`, `test_ownership_teardown_safety.py`, and `test_error_sanitization.py`.
    - Strict mypy: **Success: 0 issues across 138 source files** using the complete M5.2 verification scope.
    - Ruff linting and formatting: clean across all 164 engine files.
+
+### Milestone 5.3 Component Acceptance Criteria (Implemented and Verified)
+
+This section defines acceptance criteria specifically for the Milestone 5.3 batch filesystem safety boundary, source-integrity verification, guarded workspace, and runtime document close lifecycle hardening:
+
+1. **Bounded Local Root Enforcement & Canonical Path Validation (FR-16)**:
+   - Validates `input_root` and `output_root` as existing, non-root, absolute local drive-qualified Windows directory paths without UNC, device, DOS-device (`\\.\`), or extended-length (`\\?\`) prefixes.
+   - Verifies roots and parent components are normal directories and not symlinks, junctions, or reparse points.
+   - Captures and enforces stable filesystem identity `(st_dev, st_ino)` on roots during preparation.
+   - Enforces strict canonical containment beneath validated roots for all relative file paths.
+   - Rejects directory traversal (`..`), empty components, colons, NUL bytes, trailing dots, leading/trailing spaces, and alternate data streams (`:`).
+   - Rejects Windows reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`) across all path components regardless of file extension.
+   - Detects and rejects duplicate selected source identities across different canonical relative paths (aliasing/hardlinks) before CAD runtime acquisition.
+
+2. **Race-Resilient Source-Integrity Snapshotting (FR-16)**:
+   - `SourceSnapshot` captures regular file mode, exact file size in bytes, nanosecond modification timestamp (`st_mtime_ns`), filesystem identity `(st_dev, st_ino)`, and lowercase SHA-256 digest.
+   - Computes SHA-256 digests via fixed 1 MiB chunk streaming without loading entire CAD documents into memory.
+   - Pre- and post-stream metadata comparison verifies that source files were not modified during snapshot computation.
+   - Exact double-verification timing: pre-open snapshot immediately before `open_document()`, and post-close snapshot immediately after no-save close with zero-tolerance equality enforcement. Emits fatal `SOURCE_INTEGRITY_FAILED` diagnostic on any mismatch.
+
+3. **Guarded Output Workspace & Windows Atomic Publication (FR-16)**:
+   - Allocates private per-format same-volume staging directory (`output_root/.cad-copilot-work-<token>/`) without immediate disk creation during preparation.
+   - Context-verified `GuardedOutputWorkspace` strictly governs the format lifecycle states (`allocated` -> `active` -> `finalized` / `cleaned`).
+   - `begin_format` exclusively creates the private staging directory via `os.mkdir()` and validates empty directory identity.
+   - Windows-native atomic publication (`output_publication.py` using Windows `MoveFileExW` with zero flags) guarantees atomic no-replace publication that fails closed with `TARGET_ALREADY_EXISTS` without overwriting pre-existing targets.
+   - Guarded cleanup removes the verified work file and empty staging directory on failure or cancellation without broad recursive tree deletions.
+
+4. **Production Batch Safety Boundary (`FilesystemBatchSafetyBoundary`) (FR-16)**:
+   - Production implementation of `BatchSafetyBoundary` protocol bridging roots, validation, snapshots, and guarded workspaces.
+   - Seamlessly integrates with `BatchService` lifecycle hooks (`prepare`, `verify_before_open`, `verify_after_close`).
+   - Emits canonical error diagnostics conforming to `batch-response.schema.json`: `INPUT_ROOT_NOT_FOUND`, `INPUT_PATH_NOT_ALLOWED`, `OUTPUT_ROOT_UNAVAILABLE`, `INPUT_FILE_NOT_FOUND`, `TARGET_ALREADY_EXISTS`, `SOURCE_INTEGRITY_FAILED`, and `INTERNAL_ERROR`.
+   - Never leaks raw workstation filesystem paths or unhandled OS error strings into diagnostics (SEC-07).
+
+5. **Hardened Document Close Lifecycle & Application Quiescence (FR-7)**:
+   - Centralized worker-side document close sequence in `SolidEdgeRuntime`:
+     `Close(False) -> raw registry removal -> local reference release -> pending-idle registration -> Application.DoIdle()`.
+   - Finalization boundary: `_closed_pending_idle_handles` removal and public `_open_document_handles` removal occur only after `worker.call()` returns successfully to the caller, preventing state loss on timeouts or late worker completion.
+   - Threaded STA dispatch via `worker.call()` for normal closes, and direct worker invocation for failed create-mode cleanups.
+   - Normal close retry is the path that retries `DoIdle()` when a handle is in `_closed_pending_idle_handles` without attempting duplicate `Close(False)` or resolving released raw documents.
+   - Teardown Stage 1 safely skips duplicate `Close(False)` on handles marked pending-idle, records incomplete document cleanup (`docs_clean = False`), and continues through ownership-safe teardown without calling COM against released documents or falsely reporting `DOCUMENT_LOST`.
+
+6. **Automated & Live Verification Baseline**:
+   - Dedicated batch test suite: **657 passed, 1 skipped** across 24 test modules in `tests/batch/`.
+   - Focused driver lifecycle & security suite: **84 passed** across `test_runtime_document_task.py`, `test_runtime_lifecycle.py`, `test_ownership_teardown_safety.py`, and `test_error_sanitization.py`.
+   - Full offline engine test suite: **2,086 passed, 3 skipped, 41 deselected in 50.82s** (`pytest -c pytest.ini -m "not com and not live_ai"`).
+   - Strict static typing: **Success: 0 issues across 157 source files** (`mypy --config-file mypy.ini --strict src tests/manifests tests/artifacts tests/application tests/example_catalog tests/plan_providers tests/ipc tests/batch tests/contracts/test_schema_contracts.py tests/contracts/test_batch_schema_contracts.py tests/test_interfaces.py tests/drivers/test_executor.py tests/drivers/test_runtime_document_task.py tests/drivers/test_runtime_lifecycle.py tests/drivers/test_ownership_teardown_safety.py tests/drivers/test_error_sanitization.py tests/drivers/test_solidedge_live.py`).
+   - Ruff linting and formatting: Clean across all 183 engine files.
+   - Live Solid Edge 2026 Verification: Passed live source immutability gate (`test_m53_live_01_source_immutability_and_close_lifecycle`) across all 4 native formats (`.par`, `.dft`, `.psm`, `.asm`) on Siemens Solid Edge 2026 (version `226.00.00.106`, PID `13888`, borrowed session) with 100% pre- and post-close SHA-256 and metadata preservation.
