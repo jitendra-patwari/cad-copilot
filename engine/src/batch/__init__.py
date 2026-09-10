@@ -63,6 +63,7 @@ from batch.registry import (
     OperationRegistry,
     build_initial_registry,
 )
+from batch.safety import FilesystemBatchSafetyBoundary
 from batch.service import BatchService
 from batch.source_integrity import SourceSnapshot
 
@@ -101,6 +102,7 @@ __all__: list[str] = [
     "BatchValidationError",
     "BatchWorkspaceError",
     "FileResultStatus",
+    "FilesystemBatchSafetyBoundary",
     "FilesystemOutputWorkspace",
     "ManifestArtifactRecord",
     "ManifestFileResult",

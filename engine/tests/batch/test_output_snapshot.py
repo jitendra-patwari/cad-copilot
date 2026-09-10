@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -57,6 +58,11 @@ class TestOutputSnapshot:
                 sha256="a" * 64,
             )
 
+    def test_output_snapshot_rejects_zero_inode(self) -> None:
+        ident = PathIdentity(device=1, inode=0, mode=0o100644)
+        with pytest.raises(ValueError, match="non-zero"):
+            OutputSnapshot(identity=ident, size_bytes=100, mtime_ns=1000, sha256="a" * 64)
+
 
 class TestCaptureOutputSnapshot:
     """Tests for capture_output_snapshot capture helper."""
@@ -74,6 +80,25 @@ class TestCaptureOutputSnapshot:
         p = tmp_path / "empty.step"
         p.write_bytes(b"")
         with pytest.raises(ValueError, match="cannot be zero bytes"):
+            capture_output_snapshot(p)
+
+    def test_capture_output_snapshot_rejects_zero_inode(self, tmp_path: Path) -> None:
+        p = tmp_path / "zero_inode.step"
+        p.write_bytes(b"content bytes")
+        real_snap = capture_output_snapshot(p)
+        zero_id = PathIdentity(device=real_snap.identity.device, inode=0, mode=real_snap.identity.mode)
+        from batch.source_integrity import SourceSnapshot
+
+        fake_snap = SourceSnapshot(
+            identity=zero_id,
+            size_bytes=real_snap.size_bytes,
+            mtime_ns=real_snap.mtime_ns,
+            sha256=real_snap.sha256,
+        )
+        with (
+            patch("batch.output_snapshot.capture_source_snapshot", return_value=fake_snap),
+            pytest.raises(ValueError, match="zero inode"),
+        ):
             capture_output_snapshot(p)
 
 

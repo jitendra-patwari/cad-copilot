@@ -125,6 +125,16 @@ def activate_private_work_directory(
             request_id=request_id,
         ) from exc
 
+    if initial_dir_id.inode == 0:
+        raise BatchWorkspaceError(
+            BatchDiagnostic(
+                code="ARTIFACT_EXPORT_FAILED",
+                message="Work directory identity unavailable (zero inode) after creation; refusing unverified rollback",
+                format=fmt,
+            ),
+            request_id=request_id,
+        )
+
     if not initial_dir_id.is_directory or is_symlink_or_reparse_point(work_dir):
         raise BatchWorkspaceError(
             BatchDiagnostic(
@@ -259,6 +269,16 @@ def cleanup_private_work_directory(
             request_id=request_id,
         ) from exc
 
+    if current_id.inode == 0:
+        raise BatchWorkspaceError(
+            BatchDiagnostic(
+                code="ARTIFACT_EXPORT_FAILED",
+                message="Work directory identity unavailable (zero inode) during cleanup",
+                format=fmt,
+            ),
+            request_id=request_id,
+        )
+
     if not current_id.is_directory or is_reparse:
         raise BatchWorkspaceError(
             BatchDiagnostic(
@@ -316,6 +336,16 @@ def cleanup_private_work_directory(
                 ),
                 request_id=request_id,
             ) from exc
+
+        if file_id.inode == 0:
+            raise BatchWorkspaceError(
+                BatchDiagnostic(
+                    code="ARTIFACT_EXPORT_FAILED",
+                    message="Work file identity unavailable (zero inode) during cleanup",
+                    format=fmt,
+                ),
+                request_id=request_id,
+            )
 
         if not file_id.is_regular_file or is_symlink_or_reparse_point(work_path):
             raise BatchWorkspaceError(

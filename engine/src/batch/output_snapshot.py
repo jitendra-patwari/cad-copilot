@@ -32,6 +32,10 @@ class OutputSnapshot:
     def __post_init__(self) -> None:
         if not isinstance(self.identity, PathIdentity):
             raise TypeError(f"identity must be PathIdentity, got {type(self.identity).__name__}")
+        if self.identity.inode == 0:
+            raise ValueError(
+                f"identity.inode must be non-zero (unavailable unique identity), got {self.identity.inode!r}"
+            )
         if not isinstance(self.size_bytes, int) or self.size_bytes <= 0:
             raise ValueError(f"size_bytes must be a positive int, got {self.size_bytes!r}")
         if not isinstance(self.mtime_ns, int):
@@ -47,9 +51,11 @@ def capture_output_snapshot(
 ) -> OutputSnapshot:
     """Capture a race-aware streaming SHA-256 snapshot of a generated output file.
 
-    Requires the file to exist, be a regular non-reparse file, and have a positive size.
+    Requires the file to exist, be a regular non-reparse file, have a non-zero inode, and have a positive size.
     """
     source_snap = capture_source_snapshot(path, buffer_size=buffer_size)
+    if source_snap.identity.inode == 0:
+        raise ValueError(f"Output artifact identity unavailable (zero inode): '{path.name}'")
     if source_snap.size_bytes <= 0:
         raise ValueError(f"Generated output file cannot be zero bytes: '{path.name}'")
     return OutputSnapshot(

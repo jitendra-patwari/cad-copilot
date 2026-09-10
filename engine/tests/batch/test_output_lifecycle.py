@@ -145,6 +145,36 @@ class TestActivatePrivateWorkDirectory:
         assert "refusing unverified rollback" in exc_info.value.diagnostic.message
         assert work_dir.exists()
 
+    def test_activate_zero_inode_refuses_deletion(self, tmp_path: Path) -> None:
+        root = tmp_path / "out_root"
+        root.mkdir()
+        work_dir = root / f"{WORK_DIR_PREFIX}abcdef1234567890"
+        work_path = work_dir / "output.step"
+
+        real_get_identity = get_path_identity
+
+        def _zero_inode_identity(p: Path, *, follow_symlinks: bool = False) -> PathIdentity:
+            real_id = real_get_identity(p, follow_symlinks=follow_symlinks)
+            if p == work_dir:
+                return PathIdentity(device=real_id.device, inode=0, mode=real_id.mode)
+            return real_id
+
+        with (
+            patch("batch.output_lifecycle.get_path_identity", side_effect=_zero_inode_identity),
+            pytest.raises(BatchWorkspaceError) as exc_info,
+        ):
+            activate_private_work_directory(
+                work_dir,
+                work_path,
+                root,
+                request_id="req-act-zero-ino",
+                format_name="step",
+            )
+
+        assert exc_info.value.diagnostic.code == "ARTIFACT_EXPORT_FAILED"
+        assert "zero inode" in exc_info.value.diagnostic.message
+        assert work_dir.exists()
+
     def test_activate_reparse_creation_refuses_deletion(self, tmp_path: Path) -> None:
         root = tmp_path / "out_root"
         root.mkdir()
@@ -510,3 +540,36 @@ class TestCleanupPrivateWorkDirectory:
 
         assert not work_path.exists()
         assert not work_dir.exists()
+
+    def test_cleanup_zero_inode_refuses_unverified_deletion(self, tmp_path: Path) -> None:
+        root = tmp_path / "out_root"
+        root.mkdir()
+        work_dir = root / f"{WORK_DIR_PREFIX}abcdef1234567890"
+        work_dir.mkdir()
+        work_path = work_dir / "output.step"
+        work_path.write_bytes(b"DATA")
+
+        real_get_identity = get_path_identity
+
+        def _zero_inode_identity(p: Path, *, follow_symlinks: bool = False) -> PathIdentity:
+            real_id = real_get_identity(p, follow_symlinks=follow_symlinks)
+            return PathIdentity(device=real_id.device, inode=0, mode=real_id.mode)
+
+        dir_id = PathIdentity(device=1, inode=0, mode=0o40755)
+        with (
+            patch("batch.output_lifecycle.get_path_identity", side_effect=_zero_inode_identity),
+            pytest.raises(BatchWorkspaceError) as exc_info,
+        ):
+            cleanup_private_work_directory(
+                work_dir,
+                work_path,
+                root,
+                expected_dir_id=dir_id,
+                request_id="req-clean-zero-ino",
+                format_name="step",
+            )
+
+        assert exc_info.value.diagnostic.code == "ARTIFACT_EXPORT_FAILED"
+        assert "zero inode" in exc_info.value.diagnostic.message
+        assert work_dir.exists()
+        assert work_path.exists()
