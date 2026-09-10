@@ -30,6 +30,7 @@ from batch.execution import (
     BatchProgressPhase,
     BatchProgressUpdate,
 )
+from batch.filesystem import PathIdentity
 from batch.models import (
     BatchArtifactRecord,
     BatchConfigurationError,
@@ -57,6 +58,7 @@ from batch.registry import (
     build_initial_registry,
 )
 from batch.service import BatchService
+from batch.source_integrity import SourceSnapshot
 
 __all__: list[str] = [
     "AllocatedBatchFile",
@@ -97,9 +99,11 @@ __all__: list[str] = [
     "OperationBindings",
     "OperationDescriptor",
     "OperationRegistry",
+    "PathIdentity",
     "PreparedBatchFile",
     "PreparedBatchFormat",
     "PreparedBatchWork",
+    "SourceSnapshot",
     "allocate_batch_work",
     "build_collision_rejection",
     "build_initial_registry",

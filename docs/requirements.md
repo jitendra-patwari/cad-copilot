@@ -258,6 +258,26 @@ The implementation is in `engine/src/drivers/solidedge/`. The requirements below
   - Enforces authoritative fatal lifecycle failure precedence (`DOCUMENT_CLOSE_FAILED`, `SOURCE_INTEGRITY_FAILED`, `SOLID_EDGE_UNHEALTHY`, teardown failure) over cooperative cancellation, preserving `BATCH_CANCELLED` markers while upgrading terminal status to `failed`.
   - Dispatches balanced 6-phase progress events with fail-safe observer exception isolation.
 
+### FR-16: Batch Filesystem & Source-Integrity Safety Boundary (Milestone 5.3 — In Progress)
+- **Bounded Local Root Enforcement**:
+  - Requires `input_root` and `output_root` to be existing, non-root, absolute local drive-qualified Windows directory paths without UNC, device, DOS-device, or extended-length prefixes.
+  - Verifies roots and parent components are normal directories and not symlinks, junctions, or reparse points.
+  - Enforces stable filesystem identity capture `(st_dev, st_ino)` on roots during preparation.
+- **Strict Relative Containment & Component Allowlisting**:
+  - Rejects directory traversal (`..`), empty components, colons, NUL bytes, trailing dots, leading/trailing spaces, and alternate data streams (`:`).
+  - Rejects Windows reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`) across all relative segments regardless of extension.
+  - Enforces strict canonical containment beneath the validated input root and output root; walks existing path components to forbid reparse points.
+  - Detects duplicate selected source identities across different canonical relative paths and rejects aliases before CAD runtime acquisition.
+- **Race-Resilient Source-Integrity Snapshotting**:
+  - `SourceSnapshot`: Immutable snapshot containing filesystem identity `(st_dev, st_ino)`, regular file mode, size in bytes, nanosecond modification timestamp (`st_mtime_ns`), and lowercase SHA-256 digest.
+  - Streaming SHA-256 calculation with fixed 1 MiB chunk buffers without loading complete CAD files into memory.
+  - Race-resilient pre- and post-stream metadata verification detecting in-flight mutation during snapshot capture.
+  - Exact double-verification timing: pre-open capture immediately before `open_document()`, and post-close capture immediately after no-save close with zero-tolerance equality enforcement.
+- **Guarded Output Workspace & Windows Atomic Publication**:
+  - Private per-format same-volume staging directory (`output_root/.cad-copilot-work-<token>/`) allocated without immediate filesystem creation.
+  - Guarded cleanup removing verified work file and directory on failure or cancellation without broad recursive tree deletions.
+  - Windows-only atomic publication (`MoveFileExW` with zero flags) guaranteeing atomic no-replace publication that fails closed without overwriting pre-existing targets.
+
 ---
 
 ## 3. Non-Functional Requirements (NFRs)
