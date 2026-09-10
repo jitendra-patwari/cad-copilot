@@ -77,11 +77,17 @@ class MockSolidEdgeApp:
         self.display_alerts_written = False
         self.Documents = MockDocuments()
         self.quit_called = False
+        self.idle_called = False
+        self.idle_call_count = 0
         self.thread_ids_called: list[int] = []
 
     def Quit(self) -> None:
         self.quit_called = True
         self.thread_ids_called.append(threading.get_ident())
+
+    def DoIdle(self) -> None:
+        self.idle_called = True
+        self.idle_call_count += 1
 
 
 class MockCOMError(Exception):
@@ -444,7 +450,9 @@ def test_create_part_document_closes_without_saving_when_ordered_mode_fails() ->
         # Invariant: Document must be closed immediately without saving!
         assert created_doc.closed is True
         assert created_doc.closed_save_arg is False
+        assert mock_app.idle_called is True
         assert len(runtime._open_document_handles) == 0
+        assert len(runtime._closed_pending_idle_handles) == 0
 
     runtime.teardown()
 
@@ -509,13 +517,89 @@ def test_create_part_document_retains_tracking_for_teardown_when_immediate_close
         tracked_handle_id = next(iter(runtime._open_document_handles.keys()))
         assert runtime._worker is not None
         assert tracked_handle_id in runtime._worker._document_registry
+        assert tracked_handle_id not in runtime._closed_pending_idle_handles
+        assert mock_app.idle_called is False
 
         # Invariant 3: Teardown executes Stage 1 document close, retrying and closing the tracked doc
-        runtime.teardown()
+        clean = runtime.teardown()
+        assert clean is True
         assert created_doc.closed is True
         assert created_doc.closed_save_arg is False
         assert created_doc.close_attempt_count == 2
+        assert mock_app.idle_called is True
         assert len(runtime._open_document_handles) == 0
+        assert len(runtime._closed_pending_idle_handles) == 0
+
+
+def test_create_part_document_retains_pending_idle_when_doidle_fails_during_mode_failure_cleanup() -> None:
+    """Proves that if Ordered mode fails, Close succeeds, but DoIdle fails, tracking is retained in pending-idle."""
+    runtime = SolidEdgeRuntime()
+
+    class RejectingMockDoc(MockDoc):
+        @property
+        def ModelingMode(self) -> int:
+            return 1
+
+        @ModelingMode.setter
+        def ModelingMode(self, val: int) -> None:
+            pass
+
+    class RejectingMockDocuments:
+        def __init__(self) -> None:
+            self.docs: list[RejectingMockDoc] = []
+
+        def Add(self, prog_id: str) -> RejectingMockDoc:
+            doc = RejectingMockDoc()
+            self.docs.append(doc)
+            return doc
+
+    rejecting_docs = RejectingMockDocuments()
+    mock_app = MockSolidEdgeApp()
+    mock_app.Documents = rejecting_docs  # type: ignore[assignment]
+
+    def _failing_idle() -> None:
+        raise RuntimeError("COM busy during DoIdle")
+
+    mock_app.DoIdle = _failing_idle  # type: ignore[method-assign]
+
+    try:
+        with patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules:
+            mock_win32_client = MagicMock()
+            mock_win32_client.GetActiveObject.return_value = mock_app
+            mock_modules.return_value = (None, mock_win32_client)
+
+            app_handle = runtime.connect_application()
+
+            with pytest.raises(CADDocumentError) as exc_info:
+                runtime.create_part_document(app_handle)
+
+            assert "Failed to establish Ordered modeling mode" in str(exc_info.value)
+            assert len(rejecting_docs.docs) == 1
+            created_doc = rejecting_docs.docs[0]
+            # Invariant 1: Close(False) succeeded
+            assert created_doc.closed is True
+            assert created_doc.closed_save_arg is False
+
+            # Invariant 2: Failed DoIdle retains public handle and pending-idle state, raw registry is cleared
+            worker = runtime._worker
+            assert worker is not None
+            assert len(runtime._open_document_handles) == 1
+            handle_id = next(iter(runtime._open_document_handles.keys()))
+            assert handle_id not in worker._document_registry
+            assert handle_id in runtime._closed_pending_idle_handles
+
+            # Invariant 3: Teardown skips duplicate Close(False) and reports incomplete teardown
+            clean = runtime.teardown()
+            assert clean is False
+            assert handle_id in runtime._open_document_handles
+            assert handle_id in runtime._closed_pending_idle_handles
+    finally:
+        # Clean up remaining handles and ensure worker is cleanly shut down even if assertions fail
+        if runtime._worker is not None and runtime._worker.is_alive():
+            runtime._worker.shutdown(timeout=2.0)
+        runtime._closed_pending_idle_handles.clear()
+        runtime._open_document_handles.clear()
+        runtime.teardown()
 
 
 def test_connect_application_captures_version_unavailable_warning() -> None:
@@ -587,3 +671,332 @@ def test_close_document_raises_when_runtime_is_poisoned() -> None:
     handle = SolidEdgePartDocumentHandle(handle_id="test-handle-id")
     with pytest.raises(CADRuntimeError, match="runtime is poisoned"):
         runtime.close_document(handle)
+
+
+def test_close_document_exact_sequence_order() -> None:
+    """Proves the exact close sequence: Close(False) -> raw reference removal -> DoIdle() -> public handle removal."""
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp()
+
+    with patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules:
+        mock_win32_client = MagicMock()
+        mock_win32_client.GetActiveObject.return_value = mock_app
+        mock_modules.return_value = (None, mock_win32_client)
+
+        app_handle = runtime.connect_application()
+        doc_handle = runtime.create_part_document(app_handle)
+        handle_id = doc_handle.handle_id
+
+        created_mock_doc = mock_app.Documents.added_docs[0]
+        worker = runtime._worker
+        assert worker is not None
+
+        events: list[str] = []
+
+        orig_close = created_mock_doc.Close
+
+        def _recording_close(save_changes: bool = False) -> None:
+            events.append(f"close_{save_changes}")
+            assert handle_id in worker._document_registry
+            assert handle_id in runtime._open_document_handles
+            assert handle_id not in runtime._closed_pending_idle_handles
+            orig_close(save_changes)
+
+        created_mock_doc.Close = _recording_close  # type: ignore[method-assign]
+
+        def _recording_doidle() -> None:
+            events.append("doidle")
+            assert created_mock_doc.closed is True
+            assert created_mock_doc.closed_save_arg is False
+            assert handle_id not in worker._document_registry
+            assert handle_id in runtime._closed_pending_idle_handles
+            assert handle_id in runtime._open_document_handles
+            mock_app.idle_called = True
+            mock_app.idle_call_count += 1
+
+        mock_app.DoIdle = _recording_doidle  # type: ignore[method-assign]
+
+        runtime.close_document(doc_handle)
+
+        assert events == ["close_False", "doidle"]
+        assert handle_id not in runtime._closed_pending_idle_handles
+        assert handle_id not in runtime._open_document_handles
+        assert handle_id not in worker._document_registry
+
+    runtime.teardown()
+
+
+def test_close_document_doidle_failure_retains_handles_without_raw_doc() -> None:
+    """Proves that DoIdle() failure retains public handle and pending-idle state while removing raw doc."""
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp()
+
+    with patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules:
+        mock_win32_client = MagicMock()
+        mock_win32_client.GetActiveObject.return_value = mock_app
+        mock_modules.return_value = (None, mock_win32_client)
+
+        app_handle = runtime.connect_application()
+        doc_handle = runtime.create_part_document(app_handle)
+        handle_id = doc_handle.handle_id
+
+        created_mock_doc = mock_app.Documents.added_docs[0]
+        worker = runtime._worker
+        assert worker is not None
+
+        def _failing_doidle() -> None:
+            raise RuntimeError("Simulated DoIdle COM failure")
+
+        mock_app.DoIdle = _failing_doidle  # type: ignore[method-assign]
+
+        with pytest.raises(CADRuntimeError):
+            runtime.close_document(doc_handle)
+
+        assert created_mock_doc.closed is True
+        assert created_mock_doc.closed_save_arg is False
+        assert handle_id not in worker._document_registry
+        assert handle_id in runtime._closed_pending_idle_handles
+        assert handle_id in runtime._open_document_handles
+        assert runtime._is_poisoned is False
+
+    runtime.teardown()
+
+
+def test_close_document_retry_after_doidle_failure_does_not_double_close() -> None:
+    """Proves that retrying close_document after DoIdle() failure calls only DoIdle() without double-closing."""
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp()
+
+    with patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules:
+        mock_win32_client = MagicMock()
+        mock_win32_client.GetActiveObject.return_value = mock_app
+        mock_modules.return_value = (None, mock_win32_client)
+
+        app_handle = runtime.connect_application()
+        doc_handle = runtime.create_part_document(app_handle)
+        handle_id = doc_handle.handle_id
+
+        created_mock_doc = mock_app.Documents.added_docs[0]
+        close_call_count = 0
+        orig_close = created_mock_doc.Close
+
+        def _counting_close(save_changes: bool = False) -> None:
+            nonlocal close_call_count
+            close_call_count += 1
+            orig_close(save_changes)
+
+        created_mock_doc.Close = _counting_close  # type: ignore[method-assign]
+
+        idle_call_count = 0
+
+        def _flaky_doidle() -> None:
+            nonlocal idle_call_count
+            idle_call_count += 1
+            if idle_call_count == 1:
+                raise RuntimeError("Temporary DoIdle COM busy error")
+
+        mock_app.DoIdle = _flaky_doidle  # type: ignore[method-assign]
+
+        with pytest.raises(CADRuntimeError):
+            runtime.close_document(doc_handle)
+
+        assert close_call_count == 1
+        assert idle_call_count == 1
+        assert handle_id in runtime._closed_pending_idle_handles
+        assert handle_id in runtime._open_document_handles
+
+        runtime.close_document(doc_handle)
+
+        assert close_call_count == 1
+        assert idle_call_count == 2
+        assert handle_id not in runtime._closed_pending_idle_handles
+        assert handle_id not in runtime._open_document_handles
+
+    runtime.teardown()
+
+
+def test_close_document_forgery_and_untracked_rejection() -> None:
+    """Proves that close_document rejects invalid, untracked, mismatched, and forged handles."""
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp()
+
+    with patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules:
+        mock_win32_client = MagicMock()
+        mock_win32_client.GetActiveObject.return_value = mock_app
+        mock_modules.return_value = (None, mock_win32_client)
+
+        app_handle = runtime.connect_application()
+        doc_handle = runtime.create_part_document(app_handle)
+        valid_id = doc_handle.handle_id
+
+        with pytest.raises(CADDocumentError, match="Invalid document handle type"):
+            runtime.close_document("not-a-handle")
+
+        with pytest.raises(CADDocumentError, match="Invalid document handle type"):
+            runtime.close_document(object())
+
+        empty_handle = SolidEdgePartDocumentHandle(handle_id="")
+        with pytest.raises(CADDocumentError, match="missing handle_id"):
+            runtime.close_document(empty_handle)
+
+        untracked = SolidEdgePartDocumentHandle(handle_id="00000000-0000-0000-0000-000000000000")
+        with pytest.raises(CADDocumentError) as exc_info:
+            runtime.close_document(untracked)
+        assert exc_info.value.error_code == "DOCUMENT_LOST"
+
+        mismatched_type = SolidEdgeDocumentHandle(handle_id=valid_id, path=Path("E:/test/dummy.par"))
+        with pytest.raises(CADDocumentError, match="handle type mismatch"):
+            runtime.close_document(mismatched_type)
+
+        runtime.close_document(doc_handle)
+        assert valid_id not in runtime._open_document_handles
+
+        with pytest.raises(CADDocumentError) as exc_info_closed:
+            runtime.close_document(doc_handle)
+        assert exc_info_closed.value.error_code == "DOCUMENT_LOST"
+
+    runtime.teardown()
+
+
+def test_close_document_generic_document_metadata_forgery_rejection(tmp_path: Path) -> None:
+    """Proves that close_document rejects generic handles whose path metadata was forged or altered."""
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp()
+
+    dummy_doc = tmp_path / "valid_model.par"
+    dummy_doc.write_text("content", encoding="utf-8")
+
+    with patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules:
+        mock_win32_client = MagicMock()
+        mock_win32_client.GetActiveObject.return_value = mock_app
+        mock_modules.return_value = (None, mock_win32_client)
+
+        app_handle = runtime.connect_application()
+        genuine_handle = runtime.open_document(app_handle, dummy_doc)
+        valid_id = genuine_handle.handle_id
+
+        forged_handle = SolidEdgeDocumentHandle(handle_id=valid_id, path=tmp_path / "forged_model.par")
+        with pytest.raises(CADDocumentError) as exc_info:
+            runtime.close_document(forged_handle)
+        assert exc_info.value.error_code == "DOCUMENT_LOST"
+        assert "metadata does not match" in str(exc_info.value)
+
+        runtime.close_document(genuine_handle)
+        assert valid_id not in runtime._open_document_handles
+
+    runtime.teardown()
+
+
+def test_close_document_fails_and_retains_pending_idle_when_raw_app_is_none() -> None:
+    """Proves close fails and retains pending-idle state when raw_app is unavailable, preventing false success and double-close."""
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp()
+
+    with patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules:
+        mock_win32_client = MagicMock()
+        mock_win32_client.GetActiveObject.return_value = mock_app
+        mock_modules.return_value = (None, mock_win32_client)
+
+        app_handle = runtime.connect_application()
+        doc_handle = runtime.create_part_document(app_handle)
+        handle_id = doc_handle.handle_id
+
+        created_mock_doc = mock_app.Documents.added_docs[0]
+        worker = runtime._worker
+        assert worker is not None
+
+        close_call_count = 0
+        orig_close = created_mock_doc.Close
+
+        def _counting_close(save_changes: bool = False) -> None:
+            nonlocal close_call_count
+            close_call_count += 1
+            orig_close(save_changes)
+
+        created_mock_doc.Close = _counting_close  # type: ignore[method-assign]
+
+        # Simulate that after tracking the document, the raw application reference becomes unavailable
+        worker._raw_app = None
+
+        # 1. Close must NOT claim success: it must fail and raise CADRuntimeError
+        with pytest.raises(CADRuntimeError, match="No active Solid Edge application instance"):
+            runtime.close_document(doc_handle)
+
+        # 2. Invariants: Close(False) was called once, raw doc was removed from registry
+        assert close_call_count == 1
+        assert created_mock_doc.closed is True
+        assert handle_id not in worker._document_registry
+
+        # 3. Invariants: State is NOT discarded; retained as pending-idle and open handle
+        assert handle_id in runtime._closed_pending_idle_handles
+        assert handle_id in runtime._open_document_handles
+
+        # 4. Retrying close while raw_app is still None raises again and NEVER calls Close(False) again
+        with pytest.raises(CADRuntimeError, match="No active Solid Edge application instance"):
+            runtime.close_document(doc_handle)
+        assert close_call_count == 1  # No duplicate Close(False)
+
+        # 5. Restoring raw_app allows retry to complete DoIdle() and cleanly finalize close without double-close
+        worker._raw_app = mock_app
+        runtime.close_document(doc_handle)
+
+        assert close_call_count == 1  # Still exactly 1: no duplicate Close(False)
+        assert mock_app.idle_called is True
+        assert handle_id not in runtime._closed_pending_idle_handles
+        assert handle_id not in runtime._open_document_handles
+
+    runtime.teardown()
+
+
+def test_close_document_timeout_preserves_tracking_when_worker_completes_late() -> None:
+    """Proves that a timeout during close_document preserves pending-idle and public tracking even after late completion."""
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp()
+    unblock_idle_event = threading.Event()
+    idle_started_event = threading.Event()
+
+    try:
+        with patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules:
+            mock_win32_client = MagicMock()
+            mock_win32_client.GetActiveObject.return_value = mock_app
+            mock_modules.return_value = (None, mock_win32_client)
+
+            app_handle = runtime.connect_application()
+            doc_handle = runtime.create_part_document(app_handle)
+            handle_id = doc_handle.handle_id
+
+            def _delayed_idle() -> None:
+                idle_started_event.set()
+                unblock_idle_event.wait(timeout=5.0)
+
+            mock_app.DoIdle = _delayed_idle  # type: ignore[method-assign]
+
+            # Call _execute_document_close with a very short timeout so worker.call times out deterministically
+            with pytest.raises(TimeoutError):
+                runtime._execute_document_close(handle_id, timeout=0.05)
+
+            # Confirm the runtime is poisoned from the timeout
+            assert runtime._is_poisoned is True
+            assert idle_started_event.is_set() is True
+
+            # Now unblock the worker thread so DoIdle completes late
+            unblock_idle_event.set()
+
+            # Wait for the worker thread to finish processing the task
+            worker = runtime._worker
+            assert worker is not None
+            # Drain/sync with worker thread by submitting a no-op task
+            sync_task = worker.submit(lambda: None)
+            sync_task.result(timeout=5.0)
+
+            # Invariant: Despite worker-side completion, fail-closed tracking state is NOT discarded
+            assert handle_id in runtime._open_document_handles
+            assert handle_id in runtime._closed_pending_idle_handles
+            assert handle_id not in worker._document_registry
+    finally:
+        unblock_idle_event.set()
+        if runtime._worker is not None and runtime._worker.is_alive():
+            runtime._worker.shutdown(timeout=2.0)
+        runtime._closed_pending_idle_handles.clear()
+        runtime._open_document_handles.clear()
+        runtime.teardown()

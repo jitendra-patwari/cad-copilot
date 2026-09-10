@@ -231,6 +231,7 @@ class SolidEdgeRuntime(CADRuntimeABC):
         self._worker: STAThreadWorker | None = None
         self._application: SolidEdgeApplicationHandle | None = None
         self._open_document_handles: dict[str, SolidEdgeDocumentHandle | SolidEdgePartDocumentHandle] = {}
+        self._closed_pending_idle_handles: set[str] = set()
         self._owned_process_identity: ProcessIdentity | None = None
         self._is_poisoned: bool = False
 
@@ -457,14 +458,11 @@ class SolidEdgeRuntime(CADRuntimeABC):
                         f"Failed to establish Ordered modeling mode on new Part document (expected 2, got {current_mode})"
                     )
             except Exception as mode_exc:
-                try:
-                    worker._invoke_com(lambda: raw_doc.Close(False))
-                    # Only remove tracking if immediate closure succeeded
-                    worker._document_registry.pop(handle_id, None)
+                with contextlib.suppress(Exception):
+                    # If closure or DoIdle failed, retain tracking in registry / handles / pending-idle so teardown will retry
+                    self._worker_close_document(worker, handle_id)
+                    self._closed_pending_idle_handles.discard(handle_id)
                     self._open_document_handles.pop(handle_id, None)
-                except Exception:
-                    # If closure failed, retain tracking in registry & handles so teardown will retry
-                    pass
 
                 if isinstance(mode_exc, CADDocumentError):
                     raise
@@ -498,30 +496,81 @@ class SolidEdgeRuntime(CADRuntimeABC):
         self._open_document_handles[handle.handle_id] = handle
         return handle
 
+    def _worker_close_document(self, worker: Any, handle_id: str) -> None:
+        """Worker-side document close, reference release, pending-idle tracking, and DoIdle sequence.
+
+        Must execute entirely on the STA worker thread.
+        Invariants:
+        1. If handle_id is not in _closed_pending_idle_handles:
+           - Fetch raw_doc from worker._document_registry; if None, raise CADDocumentError DOCUMENT_LOST.
+           - Call raw_doc.Close(False).
+           - Remove from worker._document_registry and release local reference.
+           - Record handle_id in _closed_pending_idle_handles.
+        2. Invoke Application.DoIdle() if active raw_app is available; if raw_app is None, raise CADRuntimeError.
+        3. Do NOT discard pending-idle tracking or public handles here; finalization occurs only after
+           worker.call returns successfully to the caller, or upon confirmed create-mode cleanup.
+        """
+        if handle_id not in self._closed_pending_idle_handles:
+            raw_doc = worker._document_registry.get(handle_id)
+            if raw_doc is None:
+                raise CADDocumentError(
+                    "Document object not found in STA worker registry",
+                    error_code="DOCUMENT_LOST",
+                )
+            worker._invoke_com(lambda: raw_doc.Close(False))
+            worker._document_registry.pop(handle_id, None)
+            del raw_doc
+            self._closed_pending_idle_handles.add(handle_id)
+
+        raw_app = getattr(worker, "_raw_app", None)
+        if raw_app is None:
+            raise CADRuntimeError("No active Solid Edge application instance")
+        worker._invoke_com(lambda: raw_app.DoIdle())
+
+    def _execute_document_close(self, handle_id: str, timeout: float = DEFAULT_DOC_CLOSE_TIMEOUT) -> None:
+        """Execute centralized worker-side document close sequence with timeout poisoning."""
+        worker = self._ensure_worker()
+
+        try:
+            worker.call(lambda: self._worker_close_document(worker, handle_id), timeout=timeout)
+            self._closed_pending_idle_handles.discard(handle_id)
+            self._open_document_handles.pop(handle_id, None)
+        except TimeoutError:
+            self._is_poisoned = True
+            raise
+
     def close_document(self, doc_handle: Any) -> None:
         """Release or close an open CAD document handle unconditionally without saving."""
-        if not hasattr(doc_handle, "handle_id"):
-            return
-
         if self._is_poisoned:
             raise CADRuntimeError("Cannot close document: Solid Edge runtime is poisoned from a prior timeout")
 
-        handle_id: str = doc_handle.handle_id
-        worker = self._ensure_worker()
+        if not isinstance(doc_handle, (SolidEdgePartDocumentHandle, SolidEdgeDocumentHandle)):
+            handle_type = type(doc_handle).__name__
+            raise CADDocumentError(
+                f"Invalid document handle type: expected SolidEdgePartDocumentHandle or SolidEdgeDocumentHandle, got {handle_type}"
+            )
 
-        def _close_task() -> None:
-            raw_doc = worker._document_registry.get(handle_id)
-            if raw_doc is not None:
-                worker._invoke_com(lambda: raw_doc.Close(False))
-                worker._document_registry.pop(handle_id, None)
+        if not doc_handle.handle_id:
+            raise CADDocumentError("Invalid document handle: missing handle_id")
+
+        tracked_handle = self._open_document_handles.get(doc_handle.handle_id)
+        if tracked_handle is None:
+            raise CADDocumentError("Untracked or closed document handle", error_code="DOCUMENT_LOST")
+
+        if type(doc_handle) is not type(tracked_handle):
+            doc_type = type(doc_handle).__name__
+            tracked_type = type(tracked_handle).__name__
+            raise CADDocumentError(f"Tracked document handle type mismatch: expected {tracked_type}, got {doc_type}")
+
+        if doc_handle != tracked_handle:
+            raise CADDocumentError(
+                "Document handle metadata does not match tracked handle",
+                error_code="DOCUMENT_LOST",
+            )
 
         try:
-            worker.call(_close_task, timeout=DEFAULT_DOC_CLOSE_TIMEOUT)
-            # Only remove tracking upon successful close
-            self._open_document_handles.pop(handle_id, None)
+            self._execute_document_close(doc_handle.handle_id, timeout=DEFAULT_DOC_CLOSE_TIMEOUT)
         except Exception as exc:
-            if isinstance(exc, TimeoutError):
-                self._is_poisoned = True
             describe_exception(exc, "Error closing document")
             raise
 
@@ -634,6 +683,7 @@ class SolidEdgeRuntime(CADRuntimeABC):
             worker is None
             and self._application is None
             and not self._open_document_handles
+            and not self._closed_pending_idle_handles
             and self._owned_process_identity is None
         ):
             return True
@@ -645,20 +695,11 @@ class SolidEdgeRuntime(CADRuntimeABC):
                 docs_clean = False
             else:
                 for handle_id in list(self._open_document_handles.keys()):
+                    if handle_id in self._closed_pending_idle_handles:
+                        docs_clean = False
+                        continue
                     try:
-
-                        def _close_doc(hid: str = handle_id) -> None:
-                            raw_doc = worker._document_registry.get(hid)
-                            if raw_doc is None:
-                                raise CADDocumentError(
-                                    "Document object not found in STA worker registry during teardown",
-                                    error_code="DOCUMENT_LOST",
-                                )
-                            worker._invoke_com(lambda: raw_doc.Close(False))
-                            worker._document_registry.pop(hid, None)
-
-                        worker.call(_close_doc, timeout=DEFAULT_DOC_CLOSE_TIMEOUT)
-                        self._open_document_handles.pop(handle_id, None)
+                        self._execute_document_close(handle_id, timeout=DEFAULT_DOC_CLOSE_TIMEOUT)
                     except Exception as close_exc:
                         describe_exception(close_exc, "Teardown document close timeout/error")
                         self._is_poisoned = True
@@ -707,6 +748,7 @@ class SolidEdgeRuntime(CADRuntimeABC):
                     self._worker = None
                     self._application = None
                     self._open_document_handles.clear()
+                    self._closed_pending_idle_handles.clear()
                     self._owned_process_identity = None
                     self._is_poisoned = False
                 else:
@@ -779,6 +821,7 @@ class SolidEdgeRuntime(CADRuntimeABC):
             self._worker = None
             self._application = None
             self._open_document_handles.clear()
+            self._closed_pending_idle_handles.clear()
             self._owned_process_identity = None
             self._is_poisoned = False
         else:

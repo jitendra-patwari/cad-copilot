@@ -69,6 +69,7 @@ class MockWorkerForExecutor:
         self._document_registry: dict[str, Any] = {}
         self.is_poisoned: bool = False
         self.call_raises: Exception | None = None
+        self._raw_app: Any = MagicMock()
 
     def is_alive(self) -> bool:
         return True

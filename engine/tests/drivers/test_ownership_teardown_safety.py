@@ -46,9 +46,15 @@ class MockSolidEdgeApp:
         self.DisplayAlerts = True
         self.Documents = MockDocuments()
         self.quit_called = False
+        self.idle_called = False
+        self.idle_call_count = 0
 
     def Quit(self) -> None:
         self.quit_called = True
+
+    def DoIdle(self) -> None:
+        self.idle_called = True
+        self.idle_call_count += 1
 
 
 class MockCOMError(Exception):
@@ -594,3 +600,109 @@ def test_deterministic_identity_arrival_during_stage2_shutdown_switches_to_owned
         assert mock_kill.call_count == 1
         assert mock_kill.call_args[0][0] == [owned_identity]
         assert runtime._owned_process_identity is None
+
+
+def test_teardown_with_pending_idle_handle_skips_duplicate_close_and_avoids_misreporting_lost() -> None:
+    """Proves teardown on a pending-idle handle avoids duplicate Close, avoids DOCUMENT_LOST, and marks teardown incomplete."""
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp(pid=os.getpid())
+
+    with (
+        patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules,
+        patch("drivers.solidedge.runtime.get_process_identity") as mock_ident,
+    ):
+        mock_win32_client = MagicMock()
+        mock_win32_client.GetActiveObject.return_value = mock_app
+        mock_modules.return_value = (None, mock_win32_client)
+        mock_ident.return_value = ProcessIdentity(pid=os.getpid(), creation_time_ft=_make_valid_creation_ft())
+
+        handle = runtime.connect_application()
+        assert handle.ownership == OwnershipMode.BORROWED
+
+        doc_handle = runtime.create_part_document(handle)
+        handle_id = doc_handle.handle_id
+
+        worker = runtime._worker
+        assert worker is not None
+
+        # Simulate that Close(False) already succeeded and raw doc was released, but DoIdle failed
+        worker._document_registry.pop(handle_id, None)
+        runtime._closed_pending_idle_handles.add(handle_id)
+
+        # Invariant: teardown must NOT attempt raw_doc lookup (which would raise DOCUMENT_LOST)
+        # and must NOT attempt duplicate Close(False). It marks teardown incomplete and returns False cleanly.
+        clean = runtime.teardown(force_kill_on_failure=True)
+        assert clean is False
+        assert mock_app.quit_called is False
+        assert handle_id in runtime._open_document_handles
+        assert handle_id in runtime._closed_pending_idle_handles
+        assert runtime._is_poisoned is False
+
+
+def test_teardown_retries_close_via_centralized_primitive_for_unclosed_document() -> None:
+    """Proves teardown retries unclosed documents via the centralized close primitive including DoIdle."""
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp(pid=os.getpid())
+
+    with (
+        patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules,
+        patch("drivers.solidedge.runtime.get_process_identity") as mock_ident,
+    ):
+        mock_win32_client = MagicMock()
+        mock_win32_client.GetActiveObject.return_value = mock_app
+        mock_modules.return_value = (None, mock_win32_client)
+        mock_ident.return_value = ProcessIdentity(pid=os.getpid(), creation_time_ft=_make_valid_creation_ft())
+
+        handle = runtime.connect_application()
+        assert handle.ownership == OwnershipMode.BORROWED
+
+        doc_handle = runtime.create_part_document(handle)
+        handle_id = doc_handle.handle_id
+        mock_doc = mock_app.Documents.docs[0]
+
+        assert mock_doc.closed is False
+        assert mock_app.idle_called is False
+
+        # Teardown should close document with Close(False) and DoIdle()
+        clean = runtime.teardown()
+        assert clean is True
+        assert mock_doc.closed is True
+        assert mock_app.idle_called is True
+        assert mock_app.quit_called is False
+        assert handle_id not in runtime._open_document_handles
+        assert handle_id not in runtime._closed_pending_idle_handles
+
+
+def test_teardown_owned_session_with_pending_idle_handle_cleans_up_process_and_resets_state() -> None:
+    """Proves owned session with pending-idle handle terminates process and cleanly resets runtime state."""
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp(pid=9999913)
+    owned_identity = ProcessIdentity(pid=9999913, creation_time_ft=_make_valid_creation_ft())
+
+    with (
+        patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules,
+        patch("drivers.solidedge.runtime.get_process_identity", return_value=owned_identity),
+        patch("drivers.solidedge.runtime.is_process_alive", return_value=False),
+    ):
+        mock_win32_client = MagicMock()
+        mock_win32_client.GetActiveObject.side_effect = MockCOMError(MK_E_UNAVAILABLE, "Unavailable")
+        mock_win32_client.gencache.EnsureDispatch.return_value = mock_app
+        mock_modules.return_value = (None, mock_win32_client)
+
+        app_handle = runtime.connect_application()
+        doc_handle = runtime.create_part_document(app_handle)
+        handle_id = doc_handle.handle_id
+
+        worker = runtime._worker
+        assert worker is not None
+
+        # Simulate pending-idle state
+        worker._document_registry.pop(handle_id, None)
+        runtime._closed_pending_idle_handles.add(handle_id)
+
+        clean = runtime.teardown()
+        assert clean is True
+        assert mock_app.quit_called is True
+        assert handle_id not in runtime._open_document_handles
+        assert handle_id not in runtime._closed_pending_idle_handles
+        assert runtime._worker is None
