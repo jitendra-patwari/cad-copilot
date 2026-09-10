@@ -52,6 +52,12 @@ from batch.models import (
     ManifestArtifactRecord,
     ManifestFileResult,
 )
+from batch.output_workspace import (
+    BatchOutputWorkspace,
+    BatchWorkspaceError,
+    FilesystemOutputWorkspace,
+    OutputSnapshot,
+)
 from batch.registry import (
     OperationDescriptor,
     OperationRegistry,
@@ -83,6 +89,7 @@ __all__: list[str] = [
     "BatchOperationHandler",
     "BatchOperationType",
     "BatchOptions",
+    "BatchOutputWorkspace",
     "BatchProgressPhase",
     "BatchProgressUpdate",
     "BatchRequest",
@@ -92,13 +99,16 @@ __all__: list[str] = [
     "BatchService",
     "BatchSummary",
     "BatchValidationError",
+    "BatchWorkspaceError",
     "FileResultStatus",
+    "FilesystemOutputWorkspace",
     "ManifestArtifactRecord",
     "ManifestFileResult",
     "OperationBinding",
     "OperationBindings",
     "OperationDescriptor",
     "OperationRegistry",
+    "OutputSnapshot",
     "PathIdentity",
     "PreparedBatchFile",
     "PreparedBatchFormat",
