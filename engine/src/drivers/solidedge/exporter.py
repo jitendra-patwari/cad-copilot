@@ -15,7 +15,6 @@ Invariants:
 
 from __future__ import annotations
 
-import contextlib
 import os
 import stat
 import sys
@@ -80,6 +79,46 @@ def probe_document_health(raw_doc: Any, worker: Any) -> bool:
         return bool(doc_name and isinstance(doc_name, str))
     except Exception:
         return False
+
+
+def _cleanup_known_translator_sidecar(output_path: Path) -> None:
+    """Guarded cleanup of known Solid Edge translator sidecar (<stem>.log).
+
+    Invariants:
+    - Sidecar path is strictly output_path.with_suffix('.log').
+    - If present, must be a regular non-reparse file strictly inside output_path.parent.
+    - If present and cannot be removed safely, fails closed by raising CADExportError.
+    """
+    sidecar_path = output_path.with_suffix(".log")
+    try:
+        lstat_res = sidecar_path.lstat()
+    except FileNotFoundError:
+        return
+    except (OSError, ValueError) as exc:
+        raise CADExportError(
+            f"Failed to inspect translator sidecar metadata for '{output_path.name}': {type(exc).__name__}",
+            error_code="ARTIFACT_EXPORT_FAILED",
+        ) from None
+
+    if _is_symlink_or_reparse(sidecar_path):
+        raise CADExportError(
+            f"Translator sidecar for '{output_path.name}' must not be a symbolic link or reparse point",
+            error_code="ARTIFACT_EXPORT_FAILED",
+        )
+
+    if not stat.S_ISREG(lstat_res.st_mode):
+        raise CADExportError(
+            f"Translator sidecar for '{output_path.name}' is not a regular file",
+            error_code="ARTIFACT_EXPORT_FAILED",
+        )
+
+    try:
+        sidecar_path.unlink()
+    except OSError as exc:
+        raise CADExportError(
+            f"Failed to remove translator sidecar for '{output_path.name}': {type(exc).__name__}",
+            error_code="ARTIFACT_EXPORT_FAILED",
+        ) from None
 
 
 def export_model_to_path(
@@ -164,11 +203,9 @@ def export_model_to_path(
         ) from None
 
     # Solid Edge STEP and STL translators generate an auxiliary translation log (<stem>.log)
-    # in the destination directory. Clean up the auxiliary file so staging contains only canonical artifacts.
-    aux_log = output_path.with_suffix(".log")
-    if aux_log.is_file():
-        with contextlib.suppress(OSError):
-            aux_log.unlink(missing_ok=True)
+    # in the destination directory. Clean up the auxiliary file with guarded fail-closed helper.
+    if normalized_format in {"step", "stl"}:
+        _cleanup_known_translator_sidecar(output_path)
 
 
 def capture_preview_image(

@@ -25,6 +25,7 @@ from drivers.solidedge.errors import (
 from drivers.solidedge.exporter import (
     DEFAULT_PREVIEW_HEIGHT,
     DEFAULT_PREVIEW_WIDTH,
+    _cleanup_known_translator_sidecar,
     capture_preview_image,
     export_model_to_path,
     probe_document_health,
@@ -138,6 +139,31 @@ class TestExportModelToPath:
 
         assert len(raw_doc.save_copy_as_calls) == 1
         assert raw_doc.save_copy_as_calls[0] == os.fspath(out_file)
+
+    def test_export_model_to_path_par_does_not_cleanup_log(self, tmp_path: Path) -> None:
+        raw_doc = FakePartDocument()
+        worker = FakeWorker()
+        out_file = tmp_path / "model.par"
+        same_stem_log = tmp_path / "model.log"
+        same_stem_log.write_text("Unrelated log content", encoding="utf-8")
+
+        export_model_to_path(raw_doc, worker, "par", out_file)
+
+        # PAR export must NOT touch an unexpected same-stem .log
+        assert same_stem_log.exists()
+        assert same_stem_log.read_text(encoding="utf-8") == "Unrelated log content"
+
+    def test_export_model_to_path_step_cleans_up_log(self, tmp_path: Path) -> None:
+        raw_doc = FakePartDocument()
+        worker = FakeWorker()
+        out_file = tmp_path / "model.step"
+        same_stem_log = tmp_path / "model.log"
+        same_stem_log.write_text("STEP translator log", encoding="utf-8")
+
+        export_model_to_path(raw_doc, worker, "step", out_file)
+
+        # STEP export must clean up translator log
+        assert not same_stem_log.exists()
 
     def test_export_model_to_path_resolves_relative_path_to_absolute(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -452,7 +478,7 @@ class TestCapturePreviewImage:
         def fail_save_image(filename: str, width: int, height: int) -> None:
             raise RuntimeError(f"GDI rendering failed at {filename} with hex 0x80004005")
 
-        raw_doc.windows.Item(1).View.SaveAsImage = fail_save_image  # type: ignore[union-attr,assignment]
+        raw_doc.windows.Item(1).View.SaveAsImage = fail_save_image  # type: ignore[union-attr,method-assign]
 
         with pytest.raises(CADExportError) as exc_info:
             capture_preview_image(raw_doc, worker, out_file)
@@ -472,7 +498,7 @@ class TestCapturePreviewImage:
             raw_doc.Name = ""
             raise ConnectionResetError("Solid Edge process disconnected")
 
-        raw_doc.windows.Item(1).View.SaveAsImage = crash_save_and_lose_doc  # type: ignore[union-attr,assignment]
+        raw_doc.windows.Item(1).View.SaveAsImage = crash_save_and_lose_doc  # type: ignore[union-attr,method-assign]
 
         with pytest.raises(CADDocumentError) as exc_info:
             capture_preview_image(raw_doc, worker, out_file)
@@ -488,7 +514,7 @@ class TestCapturePreviewImage:
         def raise_busy(filename: str, width: int, height: int) -> None:
             raise CADRuntimeBusyError("Server busy timeout")
 
-        raw_doc.windows.Item(1).View.SaveAsImage = raise_busy  # type: ignore[union-attr,assignment]
+        raw_doc.windows.Item(1).View.SaveAsImage = raise_busy  # type: ignore[union-attr,method-assign]
 
         # Must raise CADRuntimeBusyError, NOT PREVIEW_EXPORT_FAILED
         with pytest.raises(CADRuntimeBusyError) as exc_info:
@@ -503,7 +529,7 @@ class TestCapturePreviewImage:
         def raise_retrylater(filename: str, width: int, height: int) -> None:
             raise MockCOMError(RPC_E_SERVERCALL_RETRYLATER, "Server call retry later")
 
-        raw_doc.windows.Item(1).View.SaveAsImage = raise_retrylater  # type: ignore[union-attr,assignment]
+        raw_doc.windows.Item(1).View.SaveAsImage = raise_retrylater  # type: ignore[union-attr,method-assign]
 
         # Raw COM error must be normalized and preserved as fatal CADRuntimeBusyError
         with pytest.raises(CADRuntimeBusyError) as exc_info:
@@ -518,7 +544,7 @@ class TestCapturePreviewImage:
         def raise_rejected(filename: str, width: int, height: int) -> None:
             raise MockCOMError(RPC_E_CALL_REJECTED, "Server call rejected")
 
-        raw_doc.windows.Item(1).View.SaveAsImage = raise_rejected  # type: ignore[union-attr,assignment]
+        raw_doc.windows.Item(1).View.SaveAsImage = raise_rejected  # type: ignore[union-attr,method-assign]
 
         with pytest.raises(CADRuntimeBusyError) as exc_info:
             capture_preview_image(raw_doc, worker, out_file)
@@ -532,7 +558,7 @@ class TestCapturePreviewImage:
         def raise_unavailable(filename: str, width: int, height: int) -> None:
             raise CADRuntimeUnavailableError("Solid Edge session died")
 
-        raw_doc.windows.Item(1).View.SaveAsImage = raise_unavailable  # type: ignore[union-attr,assignment]
+        raw_doc.windows.Item(1).View.SaveAsImage = raise_unavailable  # type: ignore[union-attr,method-assign]
 
         with pytest.raises(CADRuntimeUnavailableError) as exc_info:
             capture_preview_image(raw_doc, worker, out_file)
@@ -546,7 +572,7 @@ class TestCapturePreviewImage:
         def raise_server_died(filename: str, width: int, height: int) -> None:
             raise MockCOMError(RPC_E_SERVER_DIED, "Server died")
 
-        raw_doc.windows.Item(1).View.SaveAsImage = raise_server_died  # type: ignore[union-attr,assignment]
+        raw_doc.windows.Item(1).View.SaveAsImage = raise_server_died  # type: ignore[union-attr,method-assign]
 
         with pytest.raises(CADRuntimeUnavailableError) as exc_info:
             capture_preview_image(raw_doc, worker, out_file)
@@ -562,7 +588,7 @@ class TestCapturePreviewImage:
         def raise_sensitive_image_fault(filename: str, width: int, height: int) -> None:
             raise RuntimeError(r"GDI write failed at E:\Client (SECRET_ORGANIZATION)\Private Project\preview.jpg")
 
-        raw_doc.windows.Item(1).View.SaveAsImage = raise_sensitive_image_fault  # type: ignore[union-attr,assignment]
+        raw_doc.windows.Item(1).View.SaveAsImage = raise_sensitive_image_fault  # type: ignore[union-attr,method-assign]
 
         with pytest.raises(CADExportError) as exc_info:
             capture_preview_image(raw_doc, worker, out_file)
@@ -591,7 +617,7 @@ class TestCapturePreviewImage:
                 r"GDI write failed at E:\Client, LLC\SECRET_PROJECT\preview.jpg and \\nas01\share; LLC\SECRET_PROJECT!\preview.jpg: failed"
             )
 
-        raw_doc.windows.Item(1).View.SaveAsImage = raise_comma_unc_preview_fault  # type: ignore[union-attr,assignment]
+        raw_doc.windows.Item(1).View.SaveAsImage = raise_comma_unc_preview_fault  # type: ignore[union-attr,method-assign]
 
         with pytest.raises(CADExportError) as exc_info:
             capture_preview_image(raw_doc, worker, out_file)
@@ -650,3 +676,52 @@ class TestProbeDocumentHealth:
     def test_probe_document_health_false_when_doc_or_worker_none(self) -> None:
         assert probe_document_health(None, FakeWorker()) is False
         assert probe_document_health(FakePartDocument(), None) is False
+
+
+# ===========================================================================
+# 4. Sidecar Cleanup Tests
+# ===========================================================================
+
+
+class TestCleanupKnownTranslatorSidecar:
+    """Test suite for _cleanup_known_translator_sidecar."""
+
+    def test_cleanup_known_translator_sidecar_success(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "model.step"
+        sidecar_file = tmp_path / "model.log"
+        sidecar_file.write_text("Solid Edge STEP translation log", encoding="utf-8")
+
+        _cleanup_known_translator_sidecar(output_file)
+        assert not sidecar_file.exists()
+
+    def test_cleanup_known_translator_sidecar_missing_is_noop(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "model.step"
+        # model.log does not exist; must complete cleanly without exception
+        _cleanup_known_translator_sidecar(output_file)
+
+    def test_cleanup_known_translator_sidecar_directory_rejected(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "model.step"
+        sidecar_dir = tmp_path / "model.log"
+        sidecar_dir.mkdir()
+
+        with pytest.raises(CADExportError) as exc_info:
+            _cleanup_known_translator_sidecar(output_file)
+        assert exc_info.value.error_code == "ARTIFACT_EXPORT_FAILED"
+        assert "not a regular file" in str(exc_info.value)
+
+    def test_cleanup_known_translator_sidecar_unlink_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        output_file = tmp_path / "model.step"
+        sidecar_file = tmp_path / "model.log"
+        sidecar_file.write_text("log content", encoding="utf-8")
+
+        def mock_unlink(self: Path) -> None:
+            raise PermissionError("Access denied unlinking log")
+
+        monkeypatch.setattr(Path, "unlink", mock_unlink)
+
+        with pytest.raises(CADExportError) as exc_info:
+            _cleanup_known_translator_sidecar(output_file)
+        assert exc_info.value.error_code == "ARTIFACT_EXPORT_FAILED"
+        assert "Failed to remove translator sidecar" in str(exc_info.value)
