@@ -31,6 +31,11 @@ from batch.execution import (
     BatchProgressUpdate,
 )
 from batch.filesystem import PathIdentity
+from batch.format_validation import (
+    BatchFormatValidationError,
+    BatchFormatValidator,
+    validate_batch_output,
+)
 from batch.models import (
     BatchArtifactRecord,
     BatchConfigurationError,
@@ -79,6 +84,8 @@ __all__: list[str] = [
     "BatchExecutionOutcome",
     "BatchExecutionSpec",
     "BatchFileResult",
+    "BatchFormatValidationError",
+    "BatchFormatValidator",
     "BatchHandlerFactory",
     "BatchInputSelection",
     "BatchItemContext",
@@ -119,5 +126,6 @@ __all__: list[str] = [
     "allocate_batch_work",
     "build_collision_rejection",
     "build_initial_registry",
+    "validate_batch_output",
     "validate_prepared_work_consistency",
 ]
