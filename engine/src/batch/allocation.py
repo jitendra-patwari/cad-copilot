@@ -302,10 +302,10 @@ def validate_prepared_work_consistency(
 
 
 class BatchSafetyBoundary(Protocol):
-    """Protocol defining the M5.3 filesystem security and integrity boundary.
+    """Protocol defining the filesystem security and source-integrity boundary.
 
-    In M5.2, no production implementation exists; deterministic test fakes implement
-    this protocol to prove the lifecycle seam.
+    Implemented in production by FilesystemBatchSafetyBoundary, and by deterministic
+    test fakes in offline unit test suites.
     """
 
     def prepare(self, spec: BatchExecutionSpec, work: AllocatedBatchWork) -> PreparedBatchWork:

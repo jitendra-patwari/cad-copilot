@@ -33,7 +33,9 @@ class FakeDocumentHandle:
     """Opaque in-memory document handle representation."""
 
     path: Path
-    handle_id: str = "fake-doc-handle"
+    handle_id: str
+    raw_doc: Any = None
+    worker: Any = None
 
 
 class FakeCADRuntime(CADRuntimeABC):
@@ -52,6 +54,7 @@ class FakeCADRuntime(CADRuntimeABC):
         fail_diagnostics: bool = False,
         diagnostics_warnings: list[dict[str, str]] | None = None,
         on_close: Callable[[Any], None] | None = None,
+        open_callback: Callable[[Any, Path], Any] | None = None,
     ) -> None:
         self.version_build = version_build
         self.fail_connect = fail_connect
@@ -63,6 +66,7 @@ class FakeCADRuntime(CADRuntimeABC):
         self.fail_diagnostics = fail_diagnostics
         self.diagnostics_warnings = diagnostics_warnings
         self.on_close = on_close
+        self.open_callback = open_callback
 
         self.connect_calls = 0
         self.open_calls: list[Path] = []
@@ -94,10 +98,12 @@ class FakeCADRuntime(CADRuntimeABC):
         raise NotImplementedError("create_part_document is not used in batch execution")
 
     def open_document(self, application: Any, path: Path) -> Any:
+        if self.open_callback is not None:
+            return self.open_callback(application, path)
         for pattern in self.fail_open_inputs:
             if pattern in str(path) or pattern == path.name:
                 raise RuntimeError(f"Fake open failure for {path.name}")
-        handle = FakeDocumentHandle(path=path)
+        handle = FakeDocumentHandle(path=path, handle_id=f"fake-doc-{len(self.open_calls) + 1}")
         self.open_handles.add(handle)
         self.open_calls.append(path)
         if len(self.open_handles) > self.max_simultaneous_open:
@@ -256,3 +262,44 @@ def make_execution_spec(
         formats=formats,
         continue_on_error=continue_on_error,
     )
+
+
+class FakeTrackedDocumentRuntime(FakeCADRuntime):
+    """Structural runtime double providing run_document_task for composition and handler tests."""
+
+    def __init__(
+        self,
+        *,
+        version_build: str | None = "226.00.00.106",
+        healthy: bool = True,
+        task_callback: Callable[[Any, Any], Any] | None = None,
+        fail_task: bool = False,
+        open_callback: Callable[[Any, Path], Any] | None = None,
+    ) -> None:
+        super().__init__(
+            version_build=version_build,
+            healthy=healthy,
+            open_callback=open_callback,
+        )
+        self.task_callback = task_callback
+        self.fail_task = fail_task
+        self.task_calls: list[tuple[Any, Any]] = []
+
+    def run_document_task(
+        self,
+        doc_handle: Any,
+        task: Callable[[Any, Any], Any],
+        timeout: float = 120.0,
+    ) -> Any:
+        if self.fail_task:
+            raise RuntimeError("Fake task execution failure")
+        self.task_calls.append((doc_handle, task))
+        if self.task_callback is not None:
+            return self.task_callback(doc_handle, task)
+        fake_raw_doc = getattr(doc_handle, "raw_doc", None)
+        if fake_raw_doc is None:
+            fake_raw_doc = object()
+        fake_worker = getattr(doc_handle, "worker", None)
+        if fake_worker is None:
+            fake_worker = object()
+        return task(fake_raw_doc, fake_worker)

@@ -22,6 +22,7 @@ from batch.bindings import (
     OperationBinding,
     OperationBindings,
 )
+from batch.composition import build_initial_operation_bindings
 from batch.execution import (
     BatchExecutionOutcome,
     BatchExecutionSpec,
@@ -35,6 +36,10 @@ from batch.format_validation import (
     BatchFormatValidationError,
     BatchFormatValidator,
     validate_batch_output,
+)
+from batch.handlers import (
+    Export3DHandler,
+    PublishDrawingHandler,
 )
 from batch.models import (
     BatchArtifactRecord,
@@ -108,6 +113,7 @@ __all__: list[str] = [
     "BatchSummary",
     "BatchValidationError",
     "BatchWorkspaceError",
+    "Export3DHandler",
     "FileResultStatus",
     "FilesystemBatchSafetyBoundary",
     "FilesystemOutputWorkspace",
@@ -122,9 +128,11 @@ __all__: list[str] = [
     "PreparedBatchFile",
     "PreparedBatchFormat",
     "PreparedBatchWork",
+    "PublishDrawingHandler",
     "SourceSnapshot",
     "allocate_batch_work",
     "build_collision_rejection",
+    "build_initial_operation_bindings",
     "build_initial_registry",
     "validate_batch_output",
     "validate_prepared_work_consistency",
