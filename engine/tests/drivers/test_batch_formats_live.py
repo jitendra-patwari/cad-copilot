@@ -53,7 +53,7 @@ def live_runtime() -> Generator[SolidEdgeRuntime]:
     try:
         yield runtime
     finally:
-        runtime.teardown(force_kill_on_failure=True)
+        assert runtime.teardown(force_kill_on_failure=True) is True
 
 
 def _copy_fixtures(dest_dir: Path) -> Path:
