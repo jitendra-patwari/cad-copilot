@@ -4,7 +4,7 @@ Invariants:
     - Dedicated STA Seam: all COM calls execute strictly within an STA thread worker.
     - Pure Immutable Outcome: returns frozen AssemblyReferenceCheckResult without leaking COM objects.
     - Zero Path Leakage (SEC-07): component paths and filenames never enter diagnostic messages.
-    - Robust Resolution: flags occurrence as unresolved if Status == 2, OccurrenceDocument is None,
+    - Robust Resolution: flags occurrence as unresolved if FileMissing() is True, OccurrenceDocument is None,
       or OccurrenceDocument access raises a COM exception.
     - Fatal COM Preserved: preserves CADRuntimeBusyError and CADRuntimeUnavailableError.
 """
@@ -17,7 +17,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from drivers.solidedge.assembly_references import (
-    SE_OCCURRENCE_STATUS_MISSING,
     AssemblyReferenceCheckResult,
     check_assembly_references,
 )
@@ -80,6 +79,8 @@ class FakeOccurrence:
         doc_exc: Exception | None = None,
         subassembly: bool = False,
         subassembly_exc: Exception | None = None,
+        file_missing: bool = False,
+        file_missing_exc: Exception | None = None,
     ) -> None:
         self.Name = name
         self.OccurrenceFileName = filename
@@ -88,6 +89,13 @@ class FakeOccurrence:
         self._doc_exc = doc_exc
         self._subassembly = subassembly
         self._subassembly_exc = subassembly_exc
+        self._file_missing = file_missing
+        self._file_missing_exc = file_missing_exc
+
+    def FileMissing(self) -> bool:
+        if self._file_missing_exc is not None:
+            raise self._file_missing_exc
+        return self._file_missing
 
     @property
     def Subassembly(self) -> bool:
@@ -169,13 +177,13 @@ class TestCheckAssemblyReferences:
         assert result.unresolved_count == 0
         assert result.diagnostic_message is None
 
-    def test_check_assembly_references_status_missing(self) -> None:
+    def test_check_assembly_references_file_missing(self) -> None:
         o1 = FakeOccurrence("Part1:1")
-        # Missing status (Status == 2)
+        # Missing occurrence signaled by FileMissing() == True
         o2 = FakeOccurrence(
             "BrokenPart:1",
             filename=r"C:\Secret_Drive\Users\confidential_user\BrokenPart.par",
-            status=SE_OCCURRENCE_STATUS_MISSING,
+            file_missing=True,
         )
         raw_doc = FakeAssemblyDocument("Assembly.asm", [o1, o2])
         worker = FakeWorker()
@@ -190,6 +198,24 @@ class TestCheckAssemblyReferences:
         assert "BrokenPart" not in result.diagnostic_message
         assert "Secret_Drive" not in result.diagnostic_message
         assert "confidential_user" not in result.diagnostic_message
+
+    def test_check_assembly_references_fixed_occurrence_with_resolvable_doc_is_resolved(self) -> None:
+        # In Solid Edge, grounded base parts have Status == 2 (seOccurrenceStatusFixed).
+        # When FileMissing() is False and OccurrenceDocument is valid, it must be resolved.
+        fixed_occ = FakeOccurrence(
+            "GroundedPart:1",
+            status=2,
+            file_missing=False,
+            doc=FakeOccurrenceDoc("GroundedPart.par"),
+        )
+        raw_doc = FakeAssemblyDocument("Assembly.asm", [fixed_occ])
+        worker = FakeWorker()
+
+        result = check_assembly_references(raw_doc, worker)
+        assert result.is_resolved is True
+        assert result.total_count == 1
+        assert result.unresolved_count == 0
+        assert result.diagnostic_message is None
 
     def test_check_assembly_references_doc_none(self) -> None:
         # OccurrenceDocument returns None
@@ -305,7 +331,7 @@ class TestCheckAssemblyReferences:
         child_p2_broken = FakeOccurrence(
             "ChildBroken:1",
             filename=r"C:\Secret\ChildBroken.par",
-            status=SE_OCCURRENCE_STATUS_MISSING,
+            file_missing=True,
         )
         sub_doc = FakeOccurrenceDoc(
             "SubAssembly.asm", occurrences=FakeOccurrencesCollection([child_p1, child_p2_broken])
@@ -404,10 +430,10 @@ class TestCheckAssemblyReferences:
         with pytest.raises(TimeoutError):
             check_assembly_references(raw_doc, worker)
 
-    def test_check_assembly_references_status_fatal_unavailable(self) -> None:
+    def test_check_assembly_references_file_missing_fatal_unavailable(self) -> None:
         occ = MagicMock()
         occ.Name = "Part1:1"
-        type(occ).Status = property(fget=MagicMock(side_effect=MockCOMError(RPC_E_SERVER_DIED, "Server died")))
+        occ.FileMissing = MagicMock(side_effect=MockCOMError(RPC_E_SERVER_DIED, "Server died"))
         raw_doc = FakeAssemblyDocument("Assembly.asm")
         raw_doc.Occurrences.Item = lambda idx: occ  # type: ignore[union-attr,method-assign]
         type(raw_doc.Occurrences).Count = property(fget=lambda self: 1)  # type: ignore[union-attr,method-assign]
@@ -417,10 +443,10 @@ class TestCheckAssemblyReferences:
             check_assembly_references(raw_doc, worker)
         assert exc_info.value.error_code == "RUNTIME_UNAVAILABLE"
 
-    def test_check_assembly_references_status_fatal_timeout(self) -> None:
+    def test_check_assembly_references_file_missing_fatal_timeout(self) -> None:
         occ = MagicMock()
         occ.Name = "Part1:1"
-        type(occ).Status = property(fget=MagicMock(side_effect=TimeoutError("STA worker timeout")))
+        occ.FileMissing = MagicMock(side_effect=TimeoutError("STA worker timeout"))
         raw_doc = FakeAssemblyDocument("Assembly.asm")
         raw_doc.Occurrences.Item = lambda idx: occ  # type: ignore[union-attr,method-assign]
         type(raw_doc.Occurrences).Count = property(fget=lambda self: 1)  # type: ignore[union-attr,method-assign]

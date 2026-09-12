@@ -90,12 +90,14 @@ class FakeCOMDocument:
         if unresolved_asm:
             occ = MagicMock()
             occ.Subassembly = False
+            occ.FileMissing.return_value = True
             type(occ).OccurrenceDocument = PropertyMock(side_effect=RuntimeError("Missing component"))
             self.Occurrences.Count = 1
             self.Occurrences.Item.return_value = occ
         else:
             occ = MagicMock()
             occ.Subassembly = False
+            occ.FileMissing.return_value = False
             occ.OccurrenceDocument = MagicMock()
             self.Occurrences.Count = 1
             self.Occurrences.Item.return_value = occ

@@ -4,8 +4,8 @@ Invariants:
     - Dedicated STA Seam: all COM calls execute strictly within an STA thread worker.
     - Pure Immutable Outcome: returns frozen AssemblyReferenceCheckResult; never leaks
       raw COM dispatch objects, pointers, or workstation file paths (SEC-07).
-    - Authoritative In-Process Check: uses live Solid Edge 2026 occurrence status
-      (Status == 2 / seOccurrenceStatusMissing) and OccurrenceDocument resolution.
+    - Authoritative In-Process Check: uses live Solid Edge 2026 occurrence FileMissing()
+      method and OccurrenceDocument resolution.
     - Zero Modification: never repairs, relinks, suppresses, saves, or mutates
       the assembly document or its reference links.
     - Fail-Closed: if reference state cannot be determined with certainty, reports
@@ -25,9 +25,6 @@ from interfaces.exceptions import (
     CADRuntimeBusyError,
     CADRuntimeUnavailableError,
 )
-
-# Solid Edge API constant for missing occurrence status
-SE_OCCURRENCE_STATUS_MISSING: Final[int] = 2
 
 
 @dataclass(frozen=True)
@@ -70,7 +67,7 @@ def check_assembly_references(raw_doc: Any, worker: Any) -> AssemblyReferenceChe
 
     Executes strictly on the STA worker thread against the explicit tracked raw_doc.
     Recursively inspects subassembly occurrences up to MAX_ASSEMBLY_TRAVERSAL_DEPTH.
-    Checks each occurrence for missing status (SE_OCCURRENCE_STATUS_MISSING = 2) or
+    Checks each occurrence for missing status (via FileMissing method) or
     unresolvable OccurrenceDocument COM object.
 
     Args:
@@ -132,14 +129,14 @@ def check_assembly_references(raw_doc: Any, worker: Any) -> AssemblyReferenceChe
                         unresolved_count += 1
                         continue
 
-                    # 1. Check explicit Status property (Status == 2 indicates missing component)
+                    # 1. Check official FileMissing method if available
                     is_missing = False
                     try:
-                        status_val = getattr(occ, "Status", None)
-                        if status_val is not None and int(status_val) == SE_OCCURRENCE_STATUS_MISSING:
+                        file_missing_fn = getattr(occ, "FileMissing", None)
+                        if callable(file_missing_fn) and bool(file_missing_fn()):
                             is_missing = True
-                    except Exception as stat_exc:
-                        _reraise_if_fatal(stat_exc)
+                    except Exception as fm_exc:
+                        _reraise_if_fatal(fm_exc)
                         is_missing = True
 
                     # 2. Check OccurrenceDocument resolvable
@@ -227,7 +224,6 @@ def check_assembly_references(raw_doc: Any, worker: Any) -> AssemblyReferenceChe
 
 __all__ = [
     "MAX_ASSEMBLY_TRAVERSAL_DEPTH",
-    "SE_OCCURRENCE_STATUS_MISSING",
     "AssemblyReferenceCheckResult",
     "check_assembly_references",
 ]
