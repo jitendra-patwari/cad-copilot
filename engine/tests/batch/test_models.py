@@ -75,6 +75,10 @@ class TestBatchDiagnostic:
         assert diag2.code == "ARTIFACT_EXPORT_FAILED"
         assert diag2.format == "step"
 
+        diag3 = BatchDiagnostic(code="ARTIFACT_EXPORT_FAILED", message="Export failed", format="parasolid")
+        assert diag3.code == "ARTIFACT_EXPORT_FAILED"
+        assert diag3.format == "parasolid"
+
     def test_unknown_code_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown diagnostic code"):
             BatchDiagnostic(code="CUSTOM_UNKNOWN_CODE", message="Fail")
@@ -99,6 +103,10 @@ class TestArtifactRecords:
         assert rec.format == "step"
         assert rec.path == "C:/out/part.step"
 
+        rec_parasolid = BatchArtifactRecord(format="parasolid", path="C:/out/part.x_t")
+        assert rec_parasolid.format == "parasolid"
+        assert rec_parasolid.path == "C:/out/part.x_t"
+
     def test_batch_artifact_record_invalid(self) -> None:
         with pytest.raises(ValueError, match="Invalid artifact format"):
             BatchArtifactRecord(format="obj", path="part.obj")  # type: ignore[arg-type]
@@ -114,6 +122,15 @@ class TestArtifactRecords:
         )
         assert rec.size_bytes == 4096
         assert rec.sha256 == "a" * 64
+
+        rec_parasolid = ManifestArtifactRecord(
+            format="parasolid",
+            relative_path="part.x_t",
+            size_bytes=2048,
+            sha256="b" * 64,
+        )
+        assert rec_parasolid.format == "parasolid"
+        assert rec_parasolid.relative_path == "part.x_t"
 
     def test_manifest_artifact_record_bool_size_rejected(self) -> None:
         with pytest.raises(ValueError, match="positive integer"):
@@ -215,6 +232,11 @@ class TestBatchOperation:
     def test_export_3d_rejects_drawing_formats(self) -> None:
         with pytest.raises(ValueError, match="export_3d operation formats must only contain"):
             BatchOperation(type="export_3d", formats=("pdf",))
+
+    def test_candidate_phase_export_3d_rejects_parasolid(self) -> None:
+        """Candidate invariant: BatchOperation export_3d rejects unpromoted parasolid format."""
+        with pytest.raises(ValueError, match="export_3d operation formats must only contain"):
+            BatchOperation(type="export_3d", formats=("parasolid",))
 
     def test_publish_drawing_rejects_3d_formats(self) -> None:
         with pytest.raises(ValueError, match="publish_drawing operation formats must only contain"):

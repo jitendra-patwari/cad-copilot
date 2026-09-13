@@ -49,9 +49,25 @@ class TestPureWorkAllocation:
         assert APPROVED_FORMAT_SUFFIXES == {
             "step": ".step",
             "stl": ".stl",
+            "parasolid": ".x_t",
             "pdf": ".pdf",
             "dxf": ".dxf",
         }
+
+    def test_parasolid_format_allocation(self) -> None:
+        spec = _make_spec(
+            inputs=("parts/bracket.par", "sheet/panel.psm", "carrier.asm"),
+            formats=("parasolid",),
+        )
+        work = allocate_batch_work(spec)
+        assert len(work.files) == 3
+        assert work.files[0].formats == (
+            AllocatedBatchFormat(format="parasolid", target_relative_path="parts/bracket.x_t"),
+        )
+        assert work.files[1].formats == (
+            AllocatedBatchFormat(format="parasolid", target_relative_path="sheet/panel.x_t"),
+        )
+        assert work.files[2].formats == (AllocatedBatchFormat(format="parasolid", target_relative_path="carrier.x_t"),)
 
     def test_mirrors_directory_nesting_and_replaces_only_final_suffix(self) -> None:
         spec = _make_spec(

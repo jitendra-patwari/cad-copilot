@@ -66,7 +66,7 @@ def _parse_diagnostic(data: Mapping[str, Any], *, request_id: str, is_warning: b
             code="INVALID_SCHEMA",
             request_id=request_id,
         )
-    if fmt is not None and fmt not in ("step", "stl", "pdf", "dxf"):
+    if fmt is not None and fmt not in ("step", "stl", "parasolid", "pdf", "dxf"):
         raise BatchValidationError(
             f"Invalid diagnostic format: {fmt!r}",
             code="INVALID_SCHEMA",

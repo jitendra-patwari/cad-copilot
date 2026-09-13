@@ -24,6 +24,7 @@ from batch.models import (
 APPROVED_FORMAT_SUFFIXES: Mapping[str, str] = {
     "step": ".step",
     "stl": ".stl",
+    "parasolid": ".x_t",
     "pdf": ".pdf",
     "dxf": ".dxf",
 }

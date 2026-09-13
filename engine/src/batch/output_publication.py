@@ -30,7 +30,7 @@ from batch.output_snapshot import (
 
 def _as_batch_output_format(fmt: str) -> BatchOutputFormat | None:
     """Safely cast string to approved BatchOutputFormat literal if supported."""
-    if fmt in ("step", "stl", "pdf", "dxf"):
+    if fmt in ("step", "stl", "parasolid", "pdf", "dxf"):
         return fmt  # type: ignore[return-value]
     return None
 

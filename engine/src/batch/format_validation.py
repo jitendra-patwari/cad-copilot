@@ -25,6 +25,11 @@ from artifacts.validation import (
 from batch.filesystem import is_stat_reparse_point
 from batch.models import BatchOutputFormat
 from batch.output_snapshot import OutputSnapshot, capture_output_snapshot
+from batch.parasolid_validation import (
+    PARASOLID_VALIDATION_FAILED_MESSAGE,
+    ParasolidValidationError,
+    validate_parasolid_artifact,
+)
 from batch.source_integrity import SourceIntegrityError
 
 MAX_BATCH_DRAWING_BYTES: Final[int] = 100_000_000  # 100 MB cap for PDF and DXF
@@ -41,6 +46,7 @@ DXF_BINARY_SENTINEL: Final[bytes] = b"AutoCAD Binary DXF"
 EXPECTED_FORMAT_EXTENSIONS: Final[dict[BatchOutputFormat, str]] = {
     "step": ".step",
     "stl": ".stl",
+    "parasolid": ".x_t",
     "pdf": ".pdf",
     "dxf": ".dxf",
 }
@@ -342,9 +348,9 @@ def validate_batch_output(
 ) -> OutputSnapshot:
     """Validate generated batch output artifact and capture its immutable OutputSnapshot.
 
-    Dispatches across the four guaranteed batch formats (step, stl, pdf, dxf).
+    Dispatches across guaranteed batch formats (step, stl, pdf, dxf) and candidate Parasolid.
     Reuses established ISO 10303-21 STEP and STL validators without parser duplication.
-    Validates bounded PDF and text DXF structural requirements.
+    Validates bounded PDF, text DXF, and Parasolid transmission structural requirements.
     Fails closed with sanitized BatchFormatValidationError on any violation.
     """
     if format_id not in SUPPORTED_BATCH_OUTPUT_FORMATS:
@@ -398,6 +404,22 @@ def validate_batch_output(
     elif format_id == "dxf":
         _validate_dxf_artifact(work_path, size_before)
 
+    elif format_id == "parasolid":
+        try:
+            validate_parasolid_artifact(work_path, size_before)
+        except ParasolidValidationError as exc:
+            raise BatchFormatValidationError(
+                format="parasolid",
+                phase="validation",
+                message=exc.message,
+            ) from exc
+        except OSError as exc:
+            raise BatchFormatValidationError(
+                format="parasolid",
+                phase="validation",
+                message="Failed reading Parasolid artifact file",
+            ) from exc
+
     # Capture streaming OutputSnapshot and verify stability across validation
     try:
         snapshot = capture_output_snapshot(work_path)
@@ -431,6 +453,7 @@ def validate_batch_output(
 
 __all__ = [
     "MAX_BATCH_DRAWING_BYTES",
+    "PARASOLID_VALIDATION_FAILED_MESSAGE",
     "STEP_VALIDATION_FAILED_MESSAGE",
     "STL_VALIDATION_FAILED_MESSAGE",
     "BatchFormatValidationError",

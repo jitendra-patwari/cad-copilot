@@ -135,6 +135,34 @@ class TestRequestFixtureRoundTrips:
             parse_batch_request(data)
         assert exc_info.value.code == expected_code
 
+    def test_candidate_parasolid_request_rejected_by_public_contract(self) -> None:
+        """Candidate invariant: parse_batch_request strictly rejects 'parasolid' prior to promotion."""
+        # 1. Single format parasolid
+        payload_single = {
+            "contract_version": "1.0",
+            "request_id": "req-candidate-parasolid-01",
+            "kind": "batch_operation",
+            "input": {"root": "C:/data", "files": ["part1.par"]},
+            "output_root": "C:/data/out",
+            "operation": {"type": "export_3d", "formats": ["parasolid"]},
+        }
+        with pytest.raises(BatchValidationError) as exc_info:
+            parse_batch_request(payload_single)
+        assert exc_info.value.code == "INVALID_SCHEMA"
+
+        # 2. Combined format with step and parasolid
+        payload_mixed = {
+            "contract_version": "1.0",
+            "request_id": "req-candidate-parasolid-02",
+            "kind": "batch_operation",
+            "input": {"root": "C:/data", "files": ["part1.par"]},
+            "output_root": "C:/data/out",
+            "operation": {"type": "export_3d", "formats": ["step", "parasolid"]},
+        }
+        with pytest.raises(BatchValidationError) as exc_info:
+            parse_batch_request(payload_mixed)
+        assert exc_info.value.code == "INVALID_SCHEMA"
+
 
 class TestResponseFixtureRoundTrips:
     """Round-trip conversion and validation for positive and negative response fixtures."""

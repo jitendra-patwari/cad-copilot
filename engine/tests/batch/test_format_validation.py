@@ -22,6 +22,7 @@ from batch.format_validation import (
     MAX_BATCH_DRAWING_BYTES,
     MAX_DXF_LINE_CHARS,
     MIN_PDF_BYTES,
+    PARASOLID_VALIDATION_FAILED_MESSAGE,
     STEP_VALIDATION_FAILED_MESSAGE,
     STL_VALIDATION_FAILED_MESSAGE,
     BatchFormatValidationError,
@@ -138,6 +139,22 @@ def _write_minimal_valid_dxf(
     path.write_bytes(raw.encode("utf-8"))
 
 
+def _write_minimal_valid_parasolid(path: Path) -> None:
+    """Write minimal valid synthetic Parasolid text transmission file (.x_t)."""
+    lines = [
+        "**ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz**************************\r\n",
+        "**PARASOLID !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~0123456789**************************\r\n",
+        "**PART1;\r\n",
+        "FORMAT=text;\r\n",
+        "GUISE=transmit;\r\n",
+        "**PART2;\r\n",
+        "SCH=SCH_3800150_37102;\r\n",
+        "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15\r\n",
+        "79 16 300 SolidEdge/Styles1 0 \r\n",
+    ]
+    path.write_bytes("".join(lines).encode("latin-1"))
+
+
 # ---------------------------------------------------------------------------
 # 1. Four-Format Happy Path & OutputSnapshot Invariants
 # ---------------------------------------------------------------------------
@@ -216,6 +233,21 @@ def test_validate_batch_output_dxf_success(tmp_path: Path, line_ending: str, wit
     assert snap.identity.inode != 0
 
 
+def test_validate_batch_output_parasolid_success(tmp_path: Path) -> None:
+    """Proves valid Parasolid text transmission output passes validation and produces valid OutputSnapshot."""
+    parasolid_file = tmp_path / "model.x_t"
+    _write_minimal_valid_parasolid(parasolid_file)
+
+    snap = validate_batch_output("parasolid", parasolid_file)
+    assert isinstance(snap, OutputSnapshot)
+    assert snap.size_bytes == parasolid_file.stat().st_size
+    assert snap.size_bytes > 0
+    assert snap.identity.inode != 0
+    assert snap.mtime_ns > 0
+    assert len(snap.sha256) == 64
+    assert snap.sha256.islower()
+
+
 def test_validate_batch_output_satisfies_protocol() -> None:
     """Proves validate_batch_output conforms to BatchFormatValidator protocol."""
     validator: BatchFormatValidator = validate_batch_output
@@ -246,6 +278,8 @@ def test_validate_batch_output_unsupported_format(tmp_path: Path) -> None:
         ("step", ".stp"),
         ("step", ".txt"),
         ("stl", ".mesh"),
+        ("parasolid", ".step"),
+        ("parasolid", ".x_b"),
         ("pdf", ".dxf"),
         ("dxf", ".pdf"),
     ],
@@ -722,7 +756,69 @@ def test_validate_batch_output_dxf_drawing_byte_caps(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 7. Snapshot Stability & Mutation Guard
+# 7. Parasolid Structural Edge Cases & Dispatcher Integration
+# ---------------------------------------------------------------------------
+
+
+def test_validate_batch_output_parasolid_corrupted(tmp_path: Path) -> None:
+    """Proves corrupted Parasolid output raises BatchFormatValidationError with sanitized message."""
+    parasolid_file = tmp_path / "corrupted.x_t"
+    parasolid_file.write_bytes(b"INVALID PARASOLID DATA PAYLOAD" * 5)
+
+    with pytest.raises(BatchFormatValidationError) as exc_info:
+        validate_batch_output("parasolid", parasolid_file)
+
+    assert exc_info.value.code == "ARTIFACT_EXPORT_FAILED"
+    assert exc_info.value.format == "parasolid"
+    assert exc_info.value.phase == "validation"
+    assert (
+        exc_info.value.message == PARASOLID_VALIDATION_FAILED_MESSAGE or "Parasolid artifact" in exc_info.value.message
+    )
+
+
+def test_validate_batch_output_parasolid_empty_fails(tmp_path: Path) -> None:
+    """Proves 0-byte Parasolid output fails common positive size check."""
+    parasolid_file = tmp_path / "empty.x_t"
+    parasolid_file.write_bytes(b"")
+
+    with pytest.raises(BatchFormatValidationError) as exc_info:
+        validate_batch_output("parasolid", parasolid_file)
+
+    assert exc_info.value.code == "ARTIFACT_EXPORT_FAILED"
+    assert exc_info.value.format == "parasolid"
+    assert "empty" in exc_info.value.message
+
+
+def test_validate_batch_output_parasolid_mutation_detected(tmp_path: Path) -> None:
+    """Proves modification between Parasolid structural validation and snapshot is caught."""
+    parasolid_file = tmp_path / "mutated.x_t"
+    _write_minimal_valid_parasolid(parasolid_file)
+
+    orig_capture = capture_output_snapshot
+
+    def _tampering_capture(p: Path) -> OutputSnapshot:
+        real_snap = orig_capture(p)
+        return OutputSnapshot(
+            identity=real_snap.identity,
+            size_bytes=real_snap.size_bytes + 10,
+            mtime_ns=real_snap.mtime_ns,
+            sha256=real_snap.sha256,
+        )
+
+    with (
+        patch("batch.format_validation.capture_output_snapshot", side_effect=_tampering_capture),
+        pytest.raises(BatchFormatValidationError) as exc_info,
+    ):
+        validate_batch_output("parasolid", parasolid_file)
+
+    assert exc_info.value.code == "ARTIFACT_EXPORT_FAILED"
+    assert exc_info.value.format == "parasolid"
+    assert exc_info.value.phase == "snapshot"
+    assert "modified during validation" in exc_info.value.message
+
+
+# ---------------------------------------------------------------------------
+# 8. Snapshot Stability & Mutation Guard
 # ---------------------------------------------------------------------------
 
 
@@ -772,7 +868,7 @@ def test_validate_batch_output_snapshot_capture_failure(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 8. Diagnostic Sanitization & Bounded Length (SEC-07)
+# 9. Diagnostic Sanitization & Bounded Length (SEC-07)
 # ---------------------------------------------------------------------------
 
 

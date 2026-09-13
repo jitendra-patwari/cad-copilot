@@ -14,7 +14,7 @@ from typing import Literal
 BatchOperationType = Literal["export_3d", "publish_drawing"]
 Export3DFormat = Literal["step", "stl"]
 PublishDrawingFormat = Literal["pdf", "dxf"]
-BatchOutputFormat = Literal["step", "stl", "pdf", "dxf"]
+BatchOutputFormat = Literal["step", "stl", "parasolid", "pdf", "dxf"]
 
 BatchTerminalStatus = Literal["completed", "cancelled", "rejected", "failed"]
 FileResultStatus = Literal["accepted", "partial", "failed"]
@@ -92,7 +92,7 @@ class BatchDiagnostic:
             raise ValueError(f"Unknown diagnostic code '{self.code}'")
         if not isinstance(self.message, str) or not (1 <= len(self.message) <= 512):
             raise ValueError("Diagnostic message must be a string with length between 1 and 512")
-        if self.format is not None and self.format not in ("step", "stl", "pdf", "dxf"):
+        if self.format is not None and self.format not in ("step", "stl", "parasolid", "pdf", "dxf"):
             raise ValueError(f"Invalid format '{self.format}' for diagnostic record")
 
 
@@ -218,7 +218,7 @@ class BatchArtifactRecord:
     path: str
 
     def __post_init__(self) -> None:
-        if self.format not in ("step", "stl", "pdf", "dxf"):
+        if self.format not in ("step", "stl", "parasolid", "pdf", "dxf"):
             raise ValueError(f"Invalid artifact format '{self.format}'")
         if not isinstance(self.path, str) or len(self.path) < 1:
             raise ValueError("Artifact path must be a non-empty string")
@@ -234,7 +234,7 @@ class ManifestArtifactRecord:
     sha256: str
 
     def __post_init__(self) -> None:
-        if self.format not in ("step", "stl", "pdf", "dxf"):
+        if self.format not in ("step", "stl", "parasolid", "pdf", "dxf"):
             raise ValueError(f"Invalid artifact format '{self.format}'")
         if not isinstance(self.relative_path, str) or len(self.relative_path) < 1:
             raise ValueError("Manifest artifact relative_path must be a non-empty string")

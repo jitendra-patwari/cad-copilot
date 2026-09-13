@@ -339,7 +339,7 @@ def test_batch_response_schema_progressed_failure_format_attribution() -> None:
     validator.validate(payload)
 
 
-@pytest.mark.parametrize("bad_fmt", ["dwg", "iges", "par", "jt", ""])
+@pytest.mark.parametrize("bad_fmt", ["dwg", "iges", "par", "jt", "parasolid", ""])
 def test_batch_response_schema_rejects_unapproved_formats(bad_fmt: str) -> None:
     """Proves errorRecord rejects unapproved or blank format strings."""
     res_schema = _load_json(SCHEMAS_ROOT / "batch" / "batch-response.schema.json")
@@ -500,6 +500,11 @@ def test_batch_manifest_schema_defensive_negative_rules() -> None:
     # 6. Reject unexpected top-level property (additionalProperties: false)
     bad_manifest = json.loads(json.dumps(valid_base))
     bad_manifest["unexpected_field"] = "not_allowed"
+    assert not validator.is_valid(bad_manifest)
+
+    # 7. Reject candidate parasolid format prior to promotion
+    bad_manifest = json.loads(json.dumps(valid_base))
+    bad_manifest["operation"]["formats"] = ["parasolid"]
     assert not validator.is_valid(bad_manifest)
 
 
