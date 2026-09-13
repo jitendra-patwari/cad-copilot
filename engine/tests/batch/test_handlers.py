@@ -160,6 +160,50 @@ class TestExport3DHandler:
         assert len(workspace.finalize_calls) == 1
         assert len(workspace.cleanup_calls) == 0
 
+    def test_successful_parasolid_export_lifecycle(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Proves complete guarded lifecycle execution for candidate parasolid format."""
+        work_file = tmp_path / "work" / "part.x_t"
+        work_file.parent.mkdir(parents=True)
+        work_file.write_bytes(b"**ABCDEFGHIJKLMNOPQRSTUVWXYZ\r\n**PARASOLID \r\n**PART1;\r\n")
+
+        events: list[str] = []
+        published_file = tmp_path / "final" / "part.x_t"
+        workspace = FakeWorkspace(target_path=published_file, events=events)
+
+        exported_calls: list[tuple[object, str, Path]] = []
+
+        def mock_export(handle: object, fmt: str, out_p: Path) -> None:
+            events.append("export")
+            exported_calls.append((handle, fmt, out_p))
+
+        fake_snapshot = MagicMock(spec=OutputSnapshot)
+        monkeypatch.setattr("batch.handlers.validate_batch_output", lambda fmt, p: fake_snapshot)
+
+        handler = Export3DHandler(
+            workspace=workspace,
+            model_exporter=mock_export,
+            assembly_checker=lambda h: AssemblyReferenceCheckResult(
+                is_resolved=True, total_count=1, unresolved_count=0
+            ),
+        )
+
+        doc_handle = FakeHandle("doc-parasolid-1")
+        ctx = make_context(
+            input_file="part.par",
+            format_id="parasolid",
+            work_path=work_file,
+            target_path=published_file,
+        )
+
+        outcome = handler(doc_handle, ctx)
+
+        assert outcome.is_success
+        assert outcome.artifact is not None
+        assert outcome.artifact.format == "parasolid"
+        assert outcome.artifact.path == str(published_file)
+        assert events == ["begin", "export", "finalize"]
+        assert exported_calls == [(doc_handle, "parasolid", work_file)]
+
     def test_assembly_reference_check_cached_across_formats(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

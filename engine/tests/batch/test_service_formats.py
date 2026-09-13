@@ -21,6 +21,8 @@ from unittest.mock import MagicMock, PropertyMock
 
 from batch.composition import build_initial_operation_bindings
 from batch.execution import BatchExecutionSpec
+from batch.format_validation import validate_batch_output
+from batch.registry import OperationDescriptor, OperationRegistry
 from batch.safety import FilesystemBatchSafetyBoundary
 from batch.service import BatchService
 from interfaces.exceptions import (
@@ -34,9 +36,36 @@ from tests.batch.fake_support import (
 from tests.batch.test_format_validation import (
     _write_minimal_binary_stl,
     _write_minimal_valid_dxf,
+    _write_minimal_valid_parasolid,
     _write_minimal_valid_pdf,
     _write_minimal_valid_step,
 )
+
+
+def _build_candidate_registry() -> OperationRegistry:
+    """Build candidate registry exposing 'parasolid' under export_3d for internal candidate testing."""
+    return OperationRegistry(
+        (
+            OperationDescriptor(
+                operation_id="export_3d",
+                input_extensions=(".par", ".psm", ".asm"),
+                output_formats=("step", "stl", "parasolid"),
+                progress_label="Export 3D CAD",
+                safety_class="read_only_source",
+                document_lifecycle="open_existing_close_without_save",
+                collision_policy="fail_if_exists",
+            ),
+            OperationDescriptor(
+                operation_id="publish_drawing",
+                input_extensions=(".dft",),
+                output_formats=("pdf", "dxf"),
+                progress_label="Publish Drawing",
+                safety_class="read_only_source",
+                document_lifecycle="open_existing_close_without_save",
+                collision_policy="fail_if_exists",
+            ),
+        )
+    )
 
 
 def _make_spec(
@@ -120,6 +149,8 @@ class FakeCOMDocument:
             _write_minimal_binary_stl(p)
             # Solid Edge stl translator writes .log sidecar
             p.with_suffix(".log").write_text("STL Translation Log")
+        elif ext in ("parasolid", "x_t"):
+            _write_minimal_valid_parasolid(p)
         elif ext == "pdf":
             _write_minimal_valid_pdf(p)
         elif ext == "dxf":
@@ -584,3 +615,259 @@ class TestServiceFormats:
         assert any(e.code == "SOURCE_INTEGRITY_FAILED" for e in res.errors)
         # Artifacts cleared on source integrity mismatch
         assert len(res.artifacts) == 0
+
+    def test_candidate_parasolid_export_par_psm_asm_end_to_end(self, tmp_path: Path) -> None:
+        """Candidate flow: prove export_3d with candidate registry exports parasolid for .par, .psm, .asm."""
+        input_root = tmp_path / "inputs"
+        output_root = tmp_path / "outputs"
+        input_root.mkdir()
+        output_root.mkdir()
+
+        (input_root / "part.par").write_bytes(b"SOLID EDGE PART")
+        (input_root / "sheet.psm").write_bytes(b"SOLID EDGE SHEET METAL")
+        (input_root / "assy.asm").write_bytes(b"SOLID EDGE ASSEMBLY")
+
+        runtime = FakeTrackedDocumentRuntime()
+        runtime.open_callback = make_fake_doc_opener(runtime)
+
+        candidate_reg = _build_candidate_registry()
+        boundary = FilesystemBatchSafetyBoundary()
+        bindings = build_initial_operation_bindings(boundary, registry=candidate_reg)
+        service = BatchService(
+            runtime_factory=lambda: runtime,
+            safety_boundary=boundary,
+            bindings=bindings,
+            registry=candidate_reg,
+        )
+
+        spec = _make_spec(
+            input_root=input_root,
+            output_root=output_root,
+            inputs=("part.par", "sheet.psm", "assy.asm"),
+            operation_id="export_3d",
+            formats=("parasolid",),
+        )
+
+        outcome = service.execute(spec)
+
+        assert outcome.status == "completed"
+        assert outcome.summary is not None
+        assert outcome.summary.total == 3
+        assert outcome.summary.accepted == 3
+        assert outcome.summary.partial == 0
+        assert outcome.summary.failed == 0
+
+        # Output files exist and are verified
+        part_xt = output_root / "part.x_t"
+        sheet_xt = output_root / "sheet.x_t"
+        assy_xt = output_root / "assy.x_t"
+        assert part_xt.is_file()
+        assert sheet_xt.is_file()
+        assert assy_xt.is_file()
+
+        # Invariant: zero sidecars for parasolid
+        assert not (output_root / "part.log").exists()
+        assert not (output_root / "sheet.log").exists()
+        assert not (output_root / "assy.log").exists()
+
+        # Structural validation passes
+        assert validate_batch_output("parasolid", part_xt).size_bytes > 0
+        assert validate_batch_output("parasolid", sheet_xt).size_bytes > 0
+        assert validate_batch_output("parasolid", assy_xt).size_bytes > 0
+
+        for file_res in outcome.file_results:
+            assert len(file_res.artifacts) == 1
+            assert file_res.artifacts[0].format == "parasolid"
+
+    def test_candidate_three_format_mixed_export_preserves_ordering(self, tmp_path: Path) -> None:
+        """Candidate flow: prove step, stl, parasolid mixed export preserves requested format ordering."""
+        input_root = tmp_path / "inputs"
+        output_root = tmp_path / "outputs"
+        input_root.mkdir()
+        output_root.mkdir()
+
+        (input_root / "model.par").write_bytes(b"SOLID EDGE PART")
+
+        runtime = FakeTrackedDocumentRuntime()
+        runtime.open_callback = make_fake_doc_opener(runtime)
+
+        candidate_reg = _build_candidate_registry()
+        boundary = FilesystemBatchSafetyBoundary()
+        bindings = build_initial_operation_bindings(boundary, registry=candidate_reg)
+        service = BatchService(
+            runtime_factory=lambda: runtime,
+            safety_boundary=boundary,
+            bindings=bindings,
+            registry=candidate_reg,
+        )
+
+        spec = _make_spec(
+            input_root=input_root,
+            output_root=output_root,
+            inputs=("model.par",),
+            operation_id="export_3d",
+            formats=("step", "stl", "parasolid"),
+        )
+
+        outcome = service.execute(spec)
+
+        assert outcome.status == "completed"
+        assert outcome.summary is not None
+        assert outcome.summary.accepted == 1
+
+        assert (output_root / "model.step").is_file()
+        assert (output_root / "model.stl").is_file()
+        assert (output_root / "model.x_t").is_file()
+
+        # Invariant: step and stl logs cleaned up, no parasolid log
+        assert not (output_root / "model.log").exists()
+
+        res = outcome.file_results[0]
+        assert len(res.artifacts) == 3
+        assert [a.format for a in res.artifacts] == ["step", "stl", "parasolid"]
+
+    def test_candidate_parasolid_target_collision_preserves_sentinel(self, tmp_path: Path) -> None:
+        """Candidate flow: pre-existing .x_t fails with TARGET_ALREADY_EXISTS without overwrite."""
+        input_root = tmp_path / "inputs"
+        output_root = tmp_path / "outputs"
+        input_root.mkdir()
+        output_root.mkdir()
+
+        (input_root / "part.par").write_bytes(b"SOLID EDGE PART")
+        existing_xt = output_root / "part.x_t"
+        sentinel_bytes = b"PRE-EXISTING PARASOLID SENTINEL"
+        existing_xt.write_bytes(sentinel_bytes)
+
+        runtime = FakeTrackedDocumentRuntime()
+        runtime.open_callback = make_fake_doc_opener(runtime)
+
+        candidate_reg = _build_candidate_registry()
+        boundary = FilesystemBatchSafetyBoundary()
+        bindings = build_initial_operation_bindings(boundary, registry=candidate_reg)
+        service = BatchService(
+            runtime_factory=lambda: runtime,
+            safety_boundary=boundary,
+            bindings=bindings,
+            registry=candidate_reg,
+        )
+
+        spec = _make_spec(
+            input_root=input_root,
+            output_root=output_root,
+            inputs=("part.par",),
+            formats=("step", "parasolid"),
+        )
+
+        outcome = service.execute(spec)
+
+        # Sentinel remains pristine
+        assert existing_xt.read_bytes() == sentinel_bytes
+
+        # step succeeded, parasolid failed with TARGET_ALREADY_EXISTS -> partial
+        res = outcome.file_results[0]
+        assert res.status == "partial"
+        assert len(res.artifacts) == 1
+        assert res.artifacts[0].format == "step"
+        assert any(e.code == "TARGET_ALREADY_EXISTS" and e.format == "parasolid" for e in res.errors)
+
+    def test_candidate_unresolved_assembly_preflight_blocks_parasolid(self, tmp_path: Path) -> None:
+        """Candidate flow: unresolved assembly fails preflight and blocks Parasolid export."""
+        input_root = tmp_path / "inputs"
+        output_root = tmp_path / "outputs"
+        input_root.mkdir()
+        output_root.mkdir()
+
+        (input_root / "broken.asm").write_bytes(b"BROKEN ASM")
+        (input_root / "good.par").write_bytes(b"GOOD PART")
+
+        runtime = FakeTrackedDocumentRuntime()
+        runtime.open_callback = make_fake_doc_opener(
+            runtime,
+            unresolved_predicate=lambda p: "broken" in p.name,
+        )
+
+        candidate_reg = _build_candidate_registry()
+        boundary = FilesystemBatchSafetyBoundary()
+        bindings = build_initial_operation_bindings(boundary, registry=candidate_reg)
+        service = BatchService(
+            runtime_factory=lambda: runtime,
+            safety_boundary=boundary,
+            bindings=bindings,
+            registry=candidate_reg,
+        )
+
+        spec = _make_spec(
+            input_root=input_root,
+            output_root=output_root,
+            inputs=("broken.asm", "good.par"),
+            formats=("parasolid",),
+            continue_on_error=True,
+        )
+
+        outcome = service.execute(spec)
+
+        assert outcome.status == "completed"
+        assert outcome.summary is not None
+        assert outcome.summary.accepted == 1
+        assert outcome.summary.failed == 1
+
+        # broken.asm produced no output
+        assert not (output_root / "broken.x_t").exists()
+        # good.par succeeded
+        assert (output_root / "good.x_t").is_file()
+
+        broken_res = outcome.file_results[0]
+        assert broken_res.status == "failed"
+        assert any(e.code == "ARTIFACT_EXPORT_FAILED" and e.format == "parasolid" for e in broken_res.errors)
+
+    def test_candidate_cancellation_cleans_parasolid_staging(self, tmp_path: Path) -> None:
+        """Candidate flow: mid-file cancellation before parasolid leaves zero .x_t files and clean staging."""
+        input_root = tmp_path / "inputs"
+        output_root = tmp_path / "outputs"
+        input_root.mkdir()
+        output_root.mkdir()
+
+        (input_root / "part.par").write_bytes(b"SOLID EDGE PART")
+
+        cancelled = False
+
+        def _step_then_cancel(p: Path, target: str) -> None:
+            nonlocal cancelled
+            tgt = Path(target)
+            if tgt.suffix.lower() == ".step":
+                _write_minimal_valid_step(tgt)
+                tgt.with_suffix(".log").write_text("STEP Translation Log")
+                cancelled = True
+
+        runtime = FakeTrackedDocumentRuntime()
+        runtime.open_callback = make_fake_doc_opener(runtime, on_save_copy_as=_step_then_cancel)
+
+        candidate_reg = _build_candidate_registry()
+        boundary = FilesystemBatchSafetyBoundary()
+        bindings = build_initial_operation_bindings(boundary, registry=candidate_reg)
+        service = BatchService(
+            runtime_factory=lambda: runtime,
+            safety_boundary=boundary,
+            bindings=bindings,
+            cancellation_check=lambda: cancelled,
+            registry=candidate_reg,
+        )
+
+        spec = _make_spec(
+            input_root=input_root,
+            output_root=output_root,
+            inputs=("part.par",),
+            formats=("step", "parasolid"),
+        )
+
+        outcome = service.execute(spec)
+
+        assert outcome.status == "cancelled"
+        assert (output_root / "part.step").is_file()
+        assert not (output_root / "part.x_t").exists()
+        staging_dir = output_root / ".cadcopilot_batch_work"
+        if staging_dir.exists():
+            assert list(staging_dir.rglob("*.x_t")) == []
+
+        res = outcome.file_results[0]
+        assert any(e.code == "BATCH_CANCELLED" and e.format == "parasolid" for e in res.errors)

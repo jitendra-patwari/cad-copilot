@@ -33,7 +33,7 @@ from interfaces.exceptions import (
     CADRuntimeUnavailableError,
 )
 
-SUPPORTED_3D_FORMATS: Final[frozenset[str]] = frozenset({"step", "stl"})
+SUPPORTED_3D_FORMATS: Final[frozenset[str]] = frozenset({"step", "stl", "parasolid"})
 SUPPORTED_3D_EXTENSIONS: Final[frozenset[str]] = frozenset({".par", ".psm", ".asm"})
 
 SUPPORTED_DRAWING_FORMATS: Final[frozenset[str]] = frozenset({"pdf", "dxf"})

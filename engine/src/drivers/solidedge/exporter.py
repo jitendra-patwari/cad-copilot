@@ -31,13 +31,14 @@ from interfaces.exceptions import (
 from interfaces.models import ArtifactFormat
 
 # Supported required model export formats
-SUPPORTED_MODEL_FORMATS: frozenset[str] = frozenset({"par", "step", "stl"})
+SUPPORTED_MODEL_FORMATS: frozenset[str] = frozenset({"par", "step", "stl", "parasolid"})
 
 # Format to canonical allowed file extensions mapping
 FORMAT_EXTENSIONS: dict[str, tuple[str, ...]] = {
     "par": (".par",),
     "step": (".step", ".stp"),
     "stl": (".stl",),
+    "parasolid": (".x_t",),
 }
 
 PREVIEW_EXTENSIONS: tuple[str, ...] = (".jpg", ".jpeg")
@@ -127,12 +128,12 @@ def export_model_to_path(
     format_id: ArtifactFormat | str,
     output_path: Path,
 ) -> None:
-    """Export the active document geometry to a required model format (PAR, STEP, STL).
+    """Export the active document geometry to a required model format (PAR, STEP, STL, Parasolid).
 
     Args:
         raw_doc: Active Solid Edge COM PartDocument object on the STA worker thread.
         worker: STAThreadWorker running the COM apartment.
-        format_id: Target model format ("par", "step", or "stl").
+        format_id: Target model format ("par", "step", "stl", or "parasolid").
         output_path: Destination file path in the validated staging directory.
 
     Raises:

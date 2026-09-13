@@ -165,6 +165,39 @@ class TestExportModelToPath:
         # STEP export must clean up translator log
         assert not same_stem_log.exists()
 
+    def test_export_model_to_path_parasolid_success(self, tmp_path: Path) -> None:
+        raw_doc = FakePartDocument()
+        worker = FakeWorker()
+        out_file = tmp_path / "model.x_t"
+
+        export_model_to_path(raw_doc, worker, "parasolid", out_file)
+
+        assert len(raw_doc.save_copy_as_calls) == 1
+        assert raw_doc.save_copy_as_calls[0] == os.fspath(out_file.resolve())
+
+    def test_export_model_to_path_parasolid_preserves_unrelated_log(self, tmp_path: Path) -> None:
+        raw_doc = FakePartDocument()
+        worker = FakeWorker()
+        out_file = tmp_path / "model.x_t"
+        same_stem_log = tmp_path / "model.log"
+        same_stem_log.write_text("Unrelated log content", encoding="utf-8")
+
+        export_model_to_path(raw_doc, worker, "parasolid", out_file)
+
+        # Parasolid export produces zero sidecars and must NOT touch unrelated .log
+        assert same_stem_log.exists()
+        assert same_stem_log.read_text(encoding="utf-8") == "Unrelated log content"
+
+    def test_export_model_to_path_parasolid_rejects_wrong_extension(self, tmp_path: Path) -> None:
+        raw_doc = FakePartDocument()
+        worker = FakeWorker()
+        out_file = tmp_path / "model.step"
+
+        with pytest.raises(CADExportError) as exc_info:
+            export_model_to_path(raw_doc, worker, "parasolid", out_file)
+        assert exc_info.value.error_code == "ARTIFACT_EXPORT_FAILED"
+        assert "does not match format" in str(exc_info.value)
+
     def test_export_model_to_path_resolves_relative_path_to_absolute(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
