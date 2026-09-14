@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ipc.stdio import (
+from ipc.descriptors import (
     ControlledDescriptors,
     _redirect_windows_handles,
     controlled_stdio,
@@ -95,7 +95,7 @@ def test_windows_handles_failure_and_rollback() -> None:
 def test_establish_controlled_descriptors_failure_restores_descriptors_and_closes_copies() -> None:
     """Proves exception during establish_controlled_descriptors restores CRT descriptors 1 and 2."""
     with (
-        patch("ipc.stdio._redirect_windows_handles", side_effect=OSError("Simulated handle redirection failure")),
+        patch("ipc.descriptors._redirect_windows_handles", side_effect=OSError("Simulated handle redirection failure")),
         pytest.raises(OSError, match="Simulated handle redirection failure"),
     ):
         establish_controlled_descriptors(save_restore_state=False)

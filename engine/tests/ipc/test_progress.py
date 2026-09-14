@@ -20,8 +20,8 @@ from ipc.progress import (
     emit_progress,
     format_fatal_diagnostic,
     format_progress_event,
-    write_all,
 )
+from ipc.wire import write_all
 
 # ---------------------------------------------------------------------------
 # 1. Progress Event Formatting

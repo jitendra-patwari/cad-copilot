@@ -29,6 +29,45 @@ from application.projection import (
     build_failed_response,
     build_rejected_response,
 )
+from ipc.wire import (
+    WireJSONDecodeError as _WireJSONDecodeError,
+)
+from ipc.wire import (
+    WirePayloadTooLargeError as _WirePayloadTooLargeError,
+)
+from ipc.wire import (
+    decode_strict_json as _decode_strict_json,
+)
+from ipc.wire import (
+    read_bounded_bytes as _read_bounded_bytes,
+)
+from ipc.wire import (
+    serialize_json_line as _serialize_json_line,
+)
+
+__all__ = [
+    "MAX_GENERATION_REQUEST_BYTES",
+    "READ_LIMIT_BYTES",
+    "REQUEST_SCHEMA_NAME",
+    "RESPONSE_SCHEMA_NAME",
+    "IPCConfigurationError",
+    "IPCContractError",
+    "InvalidRequestError",
+    "PayloadTooLargeError",
+    "ResponseValidationError",
+    "build_fallback_internal_error_response",
+    "build_rejected_error_response",
+    "build_typed_generation_request",
+    "decode_and_parse_request_json",
+    "extract_safe_request_id",
+    "get_request_validator",
+    "get_response_validator",
+    "is_safe_job_id",
+    "is_safe_request_id",
+    "read_bounded_request",
+    "serialize_response",
+    "validate_response_payload",
+]
 
 MAX_GENERATION_REQUEST_BYTES: int = 128 * 1024  # 131,072 bytes
 READ_LIMIT_BYTES: int = MAX_GENERATION_REQUEST_BYTES + 1  # 131,073 bytes
@@ -95,21 +134,6 @@ class ResponseValidationError(IPCContractError):
         super().__init__("INTERNAL_ERROR", message, request_id=request_id)
 
 
-def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    """Parse object pairs into a dictionary, rejecting duplicate keys at any nesting level."""
-    res: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in res:
-            raise ValueError(f"Duplicate object key: {key}")
-        res[key] = value
-    return res
-
-
-def _reject_constant(val: str) -> Any:
-    """Reject non-finite JSON constants such as NaN, Infinity, or -Infinity."""
-    raise ValueError(f"JSON non-finite constant '{val}' is not allowed")
-
-
 @functools.cache
 def _load_packaged_schema(resource_name: str) -> dict[str, Any]:
     """Load and compile a JSON Schema Draft 2020-12 resource from package data."""
@@ -164,22 +188,10 @@ def read_bounded_request(stream: BinaryIO, limit: int = READ_LIMIT_BYTES) -> byt
     Raises:
         PayloadTooLargeError: If incoming stream contains limit or more bytes.
     """
-    chunks: list[bytes] = []
-    total_read = 0
-    chunk_size = 64 * 1024
-
-    while total_read < limit:
-        to_read = min(chunk_size, limit - total_read)
-        chunk = stream.read(to_read)
-        if not chunk:
-            break
-        chunks.append(chunk)
-        total_read += len(chunk)
-
-    if total_read >= limit:
-        raise PayloadTooLargeError()
-
-    return b"".join(chunks)
+    try:
+        return _read_bounded_bytes(stream, limit)
+    except _WirePayloadTooLargeError as exc:
+        raise PayloadTooLargeError() from exc
 
 
 def extract_safe_request_id(data: Any) -> str:
@@ -205,35 +217,12 @@ def decode_and_parse_request_json(raw_bytes: bytes) -> tuple[dict[str, Any], str
         InvalidRequestError: If input is empty, has BOM, invalid UTF-8, malformed JSON,
                              duplicate keys, non-finite constants, non-object root, or trailing data.
     """
-    if len(raw_bytes) > MAX_GENERATION_REQUEST_BYTES:
-        raise PayloadTooLargeError()
-
-    if not raw_bytes:
-        raise InvalidRequestError("Request payload is empty.")
-
-    if raw_bytes.startswith(b"\xef\xbb\xbf"):
-        raise InvalidRequestError("Request payload contains forbidden UTF-8 BOM.")
-
     try:
-        text = raw_bytes.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise InvalidRequestError("Request payload is not valid UTF-8.") from exc
-
-    if not text.strip():
-        raise InvalidRequestError("Request payload contains only whitespace.")
-
-    # Strict JSON decoding with duplicate key and non-finite rejection
-    try:
-        parsed: Any = json.loads(
-            text,
-            object_pairs_hook=_reject_duplicate_keys,
-            parse_constant=_reject_constant,
-        )
-    except ValueError as exc:
-        raise InvalidRequestError(f"Request payload is not valid JSON: {exc}") from exc
-
-    if not isinstance(parsed, dict):
-        raise InvalidRequestError("Request payload root must be a JSON object.")
+        parsed = _decode_strict_json(raw_bytes, max_bytes=MAX_GENERATION_REQUEST_BYTES)
+    except _WirePayloadTooLargeError as exc:
+        raise PayloadTooLargeError() from exc
+    except _WireJSONDecodeError as exc:
+        raise InvalidRequestError(str(exc)) from exc
 
     safe_req_id = extract_safe_request_id(parsed)
     return parsed, safe_req_id
@@ -348,14 +337,7 @@ def serialize_response(response: Mapping[str, Any]) -> bytes:
     validate_response_payload(response)
 
     try:
-        compact_text = json.dumps(
-            response,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-            allow_nan=False,
-        )
-        return compact_text.encode("utf-8") + b"\n"
+        return _serialize_json_line(response)
     except Exception as exc:
         safe_req_id = extract_safe_request_id(response)
         raise ResponseValidationError(f"Failed to serialize response: {exc}", request_id=safe_req_id) from exc

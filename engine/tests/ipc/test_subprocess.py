@@ -170,9 +170,10 @@ def test_subprocess_forced_bootstrap_failure_restores_descriptors_and_emits_diag
     runner_script = """
 import sys
 from unittest.mock import patch
+import ipc.descriptors
 import ipc.stdio
 
-with patch("ipc.stdio._redirect_windows_handles", side_effect=OSError("Forced handle setup failure")):
+with patch("ipc.descriptors._redirect_windows_handles", side_effect=OSError("Forced handle setup failure")):
     sys.exit(ipc.stdio.main([]))
 """
     engine_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))

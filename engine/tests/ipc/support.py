@@ -10,7 +10,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from ipc.stdio import ControlledDescriptors, _run_stdio
+from ipc.descriptors import ControlledDescriptors
+from ipc.stdio import _run_stdio
 
 
 def make_pipes() -> tuple[int, int, int, int]:

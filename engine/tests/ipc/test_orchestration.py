@@ -11,13 +11,13 @@ from typing import Any
 from unittest.mock import patch
 
 from application.models import GenerationRequest
+from ipc.descriptors import ControlledDescriptors
 from ipc.progress import (
     FATAL_DIAGNOSTIC_MESSAGE,
     PROGRESS_MESSAGES,
     ProgressPhase,
 )
 from ipc.stdio import (
-    ControlledDescriptors,
     _run_stdio,
     main,
 )

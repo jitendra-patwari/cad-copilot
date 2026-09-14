@@ -6,8 +6,23 @@ deterministic ASCII-safe JSONL formatting, and bounded descriptor I/O helpers.
 
 from __future__ import annotations
 
-import os
 from typing import Final, Literal
+
+from ipc.wire import write_all as _write_all
+
+__all__ = [
+    "FATAL_DIAGNOSTIC_BYTES",
+    "FATAL_DIAGNOSTIC_MESSAGE",
+    "FIXED_PROGRESS_BYTES",
+    "MAX_PROGRESS_PAYLOAD_BYTES",
+    "PROGRESS_MESSAGES",
+    "PROGRESS_PHASES",
+    "ProgressPhase",
+    "emit_fatal_diagnostic",
+    "emit_progress",
+    "format_fatal_diagnostic",
+    "format_progress_event",
+]
 
 ProgressPhase = Literal[
     "request_received",
@@ -45,7 +60,6 @@ FATAL_DIAGNOSTIC_BYTES: Final[bytes] = (
 )
 
 MAX_PROGRESS_PAYLOAD_BYTES: Final[int] = 1024
-DEFAULT_MAX_WRITE_BYTES: Final[int] = 10 * 1024 * 1024  # 10 MiB safety cap
 
 
 def format_progress_event(phase: ProgressPhase) -> bytes:
@@ -71,35 +85,6 @@ def format_fatal_diagnostic() -> bytes:
     return FATAL_DIAGNOSTIC_BYTES
 
 
-def write_all(fd: int, data: bytes, *, max_bytes: int = DEFAULT_MAX_WRITE_BYTES) -> None:
-    """Write entire byte buffer to an OS file descriptor in a bounded loop.
-
-    Handles partial writes from os.write and verifies that total bytes
-    written does not exceed max_bytes.
-
-    Args:
-        fd: Target OS file descriptor.
-        data: Byte buffer to write.
-        max_bytes: Maximum total bytes permitted to be written.
-
-    Raises:
-        ValueError: If data length exceeds max_bytes.
-        OSError: If an underlying os.write call fails or makes no forward progress.
-    """
-    if len(data) > max_bytes:
-        raise ValueError(f"Data length ({len(data)} bytes) exceeds maximum permitted limit ({max_bytes} bytes).")
-
-    total_written = 0
-    total_to_write = len(data)
-
-    while total_written < total_to_write:
-        chunk = data[total_written:]
-        written = os.write(fd, chunk)
-        if written <= 0:
-            raise OSError(f"Write to descriptor {fd} made no progress (os.write returned {written}).")
-        total_written += written
-
-
 def emit_progress(fd: int, phase: ProgressPhase) -> None:
     """Emit a fixed progress event to the specified file descriptor.
 
@@ -108,7 +93,7 @@ def emit_progress(fd: int, phase: ProgressPhase) -> None:
         phase: One of the four canonical progress phases.
     """
     payload = format_progress_event(phase)
-    write_all(fd, payload, max_bytes=MAX_PROGRESS_PAYLOAD_BYTES)
+    _write_all(fd, payload, max_bytes=MAX_PROGRESS_PAYLOAD_BYTES)
 
 
 def emit_fatal_diagnostic(fd: int) -> None:
@@ -118,4 +103,4 @@ def emit_fatal_diagnostic(fd: int) -> None:
         fd: Preserved stderr file descriptor.
     """
     payload = format_fatal_diagnostic()
-    write_all(fd, payload, max_bytes=MAX_PROGRESS_PAYLOAD_BYTES)
+    _write_all(fd, payload, max_bytes=MAX_PROGRESS_PAYLOAD_BYTES)
