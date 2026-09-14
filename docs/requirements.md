@@ -332,6 +332,53 @@ The implementation is in `engine/src/drivers/solidedge/`. The requirements below
   - Schema Parity: Canonical and packaged JSON schemas remain 100% byte-identical.
   - `build_initial_registry`: Exposes `output_formats=("step", "stl", "parasolid")`.
 
+### FR-19: Batch Summary Manifest and Strict Stdio IPC (Milestone 5.6 — Planned)
+- **Summary Manifest Assembly & Artifact Containment**:
+  - Assembles a canonical `BatchManifest` conforming to `batch-manifest-v1.schema.json` for progressed outcomes (`completed`, `cancelled`, and progressed `failed`).
+  - Rejection and early failure paths never hash disk artifacts or attempt manifest assembly/publication.
+  - Verifies that every successful exported artifact is an absolute path strictly contained beneath the validated `output_root` and is a regular, non-reparse file.
+  - Manifest artifact records store strictly relative, forward-slash portable paths derived via `target_path.relative_to(validated_output_root).as_posix()` after strict containment verification, preserving input directory mirroring.
+  - Captures fresh, post-execution disk snapshots (`OutputSnapshot`) calculating positive byte sizes and streaming SHA-256 digests with 1 MiB chunk buffers without loading complete files into memory.
+  - Preserves caller request file ordering and requested format ordering.
+  - Privacy boundary: manifest contains zero user prompts, API keys, CAD geometries, environment dumps, usernames, or absolute workstation paths.
+- **Engine Version Resolution**:
+  - Process composition resolves installed `cad-copilot` distribution metadata before CAD acquisition and injects the resulting non-empty version string into manifest assembly.
+  - If distribution metadata is unavailable after request validation, returns a sanitized early `failed / INTERNAL_ERROR` response without acquiring Solid Edge, with no `0.0.0` fallback, no source-tree TOML fallback, and no workstation paths in diagnostics.
+- **Atomic No-Replace Manifest Publication**:
+  - Published destination: `<output_root>/<request_id>.batch_manifest.json`.
+  - Stages serialization through an exclusive, randomly named temporary file directly under the validated `output_root`, guaranteeing same-volume atomic rename.
+  - Serializes deterministic, ASCII-safe UTF-8 JSON (`ensure_ascii=True`, `allow_nan=False`, stable key order, 10 MiB safety cap) ending with a single LF (`\n`).
+  - Performs strict read-back verification against `batch-manifest-v1.schema.json` and parsed data equality validation before attempting rename.
+  - Re-verifies output root identity, target containment, target absence, and temporary-file identity immediately before atomic rename.
+  - Atomically renames staging file using Windows no-replace semantics (`MoveFileExW` without replace flag), failing closed if a collision sentinel or prior file exists without modifying or overwriting pre-existing targets.
+  - Captures a post-publication snapshot and proves exact byte and filesystem identity expectations.
+  - Exact cleanup: cleans only the request-private staging file on publication failure without broad or recursive directory deletion; never deletes or modifies pre-existing files or sentinels.
+- **Outcome Finalization & Publication Failure Precedence**:
+  - Finalizes `BatchExecutionOutcome` into canonical `BatchResponse` containing `manifest: { "path": "<target_path.as_posix()>" }` for `completed` and `cancelled` outcomes (and progressed `failed` outcomes where manifest publication succeeded).
+  - Manifest path references in `BatchResponse` are absolute local Windows paths formatted with forward slashes (`target_path.as_posix()`), matching canonical response fixtures.
+  - Publication failure precedence: if manifest assembly, artifact hashing, serialization, read-back, collision check, rename, or post-publication verification fails, the terminal response transitions to progressed `failed` with `manifest=None`, `cancelled_files=()`, `summary.cancelled=0`, and untouched inputs moved to `unprocessed_files`.
+  - For previously completed or cancelled outcomes, the top-level error diagnostic is `MANIFEST_PUBLICATION_FAILED`; for an already-progressed `failed` outcome, existing fatal errors are retained and `MANIFEST_PUBLICATION_FAILED` is appended exactly once.
+- **Strict Stdio IPC Framing & Descriptor Isolation**:
+  - Process entrypoint: `ipc.batch_stdio:main`.
+  - Accepts exactly one bounded UTF-8 JSON request via `stdin` conforming to `batch-request.schema.json` with a 128 KiB limit (`131,072` bytes), rejecting oversize input with `rejected/PAYLOAD_TOO_LARGE`.
+  - Strict JSON decoding rejecting duplicate object keys, non-finite constants (`NaN`, `Infinity`), BOM, and trailing tokens.
+  - Emits exactly one schema-valid compact 7-bit ASCII JSON response followed by LF on preserved `stdout`.
+  - Emits non-contract real-time progress events and fatal diagnostics exclusively on `stderr` as compact single-line JSONL objects.
+  - Establishes early C-runtime descriptor duplication and redirection to null, redirecting Windows `STD_OUTPUT_HANDLE` and `STD_ERROR_HANDLE` before production modules are imported to guarantee zero stdout/stderr contamination from C-runtime, COM, or print statements.
+- **Progress Protocol & Console Signal Lifecycle**:
+  - Progress JSONL contract: `{"type":"progress","request_id":"...","phase":"...","total_files":...,"completed_files":...}` supporting 6 canonical phases (`batch_started`, `file_started`, `format_started`, `format_finished`, `file_finished`, `batch_finished`) and optional phase-governed fields (`current_file`, `current_format`, `file_status`).
+  - Each progress event line is strictly capped at 4 KiB (`4,096` bytes) and terminated with LF.
+  - Progress observation is strictly best-effort: broken or closed stderr pipes must never disrupt batch execution, corrupt accounting, alter COM cleanup, or prevent the final stdout response.
+  - Fatal diagnostic envelope: `{"type":"diagnostic","phase":"fatal","message":"Batch process failed before a contract response could be produced."}` on `stderr` when a contract response cannot be produced.
+  - Cooperative signal handler (`SIGINT` and Windows `SIGBREAK` / `CTRL_BREAK_EVENT`) is installed strictly after request validation and before composition starts, and restored in `finally`.
+  - Handler only sets an async-safe cancellation flag (`threading.Event`); it performs zero I/O, no COM calls, no document closes, and no process termination. `SIGTERM` is not intercepted, and no in-engine force-kill is performed.
+  - Exit codes: `0` for handled contract responses (`completed`, `cancelled`, `rejected`, early `failed`, progressed `failed`), `1` for fatal process bootstrap/serialization failures (empty stdout), `130` for interruptions outside the cooperative scope.
+- **Launchers & Python Wheel Packaging**:
+  - Console entrypoint: `[project.scripts] cad-copilot-batch = "ipc.batch_stdio:main"`.
+  - Windows source wrapper: `engine/scripts/batch.cmd` with `%~dp0`-relative interpreter resolution, quiet import and distribution-metadata preflight, and fatal diagnostic on failure.
+  - Package data: `batch/schemas/*.json` verified via isolated wheel installations outside repository checkouts.
+  - Route isolation: zero AI provider imports, zero API keys, zero network access, and zero CAD Copilot authentication, entitlement, or licensing subsystem, while preserving caller-installed and appropriately licensed Siemens Solid Edge as the mandatory live-execution prerequisite.
+
 ---
 
 ## 3. Non-Functional Requirements (NFRs)
@@ -669,3 +716,46 @@ This section defines acceptance criteria specifically for the Milestone 5.5 cond
      - M5.5 live matrix (`test_parasolid_live.py`): **5 passed, 0 skipped in 149.11s** against clean commit `db19450` on Siemens Solid Edge 2026 build `226.00.00.106` (3-family `.par`/`.psm`/`.asm` export and non-mutating `OpenWithTemplate` count probe, collision isolation, unresolved assembly isolation, cooperative cancellation cleanup, and localized failure isolation).
      - M5.4 live regression matrix (`test_batch_formats_live.py`): **5 passed, 0 skipped in 115.69s** against clean commit `db19450`.
      - Zero running or orphan `Edge.exe` processes (clean teardown verified).
+
+### Milestone 5.6 Component Acceptance Criteria (Planned)
+
+This section defines acceptance criteria specifically for the Milestone 5.6 batch summary manifest, strict stdio IPC, signal handling, launchers, and packaging:
+
+1. **Summary Manifest Assembly & Containment (FR-19)**:
+   - Canonical `BatchManifest` assembly conforming to `batch-manifest-v1.schema.json` for progressed outcomes (`completed`, `cancelled`, and progressed `failed`).
+   - Rejection and early failure paths never hash disk artifacts or attempt manifest assembly/publication.
+   - Installed `cad-copilot` distribution metadata resolved before CAD acquisition and injected into manifest; if unavailable after request validation, returns sanitized early `failed / INTERNAL_ERROR` without acquiring Solid Edge.
+   - Every exported artifact is verified for strict canonical containment beneath the validated `output_root` and confirmed as a regular, non-reparse file.
+   - Manifest artifact records store strictly relative, forward-slash portable paths derived via `target_path.relative_to(validated_output_root).as_posix()` after strict containment verification, preserving input directory mirroring.
+   - Fresh post-execution size and streaming SHA-256 snapshots (`OutputSnapshot`) computed with 1 MiB chunk buffers without loading complete files into memory.
+   - Preserves caller request file ordering and requested format ordering. Zero user prompts, API keys, CAD geometries, environment dumps, usernames, or absolute workstation paths in manifest data.
+
+2. **Atomic Manifest Publication & Failure Precedence (FR-19)**:
+   - Published destination: `<output_root>/<request_id>.batch_manifest.json`.
+   - Exclusive, randomly named temporary staging directly under `output_root`, ensuring same-volume atomic rename.
+   - Bounded (10 MiB cap), deterministic, ASCII-safe UTF-8 JSON serialization ending with a single LF (`\n`).
+   - Strict read-back validation against `batch-manifest-v1.schema.json` and parsed data equality verification before rename.
+   - Pre-rename re-verification of output root identity, target containment, target absence, and temporary-file identity.
+   - Windows atomic no-replace publication (`MoveFileExW` without replace flag), followed by post-publication snapshot and byte verification; fails closed if a collision sentinel or prior file exists without overwriting.
+   - Exact cleanup removing only the owned private staging file on failure; pre-existing files and sentinels are preserved.
+   - Publication failure precedence: if manifest assembly, artifact hashing, serialization, read-back, collision check, rename, or post-publication verification fails, terminal response transitions to progressed `failed` with `manifest=None`, `cancelled_files=()`, `summary.cancelled=0`, and untouched inputs moved to `unprocessed_files`.
+   - For previously completed or cancelled outcomes, top-level error is `MANIFEST_PUBLICATION_FAILED`; for an already-progressed `failed` outcome, existing fatal errors are retained and `MANIFEST_PUBLICATION_FAILED` is appended exactly once.
+
+3. **Strict Stdio IPC Framing & Descriptor Isolation (FR-19)**:
+   - Single-subprocess-per-request entrypoint: `ipc.batch_stdio:main`.
+   - Bounded raw stdin stream up to 128 KiB limit (`131,072` bytes); rejects oversize inputs with `rejected/PAYLOAD_TOO_LARGE`.
+   - Strict JSON decoding rejecting duplicate object keys, non-finite constants (`NaN`, `Infinity`), BOM, and trailing tokens.
+   - Exactly one schema-valid compact 7-bit ASCII JSON response followed by LF on preserved `stdout`.
+   - Preserved descriptors and early null redirection of C-runtime descriptors and Windows standard handles (`STD_OUTPUT_HANDLE`, `STD_ERROR_HANDLE`) before production module imports, guaranteeing zero stdout/stderr contamination.
+
+4. **Progress Protocol & Console Signal Lifecycle (FR-19)**:
+   - Curated 6-phase JSONL progress on stderr (`batch_started`, `file_started`, `format_started`, `format_finished`, `file_finished`, `batch_finished`) with 4 KiB line caps, best-effort delivery, canonical relative input paths, and bounded lines. Broken stderr does not disrupt batch completion.
+   - Fatal diagnostic envelope: `{"type":"diagnostic","phase":"fatal","message":"Batch process failed before a contract response could be produced."}` on `stderr` on unhandled bootstrap or framing failures.
+   - Cooperative signal handler (`SIGINT` and Windows `SIGBREAK` / `CTRL_BREAK_EVENT`) installed strictly between request validation and composition, setting an async-safe cancellation flag without executing I/O, COM calls, document close, or process termination; restored in `finally`.
+   - Exit codes: `0` for handled contract responses (`completed`, `cancelled`, `rejected`, early `failed`, progressed `failed`), `1` for fatal bootstrap/serialization failures (empty stdout), `130` for interruptions outside the cooperative scope.
+
+5. **Launchers & Package Verification (FR-19)**:
+   - Installed console entrypoint: `[project.scripts] cad-copilot-batch = "ipc.batch_stdio:main"`.
+   - Windows source wrapper: `engine/scripts/batch.cmd` with `%~dp0`-relative interpreter resolution, quiet import and distribution-metadata preflight, and fatal diagnostic on failure.
+   - Wheel packaging contains and resolves all three `batch/schemas/*.json` resources byte-identical to canonical contracts in isolated installations outside repository checkouts.
+   - Zero CAD Copilot authentication, entitlement, or licensing subsystem required, while preserving caller-installed and appropriately licensed Siemens Solid Edge as the mandatory live-execution prerequisite.

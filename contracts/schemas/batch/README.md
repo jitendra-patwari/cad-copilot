@@ -10,12 +10,24 @@ The planned client application owns UI/UX, file selection, and process orchestra
 
 ## Process Contract
 
-- **Input**: Caller sends one UTF-8 JSON request object conforming to `batch-request.schema.json` via `stdin` (stdio IPC).
-- **Output**: The engine writes exactly one UTF-8 JSON response object conforming to `batch-response.schema.json` to `stdout`, followed by a newline (`\n`).
-- **Progress & Diagnostics**: Real-time progress and diagnostic traces are emitted to `stderr` as strict single-line JSONL events matching the transport standard established in Milestone 4.5.
-- **Exit Status**: Handled `completed`, `cancelled`, `rejected`, and `failed` requests all return process exit code `0` on IPC when the subprocess completes normally. Unhandled process crashes or bootstrap errors exit non-zero with a fatal diagnostic on `stderr`.
+- **Input**: Caller sends one bounded UTF-8 JSON request object conforming to `batch-request.schema.json` via `stdin` (stdio IPC). Maximum payload size is strictly capped at 128 KiB (`131,072` bytes) and read up to a bounded `limit + 1` byte buffer. Strict JSON decoding rejects BOM, duplicate keys, non-finite constants (`NaN`, `Infinity`), non-object roots, and trailing tokens. Payloads exceeding 128 KiB are rejected with `rejected/PAYLOAD_TOO_LARGE`.
+- **Output**: The engine writes exactly one compact 7-bit ASCII JSON response object conforming to `batch-response.schema.json` to preserved `stdout`, followed by a single newline (`\n`). Early descriptor isolation redirects CRT descriptors and Windows standard handles (`STD_OUTPUT_HANDLE`, `STD_ERROR_HANDLE`) to null before production imports, guaranteeing zero stdout contamination from C-runtime or COM output.
+- **Progress Protocol**: Real-time progress updates are emitted to `stderr` as bounded, compact, single-line ASCII-safe JSONL objects (capped at 4 KiB per line, LF-terminated):
+  ```json
+  {"type":"progress","request_id":"batch-001","phase":"file_started","total_files":2,"completed_files":0,"current_file":"parts/bracket.par"}
+  ```
+  The protocol supports 6 deterministic phases (`batch_started`, `file_started`, `format_started`, `format_finished`, `file_finished`, `batch_finished`) with optional phase-governed fields (`current_file`, `current_format`, `file_status`). Stderr output contains zero CAD geometry, prompts, environment dumps, or absolute paths. Progress delivery is best-effort: broken or closed stderr pipes must not abort execution, corrupt accounting, or affect the stdout response.
+- **Fatal Diagnostics**: When a fatal bootstrap, descriptor, schema resource, serialization, or write failure occurs before a contract response can be produced, stderr receives a fixed envelope and stdout remains empty:
+  ```json
+  {"type":"diagnostic","phase":"fatal","message":"Batch process failed before a contract response could be produced."}
+  ```
+- **Console Signals & Cooperative Cancellation**: A request-scoped signal handler for `SIGINT` (and Windows `SIGBREAK` / `CTRL_BREAK_EVENT`) is installed strictly after request validation and before composition starts, and restored in `finally`. The handler only sets an async-safe cancellation flag (`threading.Event`) observed by `BatchService` between files and formats without raising into COM, performing I/O, closing documents, or mutating response structures. `SIGTERM` is not intercepted, and no in-engine force-kill is performed. Supported signals produce a valid `cancelled` (or fatal-precedence `failed`) response and exit `0`.
+- **Exit Status**:
+  - `0`: handled contract response delivered to stdout (`completed`, `cancelled`, `rejected`, early `failed`, progressed `failed`).
+  - `1`: fatal bootstrap, descriptor, schema resource, serialization, or stdout-write failure (stdout remains empty).
+  - `130`: console interrupt occurring before cooperative signal handler installation or after restoration.
 
-The planned IPC launcher for Milestone 5 is `engine/scripts/batch.cmd` (or CLI entry point `cad-copilot-batch`).
+The planned IPC launcher for Milestone 5.6 is `engine/scripts/batch.cmd` (or installed console entry point `cad-copilot-batch = "ipc.batch_stdio:main"`).
 
 ---
 
@@ -113,12 +125,15 @@ For `completed` and `cancelled` responses (and optionally progressed `failed`), 
 Canonical schema: `batch-manifest-v1.schema.json` (`$id: "https://cad-copilot.dev/schemas/batch-manifest-v1.schema.json"`, Draft 2020-12).
 
 - **Location**: Written directly under `output_root` as `<request_id>.batch_manifest.json`.
-- **Publication**: Written to a temporary file and atomically renamed in place in Milestone 5.6.
+- **Publication**: Staged through an exclusive, randomly named temporary file directly under the validated `output_root`, read-back validated against `batch-manifest-v1.schema.json`, re-verified for root identity, target containment, target absence, and staging identity immediately before rename, and atomically renamed into place using Windows no-replace semantics (`MoveFileExW` without replace flag) in Milestone 5.6. Followed by post-publication snapshot and byte verification. Pre-existing files and collision sentinels are strictly preserved without overwrite. On failure, only the request-private staging file is removed.
+- **Publication Failure Precedence**: If manifest assembly, artifact hashing, serialization, read-back, collision check, rename, or post-publication verification fails, terminal response transitions to progressed `failed` with `manifest=None`, `cancelled_files=()`, `summary.cancelled=0`, and untouched inputs moved to `unprocessed_files`. For previously completed or cancelled outcomes, the top-level error is `MANIFEST_PUBLICATION_FAILED`; for an already-progressed `failed` outcome, existing fatal errors are retained and `MANIFEST_PUBLICATION_FAILED` is appended exactly once.
+- **Manifest Reference in Responses**: When present in `BatchResponse`, `manifest.path` is an absolute local Windows path normalized with forward slashes (`target_path.as_posix()`), matching canonical response fixtures.
+- **Engine Version**: `engine_version` is resolved from installed `cad-copilot` distribution metadata before CAD acquisition; if unavailable after request validation, an early `failed / INTERNAL_ERROR` response is returned without acquiring Solid Edge.
 - **Enforced Terminal Variants**:
   - `completed`: required `manifest_version`, `contract_version`, `request_id`, `status: "completed"`, `operation`, `summary`, `results`, `engine_version`; optional `unprocessed_files` and `warnings`; `cancelled_files` and `errors` are strictly prohibited.
   - `cancelled`: required `manifest_version`, `contract_version`, `request_id`, `status: "cancelled"`, `operation`, `summary`, `results`, `cancelled_files`, `engine_version`; optional `unprocessed_files` and `warnings`; `errors` is strictly prohibited. Requires either non-empty `cancelled_files` or at least one per-file `BATCH_CANCELLED` error.
   - `failed`: required `manifest_version`, `contract_version`, `request_id`, `status: "failed"`, `operation`, `summary`, `results`, non-empty `errors`, `engine_version`; optional `unprocessed_files` and `warnings`; `cancelled_files` is strictly prohibited.
-- **Paths**: Serialized paths (`input`, `relative_path`, `unprocessed_files`, `cancelled_files`) are strictly relative, forward-slash portable paths without drive letters, absolute prefixes, traversal (`..`), or backslashes.
+- **Paths**: All serialized paths are strictly relative, forward-slash portable paths without drive letters, absolute prefixes, traversal (`..`), or backslashes. Source-relative paths (`input` in file results, `unprocessed_files`, and `cancelled_files`) preserve the validated canonical relative paths from the request (relative to `input.root`). Only artifact `relative_path` entries are derived via `target_path.relative_to(output_root).as_posix()` from the verified published target beneath `output_root`.
 - **Artifact Records**: Contain `format`, `relative_path`, positive `size_bytes`, and lowercase 64-character hexadecimal `sha256`.
 - **Privacy Boundary**: Contains zero prompts, API keys, CAD geometries, environment dumps, usernames, or absolute paths.
 
