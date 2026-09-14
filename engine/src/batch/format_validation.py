@@ -1,8 +1,8 @@
 """Pure bounded batch format validation routines and output snapshot production.
 
 Invariants:
-- Supported formats: step, stl, pdf, dxf (BatchOutputFormat).
-- Requires exact expected file extension (.step, .stl, .pdf, .dxf).
+- Supported formats: step, stl, pdf, dxf, parasolid (BatchOutputFormat).
+- Requires exact expected file extension (.step, .stl, .pdf, .dxf, .x_t).
 - Requires regular non-reparse file with positive size.
 - Drawing size cap: MAX_BATCH_DRAWING_BYTES = 100_000_000 (100 MB) for PDF and DXF.
 - Zero raw workstation paths or COM text in diagnostics (SEC-07).

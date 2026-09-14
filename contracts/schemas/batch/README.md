@@ -4,7 +4,7 @@ The `batch` domain defines the wire protocol and contract schemas used by client
 
 The planned client application owns UI/UX, file selection, and process orchestration. The planned batch engine owns local Solid Edge automation, multi-format artifact export, per-file isolation, and atomic summary manifest publication.
 
-**Status (12 September 2026):** Canonical wire schemas, manifest schemas, fixtures, typed immutable contract models, Draft 2020-12 validators, the operation metadata registry foundation (M5.1), sequential batch execution infrastructure (`BatchService`, typed bindings, work allocation, error isolation, cancellation, and observable teardown under M5.2), batch filesystem & source-integrity safety boundary (`FilesystemBatchSafetyBoundary`, bounded root enforcement, streaming SHA-256 source snapshots, guarded workspaces, and Windows atomic no-replace publication under M5.3), and genuine batch format handlers and native export operations (`export_3d` [STEP/STL], `publish_drawing` [PDF/DXF], drawing view refresh, assembly reference verification via `FileMissing()`, and closed-output validation under M5.4) are established, implemented, and verified under this directory and `engine/src/batch/`. Milestone 5.1, Milestone 5.2, Milestone 5.3, and Milestone 5.4 are complete. Milestone 5.5 (conditional Parasolid export gate), Milestone 5.6 (batch manifest publication, stdio IPC, and packaging), and Milestone 6 desktop client integration remain planned.
+**Status (14 September 2026):** Canonical wire schemas, manifest schemas, fixtures, typed immutable contract models, Draft 2020-12 validators, the operation metadata registry foundation (M5.1), sequential batch execution infrastructure (`BatchService`, typed bindings, work allocation, error isolation, cancellation, and observable teardown under M5.2), batch filesystem & source-integrity safety boundary (`FilesystemBatchSafetyBoundary`, bounded root enforcement, streaming SHA-256 source snapshots, guarded workspaces, and Windows atomic no-replace publication under M5.3), genuine batch format handlers and native export operations (`export_3d` [STEP/STL], `publish_drawing` [PDF/DXF] under M5.4), and conditional Parasolid batch export promotion (`export_3d` [.x_t] under M5.5) are established, implemented, and verified under this directory and `engine/src/batch/`. Milestone 5.1 through Milestone 5.5 are complete and verified. Milestone 5.6 (batch manifest publication, stdio IPC, and packaging) and Milestone 6 desktop client integration remain planned.
 
 ---
 
@@ -40,11 +40,11 @@ Canonical schema: `batch-request.schema.json` (`$id: "https://cad-copilot.dev/sc
 
 ### Supported Operation Types
 1. **`export_3d`**: Bulk 3D model export from native Solid Edge parts and assemblies (`.par`, `.psm`, `.asm`).
-   - `formats`: array of format strings from `["step", "stl"]` (min 1, max 2, unique).
+   - `formats`: array of format strings from `["step", "stl", "parasolid"]` (min 1, max 3, unique). Produces `.step`, `.stl`, and `.x_t` artifacts.
 2. **`publish_drawing`**: Batch 2D engineering drawing publication from native drawings (`.dft`).
    - `formats`: array of format strings from `["pdf", "dxf"]` (min 1, max 2, unique).
 
-Requests are strictly homogeneous: mixing 3D models and 2D drawings in one request is rejected. Unapproved operations (e.g. flat pattern, automatic drafting) and unapproved formats (DWG, IGES, JT, 3MF, Parasolid) are rejected.
+Requests are strictly homogeneous: mixing 3D models and 2D drawings in one request is rejected. Unapproved operations (e.g. flat pattern, automatic drafting) and unapproved formats (DWG, IGES, JT, 3MF) are rejected.
 
 ### Optional Fields
 - `options.continue_on_error`: boolean, defaults to `true`. When `false`, the engine stops after the first input experiencing a partial or failed export, classifying remaining inputs as `unprocessed`.
@@ -156,7 +156,7 @@ The 21 approved product error codes are:
 Golden fixtures are maintained in `contracts/schemas/batch/fixtures/`:
 
 ### Request Fixtures
-- `basic_export.request.json`: Standard 3D export request (`export_3d` to `step`, `stl`)
+- `basic_export.request.json`: Standard 3D export request (`export_3d` to `step`, `stl`, `parasolid`)
 - `publish_drawing.request.json`: Drawing publication request (`publish_drawing` to `pdf`, `dxf`)
 - `rejected_unsafe_path.request.json`: Rejection for path traversal attempt (`../secret/part.par`)
 - `rejected_no_files.request.json`: Rejection for empty `files` array
