@@ -17,7 +17,7 @@ REQUEST_ID_PATTERN: re.Pattern[str] = re.compile(r"^[A-Za-z0-9._-]+$")
 
 ALLOWED_3D_EXTENSIONS: frozenset[str] = frozenset({".par", ".psm", ".asm"})
 ALLOWED_DRAWING_EXTENSIONS: frozenset[str] = frozenset({".dft"})
-ALLOWED_3D_FORMATS: frozenset[str] = frozenset({"step", "stl"})
+ALLOWED_3D_FORMATS: frozenset[str] = frozenset({"step", "stl", "parasolid"})
 ALLOWED_DRAWING_FORMATS: frozenset[str] = frozenset({"pdf", "dxf"})
 
 
@@ -197,18 +197,24 @@ def validate_batch_request_semantics(request: BatchRequest, *, request_id: str =
         )
     if request.operation.type == "export_3d":
         allowed_formats = ALLOWED_3D_FORMATS
+        if not (1 <= len(request.operation.formats) <= 3):
+            raise BatchValidationError(
+                "export_3d operation formats must have 1 to 3 items",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
     elif request.operation.type == "publish_drawing":
         allowed_formats = ALLOWED_DRAWING_FORMATS
+        if not (1 <= len(request.operation.formats) <= 2):
+            raise BatchValidationError(
+                "publish_drawing operation formats must have 1 or 2 items",
+                code="INVALID_SCHEMA",
+                request_id=req_id,
+            )
     else:
         raise BatchValidationError(
             f"Unsupported operation type '{request.operation.type}'",
             code="UNSUPPORTED_OPERATION",
-            request_id=req_id,
-        )
-    if not (1 <= len(request.operation.formats) <= 2):
-        raise BatchValidationError(
-            "formats must have 1 or 2 items",
-            code="INVALID_SCHEMA",
             request_id=req_id,
         )
     if not set(request.operation.formats).issubset(allowed_formats):

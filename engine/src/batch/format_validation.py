@@ -348,7 +348,7 @@ def validate_batch_output(
 ) -> OutputSnapshot:
     """Validate generated batch output artifact and capture its immutable OutputSnapshot.
 
-    Dispatches across guaranteed batch formats (step, stl, pdf, dxf) and candidate Parasolid.
+    Dispatches across supported batch formats (step, stl, parasolid, pdf, dxf).
     Reuses established ISO 10303-21 STEP and STL validators without parser duplication.
     Validates bounded PDF, text DXF, and Parasolid transmission structural requirements.
     Fails closed with sanitized BatchFormatValidationError on any violation.

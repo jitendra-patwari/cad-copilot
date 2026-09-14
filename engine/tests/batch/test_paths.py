@@ -185,7 +185,7 @@ class TestBatchRequestPathInvariants:
 
     def test_approved_format_constants_exact_equality(self) -> None:
         """Proves that ALLOWED_3D_FORMATS and ALLOWED_DRAWING_FORMATS match the approved M5.1 matrices."""
-        assert frozenset({"step", "stl"}) == ALLOWED_3D_FORMATS
+        assert frozenset({"step", "stl", "parasolid"}) == ALLOWED_3D_FORMATS
         assert frozenset({"pdf", "dxf"}) == ALLOWED_DRAWING_FORMATS
         assert frozenset({".par", ".psm", ".asm"}) == ALLOWED_3D_EXTENSIONS
         assert frozenset({".dft"}) == ALLOWED_DRAWING_EXTENSIONS

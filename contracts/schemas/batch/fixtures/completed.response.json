@@ -22,6 +22,10 @@
         {
           "format": "stl",
           "path": "C:/my_cad_parts/output/part1.stl"
+        },
+        {
+          "format": "parasolid",
+          "path": "C:/my_cad_parts/output/part1.x_t"
         }
       ],
       "warnings": []
@@ -37,6 +41,10 @@
         {
           "format": "stl",
           "path": "C:/my_cad_parts/output/subfolder/part2.stl"
+        },
+        {
+          "format": "parasolid",
+          "path": "C:/my_cad_parts/output/subfolder/part2.x_t"
         }
       ],
       "warnings": []

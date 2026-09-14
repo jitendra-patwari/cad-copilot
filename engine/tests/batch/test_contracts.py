@@ -135,32 +135,43 @@ class TestRequestFixtureRoundTrips:
             parse_batch_request(data)
         assert exc_info.value.code == expected_code
 
-    def test_candidate_parasolid_request_rejected_by_public_contract(self) -> None:
-        """Candidate invariant: parse_batch_request strictly rejects 'parasolid' prior to promotion."""
-        # 1. Single format parasolid
+    def test_promoted_parasolid_request_accepted_and_deferred_formats_rejected(self) -> None:
+        """Promoted invariant: parse_batch_request accepts 'parasolid' and rejects deferred formats."""
+        # 1. Single format parasolid accepted
         payload_single = {
             "contract_version": "1.0",
-            "request_id": "req-candidate-parasolid-01",
+            "request_id": "req-promoted-parasolid-01",
             "kind": "batch_operation",
             "input": {"root": "C:/data", "files": ["part1.par"]},
             "output_root": "C:/data/out",
             "operation": {"type": "export_3d", "formats": ["parasolid"]},
         }
-        with pytest.raises(BatchValidationError) as exc_info:
-            parse_batch_request(payload_single)
-        assert exc_info.value.code == "INVALID_SCHEMA"
+        req_single = parse_batch_request(payload_single)
+        assert req_single.operation.formats == ("parasolid",)
 
-        # 2. Combined format with step and parasolid
-        payload_mixed = {
+        # 2. Triple format with step, stl, and parasolid accepted
+        payload_all = {
             "contract_version": "1.0",
-            "request_id": "req-candidate-parasolid-02",
+            "request_id": "req-promoted-parasolid-02",
             "kind": "batch_operation",
             "input": {"root": "C:/data", "files": ["part1.par"]},
             "output_root": "C:/data/out",
-            "operation": {"type": "export_3d", "formats": ["step", "parasolid"]},
+            "operation": {"type": "export_3d", "formats": ["step", "stl", "parasolid"]},
+        }
+        req_all = parse_batch_request(payload_all)
+        assert req_all.operation.formats == ("step", "stl", "parasolid")
+
+        # 3. Unapproved format (jt) rejected
+        payload_deferred = {
+            "contract_version": "1.0",
+            "request_id": "req-deferred-format-01",
+            "kind": "batch_operation",
+            "input": {"root": "C:/data", "files": ["part1.par"]},
+            "output_root": "C:/data/out",
+            "operation": {"type": "export_3d", "formats": ["jt"]},
         }
         with pytest.raises(BatchValidationError) as exc_info:
-            parse_batch_request(payload_mixed)
+            parse_batch_request(payload_deferred)
         assert exc_info.value.code == "INVALID_SCHEMA"
 
 

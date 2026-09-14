@@ -12,7 +12,7 @@
   "operation": {
     "type": "export_3d",
     "formats": [
-      "parasolid"
+      "jt"
     ]
   }
 }

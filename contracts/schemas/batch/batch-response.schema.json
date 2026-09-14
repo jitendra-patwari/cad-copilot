@@ -225,6 +225,7 @@
           "enum": [
             "step",
             "stl",
+            "parasolid",
             "pdf",
             "dxf"
           ]
@@ -273,7 +274,7 @@
         },
         "format": {
           "type": "string",
-          "enum": ["step", "stl", "pdf", "dxf"]
+          "enum": ["step", "stl", "parasolid", "pdf", "dxf"]
         }
       }
     }

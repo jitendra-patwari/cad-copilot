@@ -12,7 +12,7 @@ from typing import Literal
 
 # Approved operation and format enumerations
 BatchOperationType = Literal["export_3d", "publish_drawing"]
-Export3DFormat = Literal["step", "stl"]
+Export3DFormat = Literal["step", "stl", "parasolid"]
 PublishDrawingFormat = Literal["pdf", "dxf"]
 BatchOutputFormat = Literal["step", "stl", "parasolid", "pdf", "dxf"]
 
@@ -136,10 +136,10 @@ class BatchOperation:
                 raise TypeError(f"formats items must be strings, got {type(f).__name__}")
 
         if self.type == "export_3d":
-            if not self.formats or len(self.formats) > 2:
-                raise ValueError("export_3d operation formats must have 1 or 2 items")
-            if not all(f in ("step", "stl") for f in self.formats):
-                raise ValueError("export_3d operation formats must only contain 'step' or 'stl'")
+            if not self.formats or len(self.formats) > 3:
+                raise ValueError("export_3d operation formats must have 1 to 3 items")
+            if not all(f in ("step", "stl", "parasolid") for f in self.formats):
+                raise ValueError("export_3d operation formats must only contain 'step', 'stl', or 'parasolid'")
         elif self.type == "publish_drawing":
             if not self.formats or len(self.formats) > 2:
                 raise ValueError("publish_drawing operation formats must have 1 or 2 items")

@@ -1,4 +1,4 @@
-"""Controlled live integration tests for Parasolid candidate export against Siemens Solid Edge 2026.
+"""Controlled live integration tests for Parasolid export against Siemens Solid Edge 2026.
 
 These tests execute ONLY when running with `pytest -m com` and `CAD_COPILOT_RUN_LIVE_COM=1`
 on a Windows host with a licensed Siemens Solid Edge installation and an owned session.
@@ -27,7 +27,7 @@ import pytest
 from batch.composition import build_initial_operation_bindings
 from batch.execution import BatchExecutionSpec
 from batch.format_validation import BatchFormatValidationError, validate_batch_output
-from batch.registry import OperationDescriptor, OperationRegistry
+from batch.registry import build_initial_registry
 from batch.safety import FilesystemBatchSafetyBoundary
 from batch.service import BatchService
 from batch.source_integrity import capture_source_snapshot, verify_snapshot_equality
@@ -83,32 +83,6 @@ def _copy_fixtures(dest_dir: Path) -> Path:
     return fixtures_dir
 
 
-def _build_candidate_registry() -> OperationRegistry:
-    """Construct candidate registry exposing 'parasolid' under export_3d for live candidate verification."""
-    return OperationRegistry(
-        (
-            OperationDescriptor(
-                operation_id="export_3d",
-                input_extensions=(".par", ".psm", ".asm"),
-                output_formats=("step", "stl", "parasolid"),
-                progress_label="Export 3D CAD",
-                safety_class="read_only_source",
-                document_lifecycle="open_existing_close_without_save",
-                collision_policy="fail_if_exists",
-            ),
-            OperationDescriptor(
-                operation_id="publish_drawing",
-                input_extensions=(".dft",),
-                output_formats=("pdf", "dxf"),
-                progress_label="Publish Drawing",
-                safety_class="read_only_source",
-                document_lifecycle="open_existing_close_without_save",
-                collision_policy="fail_if_exists",
-            ),
-        )
-    )
-
-
 def _make_spec(
     input_root: Path,
     output_root: Path,
@@ -160,7 +134,7 @@ def _reopened_parasolid_document(docs: Any, xt_path: Path, template_path: str) -
 
 
 class TestParasolidLive:
-    """Live verification matrix for Parasolid candidate gate on Solid Edge 2026."""
+    """Live verification matrix for Parasolid export gate on Solid Edge 2026."""
 
     def test_live_m55_01_three_family_export_and_reopen(self, live_runtime: SolidEdgeRuntime, tmp_path: Path) -> None:
         """C-LIVE-M55-01: Native 3D model export (.par, .psm, .asm to Parasolid .x_t) and reopen."""
@@ -182,14 +156,14 @@ class TestParasolidLive:
         )
         pre_snapshots = {rel: capture_source_snapshot(input_root / rel) for rel in all_rel_paths}
 
-        candidate_reg = _build_candidate_registry()
+        registry = build_initial_registry()
         boundary = FilesystemBatchSafetyBoundary()
-        bindings = build_initial_operation_bindings(boundary, registry=candidate_reg)
+        bindings = build_initial_operation_bindings(boundary, registry=registry)
         service = BatchService(
             runtime_factory=lambda: live_runtime,
             safety_boundary=boundary,
             bindings=bindings,
-            registry=candidate_reg,
+            registry=registry,
         )
 
         spec = _make_spec(
@@ -306,14 +280,14 @@ class TestParasolidLive:
         existing_xt.write_bytes(sentinel_bytes)
         sentinel_stat_before = existing_xt.stat()
 
-        candidate_reg = _build_candidate_registry()
+        registry = build_initial_registry()
         boundary = FilesystemBatchSafetyBoundary()
-        bindings = build_initial_operation_bindings(boundary, registry=candidate_reg)
+        bindings = build_initial_operation_bindings(boundary, registry=registry)
         service = BatchService(
             runtime_factory=lambda: live_runtime,
             safety_boundary=boundary,
             bindings=bindings,
-            registry=candidate_reg,
+            registry=registry,
         )
 
         spec = _make_spec(
@@ -354,14 +328,14 @@ class TestParasolidLive:
         if not healthy_par.is_file():
             pytest.skip("Fixture 'Bed.par' not found in live_fixtures")
 
-        candidate_reg = _build_candidate_registry()
+        registry = build_initial_registry()
         boundary = FilesystemBatchSafetyBoundary()
-        bindings = build_initial_operation_bindings(boundary, registry=candidate_reg)
+        bindings = build_initial_operation_bindings(boundary, registry=registry)
         service = BatchService(
             runtime_factory=lambda: live_runtime,
             safety_boundary=boundary,
             bindings=bindings,
-            registry=candidate_reg,
+            registry=registry,
         )
 
         spec = _make_spec(
@@ -402,15 +376,15 @@ class TestParasolidLive:
         if not part_file.is_file():
             pytest.skip("Required fixture 'Bed.par' not found in live_fixtures")
 
-        candidate_reg = _build_candidate_registry()
+        registry = build_initial_registry()
         boundary = FilesystemBatchSafetyBoundary()
-        bindings = build_initial_operation_bindings(boundary, registry=candidate_reg)
+        bindings = build_initial_operation_bindings(boundary, registry=registry)
         service = BatchService(
             runtime_factory=lambda: live_runtime,
             safety_boundary=boundary,
             bindings=bindings,
             cancellation_check=lambda: (output_root / "Bed.step").is_file(),
-            registry=candidate_reg,
+            registry=registry,
         )
 
         spec = _make_spec(
@@ -443,14 +417,21 @@ class TestParasolidLive:
         if not part_1.is_file() or not part_2.is_file():
             pytest.skip("Required 3D fixtures not found in live_fixtures")
 
-        candidate_reg = _build_candidate_registry()
+        health_after_item1: list[bool] = []
+
+        def _track_health(update: Any) -> None:
+            if getattr(update, "phase", None) == "file_finished" and getattr(update, "completed_files", None) == 1:
+                health_after_item1.append(live_runtime.is_healthy())
+
+        registry = build_initial_registry()
         boundary = FilesystemBatchSafetyBoundary()
-        bindings = build_initial_operation_bindings(boundary, registry=candidate_reg)
+        bindings = build_initial_operation_bindings(boundary, registry=registry)
         service = BatchService(
             runtime_factory=lambda: live_runtime,
             safety_boundary=boundary,
             bindings=bindings,
-            registry=candidate_reg,
+            registry=registry,
+            observer=_track_health,
         )
 
         spec = _make_spec(
@@ -469,7 +450,7 @@ class TestParasolidLive:
                 raise BatchFormatValidationError(
                     "parasolid",
                     "structure",
-                    f"Test-injected candidate rejection for '{work_path.name}'",
+                    f"Test-injected validation rejection for '{work_path.name}'",
                 )
             return real_validator(fmt, work_path)
 
@@ -495,8 +476,9 @@ class TestParasolidLive:
         assert failed_res.status == "failed"
         assert any(e.code == "ARTIFACT_EXPORT_FAILED" and e.format == "parasolid" for e in failed_res.errors)
 
-        # Verify runtime health was preserved
-        assert live_runtime.is_healthy() is True
+        # Verify runtime health was preserved across localized failure and clean teardown
+        assert health_after_item1 == [True]
+        assert not any(e.code in ("SOLID_EDGE_UNHEALTHY", "INTERNAL_ERROR") for e in outcome.errors)
 
         # Verify absence of rejected artifact in staging directory
         staging_dir = output_root / ".cadcopilot_batch_work"

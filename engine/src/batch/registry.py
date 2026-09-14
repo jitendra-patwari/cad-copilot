@@ -183,7 +183,7 @@ def build_initial_registry() -> OperationRegistry:
             OperationDescriptor(
                 operation_id="export_3d",
                 input_extensions=(".par", ".psm", ".asm"),
-                output_formats=("step", "stl"),
+                output_formats=("step", "stl", "parasolid"),
                 progress_label="Export 3D CAD",
                 safety_class="read_only_source",
                 document_lifecycle="open_existing_close_without_save",

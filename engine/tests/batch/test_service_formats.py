@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, PropertyMock
 from batch.composition import build_initial_operation_bindings
 from batch.execution import BatchExecutionSpec
 from batch.format_validation import validate_batch_output
-from batch.registry import OperationDescriptor, OperationRegistry
+from batch.registry import build_initial_registry
 from batch.safety import FilesystemBatchSafetyBoundary
 from batch.service import BatchService
 from interfaces.exceptions import (
@@ -40,32 +40,6 @@ from tests.batch.test_format_validation import (
     _write_minimal_valid_pdf,
     _write_minimal_valid_step,
 )
-
-
-def _build_candidate_registry() -> OperationRegistry:
-    """Build candidate registry exposing 'parasolid' under export_3d for internal candidate testing."""
-    return OperationRegistry(
-        (
-            OperationDescriptor(
-                operation_id="export_3d",
-                input_extensions=(".par", ".psm", ".asm"),
-                output_formats=("step", "stl", "parasolid"),
-                progress_label="Export 3D CAD",
-                safety_class="read_only_source",
-                document_lifecycle="open_existing_close_without_save",
-                collision_policy="fail_if_exists",
-            ),
-            OperationDescriptor(
-                operation_id="publish_drawing",
-                input_extensions=(".dft",),
-                output_formats=("pdf", "dxf"),
-                progress_label="Publish Drawing",
-                safety_class="read_only_source",
-                document_lifecycle="open_existing_close_without_save",
-                collision_policy="fail_if_exists",
-            ),
-        )
-    )
 
 
 def _make_spec(
@@ -616,8 +590,8 @@ class TestServiceFormats:
         # Artifacts cleared on source integrity mismatch
         assert len(res.artifacts) == 0
 
-    def test_candidate_parasolid_export_par_psm_asm_end_to_end(self, tmp_path: Path) -> None:
-        """Candidate flow: prove export_3d with candidate registry exports parasolid for .par, .psm, .asm."""
+    def test_parasolid_export_par_psm_asm_end_to_end(self, tmp_path: Path) -> None:
+        """Prove export_3d with canonical registry exports parasolid for .par, .psm, .asm."""
         input_root = tmp_path / "inputs"
         output_root = tmp_path / "outputs"
         input_root.mkdir()
@@ -630,14 +604,14 @@ class TestServiceFormats:
         runtime = FakeTrackedDocumentRuntime()
         runtime.open_callback = make_fake_doc_opener(runtime)
 
-        candidate_reg = _build_candidate_registry()
+        registry = build_initial_registry()
         boundary = FilesystemBatchSafetyBoundary()
-        bindings = build_initial_operation_bindings(boundary, registry=candidate_reg)
+        bindings = build_initial_operation_bindings(boundary, registry=registry)
         service = BatchService(
             runtime_factory=lambda: runtime,
             safety_boundary=boundary,
             bindings=bindings,
-            registry=candidate_reg,
+            registry=registry,
         )
 
         spec = _make_spec(
@@ -679,8 +653,8 @@ class TestServiceFormats:
             assert len(file_res.artifacts) == 1
             assert file_res.artifacts[0].format == "parasolid"
 
-    def test_candidate_three_format_mixed_export_preserves_ordering(self, tmp_path: Path) -> None:
-        """Candidate flow: prove step, stl, parasolid mixed export preserves requested format ordering."""
+    def test_three_format_mixed_export_preserves_ordering(self, tmp_path: Path) -> None:
+        """Prove step, stl, parasolid mixed export preserves requested format ordering."""
         input_root = tmp_path / "inputs"
         output_root = tmp_path / "outputs"
         input_root.mkdir()
@@ -691,14 +665,14 @@ class TestServiceFormats:
         runtime = FakeTrackedDocumentRuntime()
         runtime.open_callback = make_fake_doc_opener(runtime)
 
-        candidate_reg = _build_candidate_registry()
+        registry = build_initial_registry()
         boundary = FilesystemBatchSafetyBoundary()
-        bindings = build_initial_operation_bindings(boundary, registry=candidate_reg)
+        bindings = build_initial_operation_bindings(boundary, registry=registry)
         service = BatchService(
             runtime_factory=lambda: runtime,
             safety_boundary=boundary,
             bindings=bindings,
-            registry=candidate_reg,
+            registry=registry,
         )
 
         spec = _make_spec(
@@ -726,8 +700,8 @@ class TestServiceFormats:
         assert len(res.artifacts) == 3
         assert [a.format for a in res.artifacts] == ["step", "stl", "parasolid"]
 
-    def test_candidate_parasolid_target_collision_preserves_sentinel(self, tmp_path: Path) -> None:
-        """Candidate flow: pre-existing .x_t fails with TARGET_ALREADY_EXISTS without overwrite."""
+    def test_parasolid_target_collision_preserves_sentinel(self, tmp_path: Path) -> None:
+        """Pre-existing .x_t fails with TARGET_ALREADY_EXISTS without overwrite."""
         input_root = tmp_path / "inputs"
         output_root = tmp_path / "outputs"
         input_root.mkdir()
@@ -741,14 +715,14 @@ class TestServiceFormats:
         runtime = FakeTrackedDocumentRuntime()
         runtime.open_callback = make_fake_doc_opener(runtime)
 
-        candidate_reg = _build_candidate_registry()
+        registry = build_initial_registry()
         boundary = FilesystemBatchSafetyBoundary()
-        bindings = build_initial_operation_bindings(boundary, registry=candidate_reg)
+        bindings = build_initial_operation_bindings(boundary, registry=registry)
         service = BatchService(
             runtime_factory=lambda: runtime,
             safety_boundary=boundary,
             bindings=bindings,
-            registry=candidate_reg,
+            registry=registry,
         )
 
         spec = _make_spec(
@@ -770,8 +744,8 @@ class TestServiceFormats:
         assert res.artifacts[0].format == "step"
         assert any(e.code == "TARGET_ALREADY_EXISTS" and e.format == "parasolid" for e in res.errors)
 
-    def test_candidate_unresolved_assembly_preflight_blocks_parasolid(self, tmp_path: Path) -> None:
-        """Candidate flow: unresolved assembly fails preflight and blocks Parasolid export."""
+    def test_unresolved_assembly_preflight_blocks_parasolid(self, tmp_path: Path) -> None:
+        """Unresolved assembly fails preflight and blocks Parasolid export."""
         input_root = tmp_path / "inputs"
         output_root = tmp_path / "outputs"
         input_root.mkdir()
@@ -786,14 +760,14 @@ class TestServiceFormats:
             unresolved_predicate=lambda p: "broken" in p.name,
         )
 
-        candidate_reg = _build_candidate_registry()
+        registry = build_initial_registry()
         boundary = FilesystemBatchSafetyBoundary()
-        bindings = build_initial_operation_bindings(boundary, registry=candidate_reg)
+        bindings = build_initial_operation_bindings(boundary, registry=registry)
         service = BatchService(
             runtime_factory=lambda: runtime,
             safety_boundary=boundary,
             bindings=bindings,
-            registry=candidate_reg,
+            registry=registry,
         )
 
         spec = _make_spec(
@@ -820,8 +794,8 @@ class TestServiceFormats:
         assert broken_res.status == "failed"
         assert any(e.code == "ARTIFACT_EXPORT_FAILED" and e.format == "parasolid" for e in broken_res.errors)
 
-    def test_candidate_cancellation_cleans_parasolid_staging(self, tmp_path: Path) -> None:
-        """Candidate flow: mid-file cancellation before parasolid leaves zero .x_t files and clean staging."""
+    def test_cancellation_cleans_parasolid_staging(self, tmp_path: Path) -> None:
+        """Mid-file cancellation before parasolid leaves zero .x_t files and clean staging."""
         input_root = tmp_path / "inputs"
         output_root = tmp_path / "outputs"
         input_root.mkdir()
@@ -842,15 +816,15 @@ class TestServiceFormats:
         runtime = FakeTrackedDocumentRuntime()
         runtime.open_callback = make_fake_doc_opener(runtime, on_save_copy_as=_step_then_cancel)
 
-        candidate_reg = _build_candidate_registry()
+        registry = build_initial_registry()
         boundary = FilesystemBatchSafetyBoundary()
-        bindings = build_initial_operation_bindings(boundary, registry=candidate_reg)
+        bindings = build_initial_operation_bindings(boundary, registry=registry)
         service = BatchService(
             runtime_factory=lambda: runtime,
             safety_boundary=boundary,
             bindings=bindings,
             cancellation_check=lambda: cancelled,
-            registry=candidate_reg,
+            registry=registry,
         )
 
         spec = _make_spec(

@@ -161,7 +161,7 @@ class TestExport3DHandler:
         assert len(workspace.cleanup_calls) == 0
 
     def test_successful_parasolid_export_lifecycle(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Proves complete guarded lifecycle execution for candidate parasolid format."""
+        """Proves complete guarded lifecycle execution for parasolid format."""
         work_file = tmp_path / "work" / "part.x_t"
         work_file.parent.mkdir(parents=True)
         work_file.write_bytes(b"**ABCDEFGHIJKLMNOPQRSTUVWXYZ\r\n**PARASOLID \r\n**PART1;\r\n")

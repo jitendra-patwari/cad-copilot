@@ -220,9 +220,9 @@ class TestBatchOperation:
     """Matrix validation for export_3d and publish_drawing operations."""
 
     def test_valid_export_3d(self) -> None:
-        op = BatchOperation(type="export_3d", formats=("step", "stl"))
+        op = BatchOperation(type="export_3d", formats=("step", "stl", "parasolid"))
         assert op.type == "export_3d"
-        assert op.formats == ("step", "stl")
+        assert op.formats == ("step", "stl", "parasolid")
 
     def test_valid_publish_drawing(self) -> None:
         op = BatchOperation(type="publish_drawing", formats=("pdf", "dxf"))
@@ -233,10 +233,19 @@ class TestBatchOperation:
         with pytest.raises(ValueError, match="export_3d operation formats must only contain"):
             BatchOperation(type="export_3d", formats=("pdf",))
 
-    def test_candidate_phase_export_3d_rejects_parasolid(self) -> None:
-        """Candidate invariant: BatchOperation export_3d rejects unpromoted parasolid format."""
+    def test_promoted_export_3d_accepts_parasolid(self) -> None:
+        """Promoted invariant: BatchOperation export_3d accepts parasolid format alone and combined."""
+        op_single = BatchOperation(type="export_3d", formats=("parasolid",))
+        assert op_single.formats == ("parasolid",)
+        op_all = BatchOperation(type="export_3d", formats=("step", "stl", "parasolid"))
+        assert op_all.formats == ("step", "stl", "parasolid")
+
+    def test_export_3d_rejects_unapproved_or_excess_formats(self) -> None:
+        """export_3d rejects unapproved format tokens and >3 formats."""
         with pytest.raises(ValueError, match="export_3d operation formats must only contain"):
-            BatchOperation(type="export_3d", formats=("parasolid",))
+            BatchOperation(type="export_3d", formats=("jt",))  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="export_3d operation formats must have 1 to 3 items"):
+            BatchOperation(type="export_3d", formats=("step", "stl", "parasolid", "step"))
 
     def test_publish_drawing_rejects_3d_formats(self) -> None:
         with pytest.raises(ValueError, match="publish_drawing operation formats must only contain"):
@@ -247,7 +256,7 @@ class TestBatchOperation:
             BatchOperation(type="export_3d", formats=("step", "step"))
 
     def test_empty_formats_rejected(self) -> None:
-        with pytest.raises(ValueError, match="formats must have 1 or 2 items"):
+        with pytest.raises(ValueError, match="formats must have 1 to 3 items"):
             BatchOperation(type="export_3d", formats=())
 
     def test_invalid_operation_type_rejected(self) -> None:

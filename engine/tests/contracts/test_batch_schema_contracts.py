@@ -339,7 +339,7 @@ def test_batch_response_schema_progressed_failure_format_attribution() -> None:
     validator.validate(payload)
 
 
-@pytest.mark.parametrize("bad_fmt", ["dwg", "iges", "par", "jt", "parasolid", ""])
+@pytest.mark.parametrize("bad_fmt", ["dwg", "iges", "par", "jt", ""])
 def test_batch_response_schema_rejects_unapproved_formats(bad_fmt: str) -> None:
     """Proves errorRecord rejects unapproved or blank format strings."""
     res_schema = _load_json(SCHEMAS_ROOT / "batch" / "batch-response.schema.json")
@@ -368,6 +368,35 @@ def test_batch_response_schema_rejects_unapproved_formats(bad_fmt: str) -> None:
     }
     with pytest.raises(jsonschema.ValidationError):
         validator.validate(payload)
+
+
+def test_batch_response_schema_accepts_parasolid_format() -> None:
+    """Proves response schema artifactRecord and errorRecord accept promoted parasolid format."""
+    res_schema = _load_json(SCHEMAS_ROOT / "batch" / "batch-response.schema.json")
+    validator = Draft202012Validator(res_schema)
+
+    payload = {
+        "contract_version": "1.0",
+        "request_id": "batch-fmt-parasolid",
+        "status": "completed",
+        "summary": _summary(total=1, partial=1),
+        "results": [
+            _file_result(
+                "part1.par",
+                "partial",
+                artifacts=[{"format": "parasolid", "path": "C:/out/part1.x_t"}],
+                errors=[
+                    {
+                        "code": "ARTIFACT_EXPORT_FAILED",
+                        "message": "Export failed",
+                        "format": "parasolid",
+                    }
+                ],
+            )
+        ],
+        "manifest": {"path": "C:/out/manifest.json"},
+    }
+    validator.validate(payload)
 
 
 # ---------------------------------------------------------------------------
@@ -502,9 +531,13 @@ def test_batch_manifest_schema_defensive_negative_rules() -> None:
     bad_manifest["unexpected_field"] = "not_allowed"
     assert not validator.is_valid(bad_manifest)
 
-    # 7. Reject candidate parasolid format prior to promotion
+    # 7. Promoted parasolid format is valid; unapproved format (jt) is rejected
+    promoted_manifest = json.loads(json.dumps(valid_base))
+    promoted_manifest["operation"]["formats"] = ["step", "stl", "parasolid"]
+    assert validator.is_valid(promoted_manifest)
+
     bad_manifest = json.loads(json.dumps(valid_base))
-    bad_manifest["operation"]["formats"] = ["parasolid"]
+    bad_manifest["operation"]["formats"] = ["jt"]
     assert not validator.is_valid(bad_manifest)
 
 

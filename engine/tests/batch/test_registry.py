@@ -32,7 +32,7 @@ class TestInitialRegistry:
 
         assert desc.operation_id == "export_3d"
         assert desc.input_extensions == (".par", ".psm", ".asm")
-        assert desc.output_formats == ("step", "stl")
+        assert desc.output_formats == ("step", "stl", "parasolid")
         assert desc.progress_label == "Export 3D CAD"
         assert desc.safety_class == "read_only_source"
         assert desc.document_lifecycle == "open_existing_close_without_save"
