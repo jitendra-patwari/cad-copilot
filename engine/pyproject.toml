@@ -27,6 +27,7 @@ dev = [
 
 [project.scripts]
 cad-copilot-generate = "ipc.stdio:main"
+cad-copilot-batch = "ipc.batch_stdio:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
