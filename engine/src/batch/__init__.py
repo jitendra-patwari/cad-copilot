@@ -32,6 +32,7 @@ from batch.execution import (
     BatchProgressUpdate,
 )
 from batch.filesystem import PathIdentity
+from batch.finalization import finalize_batch_outcome
 from batch.format_validation import (
     BatchFormatValidationError,
     BatchFormatValidator,
@@ -41,6 +42,8 @@ from batch.handlers import (
     Export3DHandler,
     PublishDrawingHandler,
 )
+from batch.manifest import ManifestAssemblyError, assemble_batch_manifest
+from batch.manifest_publication import ManifestPublicationError, publish_batch_manifest
 from batch.models import (
     BatchArtifactRecord,
     BatchConfigurationError,
@@ -118,7 +121,9 @@ __all__: list[str] = [
     "FilesystemBatchSafetyBoundary",
     "FilesystemOutputWorkspace",
     "ManifestArtifactRecord",
+    "ManifestAssemblyError",
     "ManifestFileResult",
+    "ManifestPublicationError",
     "OperationBinding",
     "OperationBindings",
     "OperationDescriptor",
@@ -131,9 +136,12 @@ __all__: list[str] = [
     "PublishDrawingHandler",
     "SourceSnapshot",
     "allocate_batch_work",
+    "assemble_batch_manifest",
     "build_collision_rejection",
     "build_initial_operation_bindings",
     "build_initial_registry",
+    "finalize_batch_outcome",
+    "publish_batch_manifest",
     "validate_batch_output",
     "validate_prepared_work_consistency",
 ]

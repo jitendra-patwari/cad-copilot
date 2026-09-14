@@ -175,7 +175,7 @@ def build_initial_registry() -> OperationRegistry:
     """Construct the canonical initial registry containing exactly the two guaranteed M5 operations.
 
     Operations:
-    1. export_3d (.par, .psm, .asm -> step, stl)
+    1. export_3d (.par, .psm, .asm -> step, stl, parasolid)
     2. publish_drawing (.dft -> pdf, dxf)
     """
     return OperationRegistry(
