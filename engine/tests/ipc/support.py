@@ -6,7 +6,7 @@ import contextlib
 import io
 import json
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -82,6 +82,50 @@ def run_stdio_in_pipes(
 
     try:
         code = _run_stdio(
+            argv=argv if argv is not None else [],
+            _composition_handler=composition_handler,
+            _stdin_stream=stdin_stream,
+            _descriptors=desc,
+        )
+        # Close write ends before draining read ends
+        os.close(out_w)
+        os.close(err_w)
+
+        stdout_bytes = drain_pipe(out_r)
+        stderr_bytes = drain_pipe(err_r)
+
+        return PipeRunResult(
+            returncode=code,
+            stdout_bytes=stdout_bytes,
+            stderr_bytes=stderr_bytes,
+        )
+    finally:
+        for fd in (out_r, err_r):
+            with contextlib.suppress(OSError):
+                os.close(fd)
+        desc.close()
+
+
+def run_batch_stdio_in_pipes(
+    *,
+    argv: list[str] | None = None,
+    stdin_data: bytes | io.BytesIO = b"",
+    composition_handler: Callable[..., Mapping[str, Any]] | None = None,
+) -> PipeRunResult:
+    """Run batch _run_stdio with controlled descriptors backed by OS pipes and collect output.
+
+    Guarantees all pipe ends and descriptors are cleanly closed even on test failure.
+    """
+    from ipc.batch_stdio import _run_stdio as _run_batch_stdio
+
+    out_r, out_w, err_r, err_w = make_pipes()
+    null_fd = os.open(os.devnull, os.O_RDWR)
+    desc = ControlledDescriptors(out_w, err_w, null_fd)
+
+    stdin_stream = stdin_data if isinstance(stdin_data, io.BytesIO) else io.BytesIO(stdin_data)
+
+    try:
+        code = _run_batch_stdio(
             argv=argv if argv is not None else [],
             _composition_handler=composition_handler,
             _stdin_stream=stdin_stream,
