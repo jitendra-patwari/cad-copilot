@@ -446,9 +446,11 @@ def _verify_response_manifest_parity(
             fmt = art_resp.format
             assert fmt in man_arts_by_fmt, f"Artifact format '{fmt}' missing in manifest for '{inp}'"
             art_man = man_arts_by_fmt[fmt]
-            expected_abs_path = (output_root / art_man.relative_path).as_posix()
-            assert art_resp.path == expected_abs_path, (
-                f"Artifact path mismatch for {inp}/{fmt}: {art_resp.path} != {expected_abs_path}"
+            resp_art_path = Path(art_resp.path)
+            assert resp_art_path.is_absolute(), f"Response artifact path must be absolute: {art_resp.path}"
+            expected_file_path = output_root / art_man.relative_path
+            assert resp_art_path.resolve(strict=True) == expected_file_path.resolve(strict=True), (
+                f"Artifact path mismatch for {inp}/{fmt}: {resp_art_path} != {expected_file_path}"
             )
 
 
