@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -96,14 +97,14 @@ class TestTopLevelContractRejections:
 
     def test_unsupported_units(self) -> None:
         plan = _load_example_fixture("accepted_example.json")
-        bad_plan = replace(plan, units="inch")
+        bad_plan = replace(plan, units=cast(Any, "inch"))
         with pytest.raises(FeaturePlanValidationError) as exc:
             validate_feature_plan(bad_plan)
         assert exc.value.code == "UNSUPPORTED_UNITS"
 
     def test_unsupported_scope(self) -> None:
         plan = _load_example_fixture("accepted_example.json")
-        bad_part = replace(plan.part, scope="assembly")
+        bad_part = replace(plan.part, scope=cast(Any, "assembly"))
         bad_plan = replace(plan, part=bad_part)
         with pytest.raises(FeaturePlanValidationError) as exc:
             validate_feature_plan(bad_plan)
@@ -111,7 +112,7 @@ class TestTopLevelContractRejections:
 
     def test_unsupported_lowering_strategy_non_canonical(self) -> None:
         plan = _load_example_fixture("accepted_example.json")
-        bad_strategy = replace(plan.lowering_strategy, status="experimental")
+        bad_strategy = replace(plan.lowering_strategy, status=cast(Any, "experimental"))
         bad_plan = replace(plan, lowering_strategy=bad_strategy)
         with pytest.raises(FeaturePlanValidationError) as exc:
             validate_feature_plan(bad_plan)
@@ -154,6 +155,7 @@ class TestFeatureValidationAndRejections:
     def test_duplicate_feature_id(self) -> None:
         plan = _load_example_fixture("accepted_example.json")
         hole = plan.features[0]
+        assert isinstance(hole, CircularThroughHoleFeature)
         duplicate_features = (hole, replace(hole, center_x_mm=10.0))
         bad_plan = replace(plan, features=duplicate_features)
         with pytest.raises(FeaturePlanValidationError) as exc:
@@ -162,7 +164,9 @@ class TestFeatureValidationAndRejections:
 
     def test_unknown_target_body_id(self) -> None:
         plan = _load_example_fixture("accepted_example.json")
-        hole = replace(plan.features[0], target_body_id="body.nonexistent")
+        feat = plan.features[0]
+        assert isinstance(feat, CircularThroughHoleFeature)
+        hole = replace(feat, target_body_id="body.nonexistent")
         bad_plan = replace(plan, features=(hole,))
         with pytest.raises(FeaturePlanValidationError) as exc:
             validate_feature_plan(bad_plan)
@@ -238,6 +242,7 @@ class TestSteppedShaftProfileSuite:
         plan = FeaturePlan(request_id="r1", part=PartMetadata(), base_body=body)
         validated = validate_feature_plan(plan)
         assert any(d.reason == "revolved_shaft_profile_normalization" for d in validated.defaults_applied)
+        assert isinstance(validated.base_body, RevolvedShaftBaseBody)
         assert [p.y_mm for p in validated.base_body.profile_points] == [0.0, 0.0, 10.0, 30.0, 40.0]
 
     def test_direct_revolved_shaft_validation_rejects_unsorted_strict(self) -> None:

@@ -172,7 +172,7 @@ class TestPointInPolygonAlgorithms:
         assert point_in_polygon(8.0, 8.0, l_shape) is False
 
     def test_polygon_with_mixed_point_types(self) -> None:
-        polygon = [
+        polygon: list[Point2DLike] = [
             ProfilePoint2D(0.0, 0.0),
             {"x_mm": 20.0, "y_mm": 0.0},
             (20.0, 20.0),

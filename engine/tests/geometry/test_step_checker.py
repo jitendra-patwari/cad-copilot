@@ -1240,12 +1240,12 @@ def test_two_element_expected_dimensions_returns_error_without_throwing() -> Non
     step_text = _build_step_payload(entities)
 
     # 2-element tuple
-    res_2 = validate_step_text(step_text, expected_dimensions=(100.0, 50.0))  # type: ignore[arg-type]
+    res_2 = validate_step_text(step_text, expected_dimensions=(100.0, 50.0))
     assert not res_2.is_valid
     assert any("must contain exactly three values" in err for err in res_2.errors)
 
     # 4-element tuple
-    res_4 = validate_step_text(step_text, expected_dimensions=(100.0, 50.0, 20.0, 10.0))  # type: ignore[arg-type]
+    res_4 = validate_step_text(step_text, expected_dimensions=(100.0, 50.0, 20.0, 10.0))
     assert not res_4.is_valid
     assert any("must contain exactly three values" in err for err in res_4.errors)
 

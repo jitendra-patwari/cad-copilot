@@ -9,7 +9,10 @@ import pytest
 
 from geometry import (
     CANONICAL_PLAN_VERSION,
+    CircularThroughHoleFeature,
     FeaturePlanValidationError,
+    SlotThroughCutoutFeature,
+    SweptProtrusionFeature,
     feature_plan_from_dict,
 )
 
@@ -130,6 +133,7 @@ class TestModeNeutralParserFallbacks:
         }
         plan = feature_plan_from_dict(payload)
         feat = plan.features[0]
+        assert isinstance(feat, SweptProtrusionFeature)
         assert feat.path.type == "full_circle"
         assert feat.cross_sections[0].type == "circle"
         assert feat.cross_sections[0].position == "start"
@@ -152,6 +156,7 @@ class TestModeNeutralParserFallbacks:
         }
         plan = feature_plan_from_dict(payload)
         feat = plan.features[0]
+        assert isinstance(feat, SlotThroughCutoutFeature)
         assert feat.placement_mode == "face_local_center"
         assert feat.orientation_axis == "x"
         assert any(d.original_value == "polar_offset" for d in plan.defaults_applied)
@@ -175,7 +180,9 @@ class TestModeNeutralParserFallbacks:
                 ],
             }
             plan_y = feature_plan_from_dict(payload_y)
-            assert plan_y.features[0].orientation_axis == "y"
+            feat_y = plan_y.features[0]
+            assert isinstance(feat_y, SlotThroughCutoutFeature)
+            assert feat_y.orientation_axis == "y"
             assert not any(d.code == "UNKNOWN_SLOT_ORIENTATION" for d in plan_y.validation_diagnostics)
 
         # Test 0deg variants mapping to 'x' without warnings
@@ -195,7 +202,9 @@ class TestModeNeutralParserFallbacks:
                 ],
             }
             plan_x = feature_plan_from_dict(payload_x)
-            assert plan_x.features[0].orientation_axis == "x"
+            feat_x = plan_x.features[0]
+            assert isinstance(feat_x, SlotThroughCutoutFeature)
+            assert feat_x.orientation_axis == "x"
             assert not any(d.code == "UNKNOWN_SLOT_ORIENTATION" for d in plan_x.validation_diagnostics)
 
     def test_selector_only_face_object_emits_no_false_alias_warning(self) -> None:
@@ -215,6 +224,7 @@ class TestModeNeutralParserFallbacks:
         }
         plan = feature_plan_from_dict(payload)
         feat = plan.features[0]
+        assert isinstance(feat, CircularThroughHoleFeature)
         assert feat.target_selector == "top"
         assert feat.target_face is None
         assert not any(d.code == "UNKNOWN_FACE_ALIAS" for d in plan.validation_diagnostics)
@@ -312,6 +322,8 @@ class TestModeNeutralParserFallbacks:
             ],
         }
         plan = feature_plan_from_dict(payload)
-        assert plan.features[0].target_face == expected_face
+        feat = plan.features[0]
+        assert isinstance(feat, CircularThroughHoleFeature)
+        assert feat.target_face == expected_face
         assert not any(d.code == "UNKNOWN_FACE_ALIAS" for d in plan.validation_diagnostics)
         assert not any(d.original_value == raw_face for d in plan.defaults_applied)
