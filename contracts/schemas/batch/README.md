@@ -2,9 +2,9 @@
 
 The `batch` domain defines the wire protocol and contract schemas used by client applications (Tauri Desktop GUI and local CLI) to request bulk 3D model translation and 2D drawing publication from the CAD engine.
 
-The planned client application owns UI/UX, file selection, and process orchestration. The planned batch engine owns local Solid Edge automation, multi-format artifact export, per-file isolation, and atomic summary manifest publication.
+The planned client application owns UI/UX, file selection, and process orchestration. The implemented batch engine owns local Solid Edge automation, multi-format artifact export, per-file isolation, and atomic summary manifest publication.
 
-**Status (14 September 2026):** Canonical wire schemas, manifest schemas, fixtures, typed immutable contract models, Draft 2020-12 validators, the operation metadata registry foundation (M5.1), sequential batch execution infrastructure (`BatchService`, typed bindings, work allocation, error isolation, cancellation, and observable teardown under M5.2), batch filesystem & source-integrity safety boundary (`FilesystemBatchSafetyBoundary`, bounded root enforcement, streaming SHA-256 source snapshots, guarded workspaces, and Windows atomic no-replace publication under M5.3), genuine batch format handlers and native export operations (`export_3d` [STEP/STL], `publish_drawing` [PDF/DXF] under M5.4), and conditional Parasolid batch export promotion (`export_3d` [.x_t] under M5.5) are established, implemented, and verified under this directory and `engine/src/batch/`. Milestone 5.1 through Milestone 5.5 are complete and verified. Milestone 5.6 (batch manifest publication, stdio IPC, and packaging) and Milestone 6 desktop client integration remain planned.
+**Status (15 September 2026):** Canonical wire schemas, manifest schemas, fixtures, typed immutable contract models, Draft 2020-12 validators, operation metadata registry foundation (M5.1), sequential batch execution infrastructure (`BatchService`, typed bindings, work allocation, error isolation, cancellation, and observable teardown under M5.2), batch filesystem & source-integrity safety boundary (`FilesystemBatchSafetyBoundary`, bounded root enforcement, streaming SHA-256 source snapshots, guarded workspaces, and Windows atomic no-replace publication under M5.3), genuine batch format handlers and native export operations (`export_3d` [STEP/STL], `publish_drawing` [PDF/DXF] under M5.4), conditional Parasolid batch export promotion (`export_3d` [.x_t] under M5.5), and batch summary manifest publication, strict batch stdio transport, cooperative signal cancellation, and Python packaging (M5.6) are established, implemented, and verified under this directory and `engine/src/batch/`. Milestone 5 scope is implemented and verified. Milestone 6 desktop client integration remains planned.
 
 ---
 
@@ -27,7 +27,35 @@ The planned client application owns UI/UX, file selection, and process orchestra
   - `1`: fatal bootstrap, descriptor, schema resource, serialization, or stdout-write failure (stdout remains empty).
   - `130`: console interrupt occurring before cooperative signal handler installation or after restoration.
 
-The planned IPC launcher for Milestone 5.6 is `engine/scripts/batch.cmd` (or installed console entry point `cad-copilot-batch = "ipc.batch_stdio:main"`).
+The verified IPC launchers for the batch engine are `engine/scripts/batch.cmd` (source wrapper) and `cad-copilot-batch` (installed console entry point `cad-copilot-batch = "ipc.batch_stdio:main"`).
+
+### Launcher Usage
+
+Callers provide a single bounded UTF-8 JSON request via stdin. The engine writes exactly one compact 7-bit ASCII JSON response to stdout, while streaming discrete JSONL progress events to stderr.
+
+#### Raw Command Redirection (Universal: PowerShell 5.1+, PowerShell 7+, or CMD)
+Because Windows PowerShell 5.1 defaults native process pipe redirection (`|`) to US-ASCII, use raw stream redirection via `cmd /d /c` to ensure byte-pure UTF-8 stdin transmission:
+
+```powershell
+# 1. Using the repository source wrapper:
+cmd /d /c "engine\scripts\batch.cmd < request.json > response.json 2> progress.log"
+
+# 2. Using the installed console entry point (virtual environment active or on PATH):
+cmd /d /c "cad-copilot-batch < request.json > response.json 2> progress.log"
+
+# Inspect the single-line stdout contract response:
+Get-Content .\response.json | ConvertFrom-Json
+
+# Inspect the real-time stderr progress events:
+Get-Content .\progress.log
+```
+
+#### PowerShell 7+ Pipeline Usage
+In PowerShell 7+ (or Windows PowerShell 5.1 with `$OutputEncoding = [System.Text.Encoding]::UTF8`), piping is UTF-8 clean:
+
+```powershell
+Get-Content -Raw -Encoding utf8 .\request.json | .\engine\scripts\batch.cmd 1> response.json 2> progress.log
+```
 
 ---
 
