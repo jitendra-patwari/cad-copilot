@@ -14,11 +14,11 @@ We are committed to providing a welcoming, inclusive, and harassment-free enviro
 
 ### Prerequisites
 - **Python**: `>=3.14.3,<3.15` (tested baseline: Python 3.14.3)
-- **Node.js / pnpm**: Node.js `>=20` and pnpm `>=9` for workspace scripts; the desktop package and frontend dependencies are not yet implemented.
-- **Rust**: Not required for the current Python/runtime baseline. Tauri/Rust setup belongs to the later desktop milestone.
+- **Node.js / pnpm**: Verified workstation baseline Node.js `24.15.0` and pnpm `12.4.1` for monorepo workspace scripts; compatible version floors will be finalized and documented upon dependency resolution in Step 2 as the desktop package is scaffolded.
+- **Rust**: Not required for the current Python engine baseline. The verified workstation baseline is `rustc 1.95.0` / `cargo 1.95.0`. Rust will be required once the desktop scaffold is created; compatible minimum version floors will be finalized during Step 2 dependency resolution.
 - **Operating System**: Windows 10/11 x64 with licensed Siemens Solid Edge® for live COM automation. Pure geometry and contract checks do not require COM; some offline driver tests use Windows process APIs. Exclude live tests explicitly with `-m "not com and not live_ai"`.
 
-M3.1–M3.3, M4.1 generation service orchestration, M4.2 Gemini plan proposal adapter, M4.3 deterministic example catalog, M4.4 canonical run manifest publication, and M4.5 strict generation stdio IPC are implemented and verified; Milestone 4 is complete. Milestone 5.1 batch contracts/models/schemas, Milestone 5.2 sequential batch execution infrastructure (FR-15), Milestone 5.3 batch filesystem & source-integrity safety boundary (FR-16), Milestone 5.4 genuine batch format handlers and native export operations (FR-17), Milestone 5.5 conditional Parasolid export gate (FR-18), and Milestone 5.6 summary manifest publication, strict batch stdio transport, cooperative signal cancellation, launchers, and packaging (FR-19) are implemented and verified; Milestone 5 is complete. Milestone 6 desktop UI remains planned. See [engine status](engine/README.md).
+M3.1–M3.3, M4.1 generation service orchestration, M4.2 Gemini plan proposal adapter, M4.3 deterministic example catalog, M4.4 canonical run manifest publication, and M4.5 strict generation stdio IPC are implemented and verified; Milestone 4 is complete. Milestone 5.1 batch contracts/models/schemas, Milestone 5.2 sequential batch execution infrastructure (FR-15), Milestone 5.3 batch filesystem & source-integrity safety boundary (FR-16), Milestone 5.4 genuine batch format handlers and native export operations (FR-17), Milestone 5.5 conditional Parasolid export gate (FR-18), and Milestone 5.6 summary manifest publication, strict batch stdio transport, cooperative signal cancellation, launchers, and packaging (FR-19) are implemented and verified; Milestone 5 is complete. Milestone 6.1 (Clean Tauri/React Desktop Foundation, FR-20) is in progress; subsequent vertical slices (M6.2 Generate vertical slice, M6.3 Batch vertical slice, M6.4 shared hardening) remain planned. See [engine status](engine/README.md).
 
 ### Initializing the Workspace
 ```powershell
@@ -81,7 +81,7 @@ Scopes include planned domains; listing a scope does not mean its package or run
 * `contracts`: Public JSON-Schema contracts and golden fixtures
 
 ### Requirements Traceability (`<FR-ID>`)
-Every commit must cite the corresponding **Functional Requirement ID** from [`docs/requirements.md`](docs/requirements.md) (e.g. `[FR-1]`, `[FR-2]`, `[FR-3]`, `[FR-9]`, `[FR-10]`). For infrastructure or root maintenance, use `[FR-1]` or `[INFRA]`.
+Every commit must cite the corresponding **Functional Requirement ID** from [`docs/requirements.md`](docs/requirements.md) (e.g. `[FR-1]`, `[FR-2]`, `[FR-3]`, `[FR-9]`, `[FR-10]`, `[FR-19]`, `[FR-20]`). For infrastructure or root maintenance, use `[FR-1]` or `[INFRA]`.
 
 ### Examples
 * `chore(root): [FR-1] initialize root workspace configuration, pnpm toolchains and dev tooling`
@@ -90,6 +90,7 @@ Every commit must cite the corresponding **Functional Requirement ID** from [`do
 * `feat(interfaces): [FR-3] implement abstract domain interfaces (CADExecutorABC, CADRuntimeABC) in engine`
 * `fix(geometry): [FR-4] resolve floating point precision boundary in FaceContext UV projection`
 * `feat(application): [FR-10] implement generation application orchestration`
+* `docs(desktop): [FR-20] define clean desktop foundation`
 
 ---
 

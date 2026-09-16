@@ -1,8 +1,8 @@
-# System Requirements Specification: Milestones 1, 2, 3, 4 & 5
+# System Requirements Specification: Milestones 1, 2, 3, 4, 5 & 6.1
 
 **Project**: CAD Copilot  
-**Scope**: Milestone 1 (Foundation & Domain Interfaces), Milestone 2 (Pure Domain Geometry Math), Milestone 3 (Solid Edge COM Driver & Artifact Pipeline), Milestone 4 (Generation Application Orchestration, Examples, Manifest & Stdio IPC), and Milestone 5 (Batch Automation Contracts, Execution Infrastructure, Safety Boundary, Format Handlers, Parasolid Promotion, Summary Manifest Publication & Strict Stdio IPC)
-**Status (15 September 2026)**: M1/M2 domain baseline and M3.0 reconciliation implemented; M3.1 runtime/lifecycle, M3.2 primitive execution and inspection, and M3.3 multi-format artifact export and pipeline finalization implemented, hardened, and verified. Milestone 4 is fully implemented, hardened, and verified across all components: M4.1 (generation application orchestration), M4.2 (optional text-only Gemini proposal adapter), M4.3 (deterministic example catalog), M4.4 (canonical run manifest and sidecar publication), and M4.5 (strict generation stdio IPC, launchers, and packaging). Milestone 4 is complete. Milestone 5 is fully implemented, hardened, and verified across all components: M5.1 (canonical batch request/response/manifest contracts, schemas, typed models, and operation metadata registry), M5.2 (batch execution infrastructure, typed bindings, pure work allocation, tracked-document task generalization, observable teardown, and shared sequential batch service orchestration), M5.3 (batch filesystem safety boundary, streaming SHA-256 source snapshots, guarded workspaces, atomic no-replace publication, and document close lifecycle hardening), M5.4 (genuine batch format handlers and native export operations for 3D model export [STEP/STL] and 2D drawing publication [PDF/DXF], drawing view refresh, assembly reference verification via FileMissing, and closed-output validation), M5.5 (conditional Parasolid export gate, promoted schema/model/registry alignment, and verified text Parasolid export [.x_t] across .par/.psm/.asm), and M5.6 (summary manifest publication, strict batch stdio transport, cooperative signal cancellation, launchers, packaging, and live integration gates). Milestone 5 is complete. Milestone 6 desktop client integration remains planned.
+**Scope**: Milestone 1 (Foundation & Domain Interfaces), Milestone 2 (Pure Domain Geometry Math), Milestone 3 (Solid Edge COM Driver & Artifact Pipeline), Milestone 4 (Generation Application Orchestration, Examples, Manifest & Stdio IPC), Milestone 5 (Batch Automation Contracts, Execution Infrastructure, Safety Boundary, Format Handlers, Parasolid Promotion, Summary Manifest Publication & Strict Stdio IPC), and Milestone 6.1 (Clean Tauri/React Desktop Foundation).
+**Status (16 September 2026)**: M1/M2 domain baseline and M3.0 reconciliation implemented; M3.1 runtime/lifecycle, M3.2 primitive execution and inspection, and M3.3 multi-format artifact export and pipeline finalization implemented, hardened, and verified. Milestone 4 is fully implemented, hardened, and verified across all components: M4.1 (generation application orchestration), M4.2 (optional text-only Gemini proposal adapter), M4.3 (deterministic example catalog), M4.4 (canonical run manifest and sidecar publication), and M4.5 (strict generation stdio IPC, launchers, and packaging). Milestone 4 is complete. Milestone 5 is fully implemented, hardened, and verified across all components: M5.1 (canonical batch request/response/manifest contracts, schemas, typed models, and operation metadata registry), M5.2 (batch execution infrastructure, typed bindings, pure work allocation, tracked-document task generalization, observable teardown, and shared sequential batch service orchestration), M5.3 (batch filesystem safety boundary, streaming SHA-256 source snapshots, guarded workspaces, atomic no-replace publication, and document close lifecycle hardening), M5.4 (genuine batch format handlers and native export operations for 3D model export [STEP/STL] and 2D drawing publication [PDF/DXF], drawing view refresh, assembly reference verification via FileMissing, and closed-output validation), M5.5 (conditional Parasolid export gate, promoted schema/model/registry alignment, and verified text Parasolid export [.x_t] across .par/.psm/.asm), and M5.6 (summary manifest publication, strict batch stdio transport, cooperative signal cancellation, launchers, packaging, and live integration gates). Milestone 5 is complete. Milestone 6.1 (Clean Tauri/React Desktop Foundation, FR-20) is in progress; subsequent vertical slices (M6.2 Generate vertical slice, M6.3 Batch vertical slice, M6.4 shared hardening) remain planned.
 
 ### Current evidence boundary
 
@@ -55,19 +55,23 @@
 
 ## 1. Document Scope, Goals & Non-Goals
 
-This specification defines the functional, architectural, and quality requirements for the foundational milestones of the CAD Copilot project. Milestone 5.1 establishes canonical batch contracts, schemas, typed models, Draft 2020-12 validation, and operation metadata foundation. Subsequent milestones cover bounded sequential native-file batch runtime execution (Milestone 5.2+) and the Tauri desktop showcase (Milestone 6). Only approved conditional/follow-up capabilities may extend that scope; no later package is implied to exist by this specification.
+This specification defines the functional, architectural, and quality requirements for the foundational milestones of the CAD Copilot project. Milestone 5 (Batch Automation Contracts, Safety Boundary, Format Handlers, Parasolid Promotion, Summary Manifest Publication & Strict Stdio IPC) is complete. Milestone 6.1 establishes the clean desktop foundation (`@cad-copilot/desktop`), followed by the M6.2 Generate vertical slice, M6.3 Batch vertical slice, and M6.4 shared hardening. Only approved conditional/follow-up capabilities may extend that scope; no later package or unverified capability is implied to exist by this specification.
 
 ### Goals
 - **Milestone 1 (Foundation & Governance)**: Establish monorepo workspace configuration (`desktop/` and `engine/`), developer tooling, MIT licensing with an explicit Siemens trademark notice, vendor-agnostic abstract domain interfaces (`engine/src/interfaces/`), and canonical JSON Schemas (`contracts/`) for cross-boundary communication.
 - **Milestone 2 (Pure Domain Geometry)**: Implement a pure, deterministic geometry domain (`engine/src/geometry/`) containing planar coordinate transformations, parametric spur gear tooth math, feature plan AST parsing, lowering models, spatial containment validation, and STEP Part 21 smoke analysis.
 - **Milestone 3 (Solid Edge COM Driver & Artifacts)**: Implement the Windows Solid Edge® COM automation driver (`SolidEdgeRuntime` and `SolidEdgeExecutor` in `engine/src/drivers/solidedge/`) via standard public COM Dispatch, executing confirmed 3D base primitives, localized 2D cutouts, geometric recompute verification, and atomic multi-format artifact exports (`.par`, STEP, STL, preview JPG) on live Windows workstations.
 - **Milestone 4 (Generation Orchestration & Workflows — Complete)**: Orchestrate single-request 3D parametric generation through a modular application coordinator (`GenerationService`), supporting deterministic example plans (`example_catalog`) and an optional text-only Gemini proposal adapter (`plan_providers`), with canonical run manifest creation (`manifests`), safe error/warning projection, and strict stdio IPC (`ipc`). M4.1 (application orchestration), M4.2 (Gemini adapter), M4.3 (deterministic example catalog), M4.4 (run manifest publication), and M4.5 (strict generation stdio IPC) are fully implemented, hardened, and verified. Milestone 4 is complete.
+- **Milestone 5 (Batch Automation Contracts, Safety, Formats & IPC — Complete)**: Provide robust, local-first sequential native-file batch export and drawing publication for Solid Edge parts, sheet metals, assemblies, and drawings. M5.1 (contracts and operation registry), M5.2 (execution service and task generalization), M5.3 (filesystem and source-integrity safety boundary), M5.4 (genuine format handlers for STEP, STL, PDF, DXF), M5.5 (Parasolid `.x_t` promotion and verification), and M5.6 (summary manifest publication, strict batch stdio transport, signal cancellation, and packaging) are fully implemented, hardened, and verified. Milestone 5 is complete.
+- **Milestone 6.1 (Clean Tauri/React Desktop Foundation — In Progress)**: Establish a focused, source-runnable Windows desktop foundation in `@cad-copilot/desktop` using Tauri v2 and React 19/TypeScript. Provide honest two-screen navigation (`Generate` and `Batch`), a settings/diagnostics panel reflecting typed baseline status without secret persistence or fake connections, a top-level error boundary preventing blank-window failures, a restrictive local-only capability and CSP baseline, and automated verification across config, Rust, and frontend components.
 
 ### Explicit Non-Goals
-- **No Network or AI Calls in Engine Driver (Milestone 3)**: Zero network requests or LLM SDK dependencies within the core driver (LLM generation pipelines and prompt-to-CAD translation are encapsulated in Milestone 4).
-- **No GUI / Client Dependencies (Milestone 3)**: No Tauri, Rust native bindings, or React UI dependencies in this engine driver phase (Milestone 6).
+- **No Network or AI Calls in Engine Driver**: Zero network requests or LLM SDK dependencies within the core driver (LLM generation pipelines and prompt-to-CAD translation are encapsulated in Milestone 4).
+- **No Engine Invocation or Subprocess Spawning in M6.1**: No Python child process execution, stdio parsing, or CAD generation/batch integration in the M6.1 desktop foundation (deferred to vertical slices M6.2 and M6.3).
+- **No Filesystem Dialogs or Arbitrary File Access in M6.1**: No native file/folder pickers, arbitrary path inspection, or broad Tauri filesystem capabilities in M6.1.
+- **No Secret Persistence or Mock Execution in M6.1**: No Gemini API key input/storage, no fake CAD execution, no simulated success states, and no local/cloud authentication or backend servers.
 - **No Proprietary Siemens Binary SDK / DLL Linkage**: Automation operates strictly through standard, public Windows COM Dispatch interfaces (`pywin32` / `win32com.client.Dispatch("SolidEdge.Application")`). Zero internal DLL reverse-engineering, decompilation, or undocumented binary hooking.
-- **No Out-of-Scope / Deferred Operations**: Image-to-CAD, stateful prompt-edit sessions, manufacturing-grade gear analysis, and unverified batch formats remain strictly excluded from Milestone 3.
+- **No Out-of-Scope / Deferred Operations**: Image-to-CAD, stateful prompt-edit sessions, manufacturing-grade gear analysis, and unverified batch formats remain strictly excluded.
 
 ---
 
@@ -384,6 +388,36 @@ The implementation is in `engine/src/drivers/solidedge/`. The requirements below
   - Windows source wrapper: `engine/scripts/batch.cmd` with `%~dp0`-relative interpreter resolution, quiet import and distribution-metadata preflight, and fatal diagnostic on failure.
   - Package data: `batch/schemas/*.json` verified via isolated wheel installations outside repository checkouts.
   - Route isolation: zero AI provider imports, zero API keys, zero network access, and zero CAD Copilot authentication, entitlement, or licensing subsystem, while preserving caller-installed and appropriately licensed Siemens Solid Edge as the mandatory live-execution prerequisite.
+
+### FR-20: Clean Desktop Foundation (M6.1 — In Progress)
+- **Dedicated Desktop Workspace (`@cad-copilot/desktop`)**:
+  - Establishes the real `desktop/` pnpm workspace declared in `pnpm-workspace.yaml`.
+  - Single root `pnpm-lock.yaml` remains the exclusive JavaScript dependency lockfile.
+  - Package scripts provide unified `"dev": "vite"` serving both root `pnpm dev:desktop` and Tauri's `beforeDevCommand`, one-shot `test`, `lint` (`eslint . --max-warnings=0`), `typecheck` (`tsc -b --noEmit` or single-project equivalent), `format` (`prettier --write .`), `format:check` (`prettier --check .`), and `build` running the complete typecheck boundary before `vite build` (`pnpm typecheck && vite build`).
+  - Tailwind CSS v4 configured via `@tailwindcss/vite` without legacy config files; zero Tailwind runtime scripts in production bundle.
+  - ESLint 9 ESM flat configuration (`eslint.config.js`) using `@eslint/js`, `typescript-eslint`, and stable `eslint-plugin-react-hooks` presets.
+- **Showcase Application Shell & Presentation**:
+  - React 19 application bootstrapped with `createRoot` and `StrictMode`.
+  - Exactly two primary navigation choices: `Generate` (default) and `Batch`, managed via local state without heavy routing frameworks.
+  - Page roots render clear semantic headings and honest foundation status; no non-functional operational controls, fake loading states, or simulated execution.
+  - Compact settings/diagnostics panel with keyboard navigation (Escape, focus trap/return) displaying exactly 5 typed foundation rows: Output directory (`Not selected`), Solid Edge (`Not checked`), Gemini (`Not configured`), model (`Not loaded` or default), and engine version (`Not connected`). Zero input fields, zero secret storage.
+  - Accessible design tokens, semantic landmarks, high contrast, and `prefers-reduced-motion` compliance. Tree-shaken `lucide-react` icons with accessible labels.
+  - Zero Firebase, sign-in, cloud URLs, telemetry, licensing/subscription UI, 3D canvas, image upload, revision timeline, or editing controls.
+- **Native Tauri Host & Security Baseline**:
+  - Minimal Tauri v2 Windows host with distinct Cargo target names: binary `cad-copilot-desktop` and library `cad_copilot_desktop_lib` to prevent Windows output-collision warnings (Cargo issue #8519).
+  - `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` in `main.rs` suppresses extraneous Windows consoles in release builds while preserving diagnostics in debug builds.
+  - Repository-owned master vector mark (`assets/app-icon.svg`) and valid multi-layer Windows icon (`desktop/src-tauri/icons/icon.ico` with 16, 24, 32, 48, 64, and 256 pixel layers) committed in the scaffold.
+  - Capability configuration in `capabilities/default.json` grants only the minimum core permissions for the single main window; zero shell/process, opener, dialog, filesystem, store, clipboard, HTTP, or notification permissions.
+  - Content Security Policy (CSP): Strict production CSP permits only local bundled assets and required Tauri IPC sources; separate development CSP (`devCsp`) permits only the local Vite origin and same-port WebSocket HMR endpoint (`localhost:1420`).
+  - Fixed Vite port `1420` with `strictPort: true` matching `tauri.conf.json.build.devUrl`.
+  - `bundle.active` remains disabled; source-run and build verification only. Zero custom `#[tauri::command]` handlers or optional Tauri plugins in M6.1.
+- **Top-Level Error Boundary & Non-Disclosure**:
+  - Top-level React error boundary wraps the application tree below `StrictMode` and above page composition.
+  - Catches render/lifecycle errors and presents an accessible `FatalErrorView` with a generic user-friendly message and a `Reload application` recovery action.
+  - Strict non-disclosure: completely suppresses exception messages, stack traces, component stacks, filesystem paths, and environment variables from rendered DOM.
+  - Avoids recording error details or secrets in browser storage or frontend history.
+- **Explicit Functional Exclusions (M6.1)**:
+  - FR-20 does not own engine invocation, Python subprocess spawning, stdio IPC framing, contract bindings, filesystem dialogs, safe preview/reveal, progress translation, request cancellation, full Generate behavior, full Batch behavior, CI creation, installer packaging, release automation, or public demo publication.
 
 ---
 
@@ -770,3 +804,50 @@ This section defines acceptance criteria specifically for the Milestone 5.6 batc
    - Automated offline & static suites: **2,398 passed, 4 skipped, 55 deselected** in 75.94s (the 4 skips being Windows symlink-permission guards); strict Mypy clean across all 174 checked source files; Ruff lint and format clean.
    - Wheel packaging verification: installed wheel in isolated temp virtualenv executed CLI and loaded packaged batch schema resources without repository checkout dependency.
    - Combined live Solid Edge 2026 verification matrix: **14 passed, 0 skipped in 390.10s** (tested snapshot byte-identical to commit `34dec71`), comprising M5.6 live CLI suite (`test_batch_solidedge_live.py`, 4 passed: B-LIVE-M56-01 through B-LIVE-M56-04), M5.4 formats regression suite (`test_batch_formats_live.py`, 5 passed), and M5.5 Parasolid regression suite (`test_parasolid_live.py`, 5 passed), with zero active or orphan `Edge.exe` processes remaining after teardown.
+
+### Milestone 6.1 Component Acceptance Criteria (FR-20 — Clean Desktop Foundation)
+
+This section defines acceptance criteria specifically for the Milestone 6.1 clean desktop foundation (FR-20):
+
+1. **Workspace Scaffold & Toolchain Foundation (FR-20)**:
+   - Dedicated `@cad-copilot/desktop` pnpm workspace created under `desktop/`, recognized by root `pnpm-workspace.yaml`.
+   - Single root `pnpm-lock.yaml` remains the exclusive JavaScript dependency lockfile; zero duplicate lockfiles.
+   - Package scripts define `"dev": "vite"`, one-shot `test`, `lint` (`eslint . --max-warnings=0`), `typecheck` (`tsc -b --noEmit` or single-project equivalent), `format` (`prettier --write .`), `format:check` (`prettier --check .`), and `build` running the complete typecheck boundary before `vite build` (`pnpm typecheck && vite build`).
+   - Unified `dev` script serves both root `pnpm dev:desktop` and Tauri's `beforeDevCommand`.
+   - Tailwind CSS v4 configured via `@tailwindcss/vite` without legacy config files; production bundle contains zero Tailwind runtime scripts.
+   - ESLint 9 ESM flat config (`eslint.config.js`) configured with `@eslint/js`, `typescript-eslint`, and stable `eslint-plugin-react-hooks` presets.
+   - Strict TypeScript checking covers every referenced project without emitting `.js`, `.d.ts`, or tracked `.tsbuildinfo` cache files into the repository.
+
+2. **Application Shell & Honest Presentation (FR-20)**:
+   - React 19 application bootstrapped with `createRoot` and `StrictMode`.
+   - Exactly two primary navigation choices: `Generate` (default) and `Batch`, managed via local state without heavy routing libraries.
+   - Page roots render clear semantic headings and honest milestone foundation status; no non-functional operational controls, fake loading states, or simulated execution.
+   - Accessible settings/diagnostics modal/panel with keyboard navigation (Escape, focus trap/return) displaying exactly 5 typed foundation rows: Output directory (`Not selected`), Solid Edge (`Not checked`), Gemini (`Not configured`), model (`Not loaded` or default), and engine version (`Not connected`). Zero input fields, zero secret storage.
+   - Accessible design tokens, semantic landmarks, high contrast, and `prefers-reduced-motion` compliance. Tree-shaken `lucide-react` icons with accessible labels; zero raw embedded duplicate SVG paths.
+   - Zero Firebase, sign-in, cloud URLs, telemetry, licensing/subscription UI, 3D canvas, image upload, revision timeline, or editing controls.
+
+3. **Native Tauri Host & Security Baseline (FR-20)**:
+   - Minimal Tauri v2 Windows host with distinct Cargo target names: binary `cad-copilot-desktop` and library `cad_copilot_desktop_lib` to prevent Windows output-collision warnings (Cargo issue #8519).
+   - `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` in `main.rs` suppresses extraneous Windows consoles in release builds while preserving diagnostics in debug builds.
+   - Repository-owned master vector icon (`assets/app-icon.svg`) and valid multi-layer Windows icon (`desktop/src-tauri/icons/icon.ico` with 16, 24, 32, 48, 64, and 256 pixel layers) committed in the scaffold.
+   - Capability configuration in `capabilities/default.json` grants only the minimum core permissions for the single main window; zero shell/process, opener, dialog, filesystem, store, clipboard, HTTP, or notification permissions.
+   - Content Security Policy (CSP): Strict production CSP permits only local bundled assets and required Tauri IPC sources; separate development CSP (`devCsp`) permits only the local Vite origin and same-port WebSocket HMR endpoint (`localhost:1420`).
+   - Fixed Vite port `1420` with `strictPort: true` matching `tauri.conf.json.build.devUrl`.
+   - `bundle.active` remains disabled; source-run and build verification only. Zero custom `#[tauri::command]` handlers or optional Tauri plugins in M6.1.
+
+4. **Error Boundary & Non-Disclosure (FR-20)**:
+   - Top-level React error boundary wraps the application tree below `StrictMode` and above page composition.
+   - Catches render/lifecycle errors and presents an accessible `FatalErrorView` with a generic user-friendly message and a `Reload application` recovery action.
+   - Strict non-disclosure: completely suppresses exception messages, stack traces, component stacks, filesystem paths, and environment variables from rendered DOM.
+   - Avoids recording error details or secrets in browser storage or frontend history.
+
+5. **Downstream Vertical-Slice Integration Seams**:
+   - M6.1 establishes the clean UI shell and host foundation without introducing an uncontained or speculative bridge.
+   - **M6.2 (Generate Vertical Slice)**: Delivers prompt/example input, preview, session-only key handling, output picker, progress, cancellation, and artifact reveal alongside the minimum secure native IPC bridge executing `cad-copilot-generate`.
+   - **M6.3 (Batch Vertical Slice)**: Delivers batch file/folder selection, format/operation selection, Parasolid presentation, per-file progress, cancellation, and manifest reveal alongside the minimum secure native IPC bridge executing `cad-copilot-batch`.
+   - **M6.4 (Shared Hardening & Diagnostics)**: Consolidates proven shared child tracking, path-containment policy, diagnostics readback, cross-request isolation, and full negative security matrix.
+
+6. **Automated & Static Verification Baseline (FR-20)**:
+   - Component and integration tests (Vitest + React Testing Library) verify default navigation, view switching, diagnostics open/close/focus, error boundary fallback with non-disclosure, and absence of rejected features.
+   - Configuration and Rust tests verify restrictive capability definitions, CSP rules, distinct target names, and zero optional plugin dependencies.
+   - Full monorepo script verification: root convenience scripts (`:desktop`) and safe root test composition (`test:engine:offline` + `test:desktop`).
