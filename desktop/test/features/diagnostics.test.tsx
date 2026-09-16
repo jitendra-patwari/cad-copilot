@@ -81,7 +81,7 @@ describe('Settings & Diagnostics Surface', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('returns focus to trigger button when closed', async () => {
+  it('traps focus with Tab/Shift+Tab and returns focus to trigger button when closed', async () => {
     render(<App />);
 
     const triggerBtn = screen.getByRole('button', {
@@ -94,8 +94,25 @@ describe('Settings & Diagnostics Surface', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
 
     const closeBtn = screen.getByRole('button', { name: /close diagnostics/i });
+    const dismissBtn = screen.getByRole('button', { name: /dismiss/i });
+
+    // 1. Await initial delayed focus moving inside dialog
+    await waitFor(() => {
+      expect(document.activeElement).toBe(closeBtn);
+    });
+
+    // 2. Test Shift+Tab wrapping from first element (closeBtn) to last element (dismissBtn)
+    fireEvent.keyDown(document, { key: 'Tab', code: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(dismissBtn);
+
+    // 3. Test Tab wrapping from last element (dismissBtn) to first element (closeBtn)
+    fireEvent.keyDown(document, { key: 'Tab', code: 'Tab', shiftKey: false });
+    expect(document.activeElement).toBe(closeBtn);
+
+    // 4. Close dialog
     fireEvent.click(closeBtn);
 
+    // 5. Verify focus is genuinely restored to trigger button
     await waitFor(() => {
       expect(document.activeElement).toBe(triggerBtn);
     });
@@ -110,7 +127,7 @@ describe('Settings & Diagnostics Surface', () => {
     fireEvent.click(triggerBtn);
 
     const dialog = screen.getByRole('dialog');
-    const inputs = dialog.querySelectorAll('input');
+    const inputs = dialog.querySelectorAll('input, textarea, select');
     expect(inputs).toHaveLength(0);
 
     const dialogText = dialog.textContent?.toLowerCase() ?? '';
@@ -118,5 +135,8 @@ describe('Settings & Diagnostics Surface', () => {
     expect(dialogText).not.toContain('server url');
     expect(dialogText).not.toContain('license');
     expect(dialogText).not.toContain('password');
+    expect(dialogText).not.toContain('telemetry');
+    expect(dialogText).not.toContain('account');
+    expect(dialogText).not.toContain('save');
   });
 });

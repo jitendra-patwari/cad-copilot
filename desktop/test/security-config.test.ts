@@ -7,12 +7,14 @@ describe('Tauri security configuration baseline', () => {
   const capabilityPath = path.resolve(__dirname, '../src-tauri/capabilities/default.json');
   const cargoTomlPath = path.resolve(__dirname, '../src-tauri/Cargo.toml');
   const mainRsPath = path.resolve(__dirname, '../src-tauri/src/main.rs');
+  const libRsPath = path.resolve(__dirname, '../src-tauri/src/lib.rs');
   const viteConfigPath = path.resolve(__dirname, '../vite.config.ts');
 
   const tauriConf = JSON.parse(fs.readFileSync(tauriConfPath, 'utf-8'));
   const capability = JSON.parse(fs.readFileSync(capabilityPath, 'utf-8'));
   const cargoToml = fs.readFileSync(cargoTomlPath, 'utf-8');
   const mainRs = fs.readFileSync(mainRsPath, 'utf-8');
+  const libRs = fs.readFileSync(libRsPath, 'utf-8');
   const viteConfig = fs.readFileSync(viteConfigPath, 'utf-8');
 
   it('has bundle.active disabled for source-run foundation', () => {
@@ -70,9 +72,30 @@ describe('Tauri security configuration baseline', () => {
     expect(mainRs).toContain('#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]');
   });
 
-  it('declares approved reverse-DNS identifier and no optional plugins', () => {
+  it('declares approved reverse-DNS identifier and no optional plugins in tauri.conf.json', () => {
     expect(tauriConf.identifier).toBe('io.github.jitendra-patwari.cad-copilot');
     expect(tauriConf.plugins).toBeUndefined();
+  });
+
+  it('excludes optional plugin dependencies from Cargo.toml', () => {
+    expect(cargoToml).not.toMatch(/tauri-plugin/i);
+  });
+
+  it('registers no optional plugins or custom command handlers in Rust entrypoints', () => {
+    expect(libRs).not.toMatch(/\.plugin\s*\(/);
+    expect(mainRs).not.toMatch(/\.plugin\s*\(/);
+    expect(libRs).not.toMatch(/invoke_handler/);
+    expect(libRs).not.toMatch(/generate_handler!/);
+    expect(libRs).not.toMatch(/#\[tauri::command\]/);
+    expect(mainRs).not.toMatch(/invoke_handler/);
+    expect(mainRs).not.toMatch(/generate_handler!/);
+    expect(mainRs).not.toMatch(/#\[tauri::command\]/);
+  });
+
+  it('prohibits asset protocol and broad capability scopes', () => {
+    expect(tauriConf.app?.security?.assetProtocol).toBeUndefined();
+    expect(capability.permissions).toEqual([]);
+    expect(capability.remote).toBeUndefined();
   });
 
   it('configures exactly one main window with label matching capabilities', () => {
