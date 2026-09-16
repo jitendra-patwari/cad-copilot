@@ -27,6 +27,7 @@ venv/
 .mypy_cache/
 .ruff_cache/
 htmlcov/
+coverage/
 .coverage
 .coverage.*
 coverage.xml
@@ -39,8 +40,8 @@ node_modules/
 
 # Rust / Tauri
 target/
-src-tauri/target/
-src-tauri/gen/
+**/src-tauri/target/
+**/src-tauri/gen/
 *.msi
 *.exe
 *.dll

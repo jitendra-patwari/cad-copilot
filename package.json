@@ -4,14 +4,22 @@
   "private": true,
   "description": "Root workspace for CAD Copilot desktop application and CAD engine",
   "scripts": {
-    "test": "pnpm -r test",
+    "test": "pnpm test:engine:offline && pnpm test:desktop",
     "test:engine": "pnpm --filter @cad-copilot/engine test",
+    "test:engine:offline": "pnpm --filter @cad-copilot/engine test:offline",
+    "test:desktop": "pnpm --filter @cad-copilot/desktop test",
+    "dev:desktop": "pnpm --filter @cad-copilot/desktop dev",
     "lint": "pnpm -r lint",
     "lint:engine": "pnpm --filter @cad-copilot/engine lint",
+    "lint:desktop": "pnpm --filter @cad-copilot/desktop lint",
     "typecheck": "pnpm -r typecheck",
     "typecheck:engine": "pnpm --filter @cad-copilot/engine typecheck",
+    "typecheck:desktop": "pnpm --filter @cad-copilot/desktop typecheck",
     "format": "pnpm -r format",
-    "build": "pnpm -r --if-present build"
+    "format:desktop": "pnpm --filter @cad-copilot/desktop format",
+    "format:check:desktop": "pnpm --filter @cad-copilot/desktop format:check",
+    "build": "pnpm -r --if-present build",
+    "build:desktop": "pnpm --filter @cad-copilot/desktop build"
   },
   "devDependencies": {}
 }

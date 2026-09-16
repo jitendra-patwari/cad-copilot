@@ -5,6 +5,7 @@
   "description": "Python CAD engine workspace package for pnpm orchestration",
   "scripts": {
     "test": "pytest",
+    "test:offline": "pytest -m \"not com and not live_ai\"",
     "test:cov": "pytest --cov=src --cov-report=term-missing",
     "lint": "ruff check src tests && mypy --config-file mypy.ini --strict src",
     "typecheck": "mypy --config-file mypy.ini --strict src",
