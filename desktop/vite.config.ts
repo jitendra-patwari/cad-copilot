@@ -16,9 +16,11 @@ export default defineConfig({
   },
   build: {
     sourcemap: false,
+    assetsInlineLimit: 0,
   },
   test: {
     globals: true,
-    environment: 'node',
+    environment: 'jsdom',
+    setupFiles: ['./test/setup.ts'],
   },
 });
