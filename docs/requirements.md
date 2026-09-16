@@ -406,7 +406,7 @@ The implementation is in `engine/src/drivers/solidedge/`. The requirements below
 - **Native Tauri Host & Security Baseline**:
   - Minimal Tauri v2 Windows host with distinct Cargo target names: binary `cad-copilot-desktop` and library `cad_copilot_desktop_lib` to prevent Windows output-collision warnings (Cargo issue #8519).
   - `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` in `main.rs` suppresses extraneous Windows consoles in release builds while preserving diagnostics in debug builds.
-  - Repository-owned master vector mark (`assets/app-icon.svg`) and valid multi-layer Windows icon (`desktop/src-tauri/icons/icon.ico` with 16, 24, 32, 48, 64, and 256 pixel layers) committed in the scaffold.
+  - Repository-owned master brand asset (`desktop/src/assets/logo.png`) and valid multi-layer Windows icon (`desktop/src-tauri/icons/icon.ico` with 16, 24, 32, 48, 64, and 256 pixel layers) committed in the scaffold.
   - Capability configuration in `capabilities/default.json` grants only the minimum core permissions for the single main window; zero shell/process, opener, dialog, filesystem, store, clipboard, HTTP, or notification permissions.
   - Content Security Policy (CSP): Strict production CSP permits only local bundled assets and required Tauri IPC sources; separate development CSP (`devCsp`) permits only the local Vite origin and same-port WebSocket HMR endpoint (`localhost:1420`).
   - Fixed Vite port `1420` with `strictPort: true` matching `tauri.conf.json.build.devUrl`.
@@ -829,7 +829,7 @@ This section defines acceptance criteria specifically for the Milestone 6.1 clea
 3. **Native Tauri Host & Security Baseline (FR-20)**:
    - Minimal Tauri v2 Windows host with distinct Cargo target names: binary `cad-copilot-desktop` and library `cad_copilot_desktop_lib` to prevent Windows output-collision warnings (Cargo issue #8519).
    - `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` in `main.rs` suppresses extraneous Windows consoles in release builds while preserving diagnostics in debug builds.
-   - Repository-owned master vector icon (`assets/app-icon.svg`) and valid multi-layer Windows icon (`desktop/src-tauri/icons/icon.ico` with 16, 24, 32, 48, 64, and 256 pixel layers) committed in the scaffold.
+   - Repository-owned master brand asset (`desktop/src/assets/logo.png`) and valid multi-layer Windows icon (`desktop/src-tauri/icons/icon.ico` with 16, 24, 32, 48, 64, and 256 pixel layers) committed in the scaffold.
    - Capability configuration in `capabilities/default.json` grants only the minimum core permissions for the single main window; zero shell/process, opener, dialog, filesystem, store, clipboard, HTTP, or notification permissions.
    - Content Security Policy (CSP): Strict production CSP permits only local bundled assets and required Tauri IPC sources; separate development CSP (`devCsp`) permits only the local Vite origin and same-port WebSocket HMR endpoint (`localhost:1420`).
    - Fixed Vite port `1420` with `strictPort: true` matching `tauri.conf.json.build.devUrl`.

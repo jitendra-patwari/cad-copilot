@@ -78,7 +78,7 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
       role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget) {
@@ -91,18 +91,18 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="diagnostics-title"
-        className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-2xl"
+        className="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden"
       >
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/10 text-sky-400">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600 border border-blue-200">
               <Activity className="h-4 w-4" aria-hidden="true" />
             </div>
             <div>
-              <h2 id="diagnostics-title" className="text-base font-semibold text-white">
+              <h2 id="diagnostics-title" className="text-base font-bold text-slate-800">
                 Diagnostics & Settings
               </h2>
-              <p className="text-xs text-slate-400">Baseline status & environment checks</p>
+              <p className="text-xs text-slate-500">Baseline status & environment checks</p>
             </div>
           </div>
           <button
@@ -110,37 +110,37 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close diagnostics"
-            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+            className="cursor-pointer rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-200 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
-        <div className="mt-4 divide-y divide-slate-800/60" role="list">
+        <div className="px-6 py-2 divide-y divide-slate-100" role="list">
           {FOUNDATION_DIAGNOSTICS.map((item) => (
             <div key={item.id} className="py-3" role="listitem">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-200">{item.label}</span>
+                <span className="text-sm font-medium text-slate-700">{item.label}</span>
                 <span
-                  className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${
+                  className={`inline-flex items-center rounded-lg px-2.5 py-0.5 text-xs font-medium ${
                     item.status === 'unavailable'
-                      ? 'bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20'
-                      : 'bg-slate-800 text-slate-300'
+                      ? 'border border-amber-200 bg-amber-50 text-amber-800'
+                      : 'border border-slate-200 bg-slate-100 text-slate-700'
                   }`}
                 >
                   {item.value}
                 </span>
               </div>
-              <p className="mt-1 text-xs text-slate-500">{item.hint}</p>
+              <p className="mt-1 text-xs text-slate-600">{item.hint}</p>
             </div>
           ))}
         </div>
 
-        <div className="mt-6 flex justify-end border-t border-slate-800 pt-4">
+        <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-6 py-3">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-700 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+            className="cursor-pointer rounded-xl bg-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           >
             Dismiss
           </button>

@@ -1,28 +1,13 @@
 @import 'tailwindcss';
 
-@theme {
-  --color-surface-base: #020617;
-  --color-surface-panel: #0f172a;
-  --color-surface-card: #1e293b;
-  --color-border-subtle: #1e293b;
-  --color-border-muted: #334155;
-  --color-text-primary: #f8fafc;
-  --color-text-secondary: #94a3b8;
-  --color-text-muted: #64748b;
-  --color-brand-sky: #0284c7;
-  --color-brand-accent: #0ea5e9;
-  --color-status-amber: #f59e0b;
-  --color-status-indigo: #6366f1;
-}
-
 @layer base {
   html,
   body {
     height: 100%;
     margin: 0;
     padding: 0;
-    background-color: var(--color-surface-base);
-    color: var(--color-text-primary);
+    background-color: #f8fafc;
+    color: #0f172a;
     font-family:
       system-ui,
       -apple-system,
