@@ -2,9 +2,9 @@
 
 CAD Copilot is an open-source project for local Solid Edge generation and native-file batch export.
 
-## Current implementation (Milestones 1–5)
+## Current implementation (Milestones 1–6.2)
 
-As of 15 September 2026:
+As of 19 September 2026:
 
 - M1/M2: domain interfaces, JSON contracts, pure geometry, parsing, validation, lowering, and bounded STEP text smoke checking.
 - M3.0: scope, contract, governance, and Python tooling reconciliation.
@@ -23,7 +23,7 @@ As of 15 September 2026:
 - M5.5: conditional Parasolid batch export gate (FR-18) supporting native 3D model export to Parasolid text (`.x_t`) across Ordered part (`.par`), sheet metal (`.psm`), and assembly (`.asm`) documents with non-destructive structural validation (`validate_parasolid_artifact` via `validate_batch_output`), non-mutating reopen count verification via `OpenWithTemplate`, zero sidecar leakage, and full promotion across canonical schemas, models, and registry.
 - M5.6: batch summary manifest publication (`<request_id>.batch_manifest.json`), atomic no-replace publication, strict batch stdio IPC (`cad-copilot-batch` console entrypoint and `engine/scripts/batch.cmd` source wrapper), JSONL progress events on `stderr` across 6 phases, cooperative signal cancellation (`CTRL_BREAK` / `SIGINT`), packaged schema resources in isolated wheel distributions, and live integration gates (FR-19).
 
-Milestone 4 and Milestone 5 are complete, hardened, and verified. Milestone 6.1 establishes the clean desktop foundation (`desktop/`); downstream desktop engine integration (M6.2+) remains planned.
+Milestone 4, Milestone 5, Milestone 6.1 (Clean Desktop Foundation, FR-20), and Milestone 6.2 (Generate Vertical Slice, FR-21) are fully implemented, hardened, and verified. Downstream batch desktop integration (M6.3) remains planned.
 
 Install optional Gemini support via `pip install -e ".[gemini]"`. Deterministic example workflows, geometry parsing, validation, lowering, and offline tests do not require the Google SDK.
 
@@ -41,6 +41,6 @@ Install optional Gemini support via `pip install -e ".[gemini]"`. Deterministic 
 
 Python `>=3.14.3,<3.15` is required; the tested baseline is Python 3.14.3. Live automation requires Windows and a licensed local Solid Edge installation. Pure geometry and contract checks do not require COM; some offline driver tests use Windows process APIs. Use `-m "not com and not live_ai"` to exclude live CAD and AI tests explicitly.
 
-See [requirements](../docs/requirements.md) and [contribution guidance](../CONTRIBUTING.md). There is no mock CAD application in this baseline; the desktop foundation (`desktop/`) is established as a clean Tauri/React host without engine integration. Both generation and batch stdio launchers are fully implemented and verified.
+See [requirements](../docs/requirements.md) and [contribution guidance](../CONTRIBUTING.md). There is no mock CAD application in this baseline; the desktop host (`desktop/`) integrates the Generate stdio launcher (`generate.cmd`) with robust child supervision, single-run guards, targeted cancellation, and sidecar manifest validation (FR-21). Both generation and batch stdio launchers are fully implemented and verified.
 
 Solid Edge® is a registered trademark of Siemens Industry Software Inc. CAD Copilot is an independent open-source project and is not affiliated with, endorsed by, or sponsored by Siemens.

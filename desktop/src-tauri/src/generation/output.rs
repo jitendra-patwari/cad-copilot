@@ -1236,6 +1236,9 @@ pub fn reveal_in_explorer(
 
     std::process::Command::new(explorer_exe)
         .arg(&clean_run)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
         .map_err(|e| {
             CommandError::new(

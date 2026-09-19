@@ -144,6 +144,7 @@ pub fn run_prerequisite_probe(
     let mut cmd = std::process::Command::new(&layout.python_exe);
     cmd.arg("-c").arg(probe_code);
     cmd.current_dir(&layout.repo_root);
+    cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
