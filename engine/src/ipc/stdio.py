@@ -7,8 +7,10 @@ curated stderr progress events, and exit policy enforcement.
 from __future__ import annotations
 
 import contextlib
+import signal
 import sys
-from collections.abc import Callable, Mapping
+import threading
+from collections.abc import Callable, Iterator, Mapping
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -30,6 +32,44 @@ from ipc.progress import (
 from ipc.wire import write_all as _write_all
 
 __all__ = ["main"]
+
+
+@contextlib.contextmanager
+def _scoped_generation_cancellation() -> Iterator[None]:
+    """Scoped signal handler translating Windows SIGBREAK to KeyboardInterrupt.
+
+    Ensures that targeted Windows CTRL_BREAK_EVENT unwinds GenerationService
+    try/finally blocks and cleans up CAD resources, exiting 130 with empty stdout.
+    Repeated signals during unwinding are suppressed with SIG_IGN to prevent
+    interrupting teardown.
+    """
+    signals_to_hook: list[int] = []
+    if hasattr(signal, "SIGBREAK"):
+        signals_to_hook.append(int(signal.SIGBREAK))
+
+    def _sigbreak_handler(signum: int, frame: Any) -> None:
+        # Suppress subsequent signals so teardown is not interrupted
+        for sig in signals_to_hook:
+            with contextlib.suppress(Exception):
+                signal.signal(sig, signal.SIG_IGN)
+        raise KeyboardInterrupt()
+
+    original_handlers: dict[int, Any] = {}
+    try:
+        for sig in signals_to_hook:
+            original_handlers[sig] = signal.signal(sig, _sigbreak_handler)
+    except (ValueError, OSError) as exc:
+        original_handlers.clear()
+        if threading.current_thread() is threading.main_thread():
+            raise RuntimeError(f"Failed to install required cancellation signal handler on main thread: {exc}") from exc
+
+    try:
+        yield
+    finally:
+        for sig, prev_handler in original_handlers.items():
+            with contextlib.suppress(Exception):
+                signal.signal(sig, prev_handler)
+
 
 if TYPE_CHECKING:
     from application.models import GenerationRequest
@@ -71,101 +111,104 @@ def _run_stdio(
             descriptors = _establish_controlled_descriptors(save_restore_state=False)
             owns_descriptors = True
 
-        # Production modules are strictly imported AFTER descriptor redirection is active
-        from ipc.contracts import (
-            InvalidRequestError,
-            PayloadTooLargeError,
-            ResponseValidationError,
-            build_fallback_internal_error_response,
-            build_rejected_error_response,
-            build_typed_generation_request,
-            decode_and_parse_request_json,
-            read_bounded_request,
-            serialize_response,
-            validate_response_payload,
-        )
+        with _scoped_generation_cancellation():
+            # Production modules are strictly imported AFTER descriptor redirection is active
+            from ipc.contracts import (
+                InvalidRequestError,
+                PayloadTooLargeError,
+                ResponseValidationError,
+                build_fallback_internal_error_response,
+                build_rejected_error_response,
+                build_typed_generation_request,
+                decode_and_parse_request_json,
+                read_bounded_request,
+                serialize_response,
+                validate_response_payload,
+            )
 
-        # Validate arguments; unexpected flags indicate process misuse
-        cmd_args = sys.argv[1:] if argv is None else argv
-        if len(cmd_args) > 0:
-            _emit_fatal_diagnostic(descriptors.orig_stderr_fd)
-            return 1
+            # Validate arguments; unexpected flags indicate process misuse
+            cmd_args = sys.argv[1:] if argv is None else argv
+            if len(cmd_args) > 0:
+                _emit_fatal_diagnostic(descriptors.orig_stderr_fd)
+                return 1
 
-        # Read incoming request from binary input stream up to wire limit
-        input_stream = _stdin_stream if _stdin_stream is not None else sys.stdin.buffer
-        oversize_error = False
-        raw_bytes = b""
+            # Read incoming request from binary input stream up to wire limit
+            input_stream = _stdin_stream if _stdin_stream is not None else sys.stdin.buffer
+            oversize_error = False
+            raw_bytes = b""
 
-        try:
-            raw_bytes = read_bounded_request(input_stream)
-        except PayloadTooLargeError:
-            oversize_error = True
+            try:
+                raw_bytes = read_bounded_request(input_stream)
+            except PayloadTooLargeError:
+                oversize_error = True
 
-        # Signal request reception before payload validation
-        _emit_progress(descriptors.orig_stderr_fd, "request_received")
+            # Signal request reception before payload validation
+            _emit_progress(descriptors.orig_stderr_fd, "request_received")
 
-        if oversize_error:
-            resp_payload = build_rejected_error_response("PAYLOAD_TOO_LARGE", request_id="unknown")
-            validate_response_payload(resp_payload)
-            serialized = serialize_response(resp_payload)
+            if oversize_error:
+                resp_payload = build_rejected_error_response("PAYLOAD_TOO_LARGE", request_id="unknown")
+                validate_response_payload(resp_payload)
+                serialized = serialize_response(resp_payload)
+                _emit_progress(descriptors.orig_stderr_fd, "response_ready")
+                _write_all(descriptors.orig_stdout_fd, serialized)
+                return 0
+
+            # Strict JSON decode and typed request construction
+            try:
+                parsed_dict, _safe_req_id = decode_and_parse_request_json(raw_bytes)
+                typed_req = build_typed_generation_request(parsed_dict)
+            except PayloadTooLargeError:
+                resp_payload = build_rejected_error_response("PAYLOAD_TOO_LARGE", request_id="unknown")
+                validate_response_payload(resp_payload)
+                serialized = serialize_response(resp_payload)
+                _emit_progress(descriptors.orig_stderr_fd, "response_ready")
+                _write_all(descriptors.orig_stdout_fd, serialized)
+                return 0
+            except InvalidRequestError as exc:
+                resp_payload = build_rejected_error_response(exc.code, request_id=exc.request_id)
+                validate_response_payload(resp_payload)
+                serialized = serialize_response(resp_payload)
+                _emit_progress(descriptors.orig_stderr_fd, "response_ready")
+                _write_all(descriptors.orig_stdout_fd, serialized)
+                return 0
+
+            # Signal successful schema and model validation
+            _emit_progress(descriptors.orig_stderr_fd, "request_validated")
+
+            # Emit progress immediately before service execution
+            _emit_progress(descriptors.orig_stderr_fd, "generation_started")
+
+            try:
+                if _composition_handler is not None:
+                    service_result = _composition_handler(typed_req)
+                else:
+                    from ipc.composition import run_generation
+
+                    service_result = run_generation(typed_req)
+            except KeyboardInterrupt:
+                raise
+            except Exception:
+                # Unhandled service failure: build sanitized fallback internal error
+                service_result = build_fallback_internal_error_response(typed_req.request_id)
+
+            # Enforce response schema contract; fallback to sanitized internal error on violation
+            try:
+                validate_response_payload(service_result)
+                final_response = service_result
+            except ResponseValidationError:
+                fallback = build_fallback_internal_error_response(typed_req.request_id)
+                validate_response_payload(fallback)
+                final_response = fallback
+
+            # Serialize compact 7-bit ASCII response
+            serialized_final = serialize_response(final_response)
+
+            # Emit contract completion progress before delivering response
             _emit_progress(descriptors.orig_stderr_fd, "response_ready")
-            _write_all(descriptors.orig_stdout_fd, serialized)
+
+            # Deliver single response to preserved standard output
+            _write_all(descriptors.orig_stdout_fd, serialized_final)
             return 0
-
-        # Strict JSON decode and typed request construction
-        try:
-            parsed_dict, _safe_req_id = decode_and_parse_request_json(raw_bytes)
-            typed_req = build_typed_generation_request(parsed_dict)
-        except PayloadTooLargeError:
-            resp_payload = build_rejected_error_response("PAYLOAD_TOO_LARGE", request_id="unknown")
-            validate_response_payload(resp_payload)
-            serialized = serialize_response(resp_payload)
-            _emit_progress(descriptors.orig_stderr_fd, "response_ready")
-            _write_all(descriptors.orig_stdout_fd, serialized)
-            return 0
-        except InvalidRequestError as exc:
-            resp_payload = build_rejected_error_response(exc.code, request_id=exc.request_id)
-            validate_response_payload(resp_payload)
-            serialized = serialize_response(resp_payload)
-            _emit_progress(descriptors.orig_stderr_fd, "response_ready")
-            _write_all(descriptors.orig_stdout_fd, serialized)
-            return 0
-
-        # Signal successful schema and model validation
-        _emit_progress(descriptors.orig_stderr_fd, "request_validated")
-
-        # Emit progress immediately before service execution
-        _emit_progress(descriptors.orig_stderr_fd, "generation_started")
-
-        try:
-            if _composition_handler is not None:
-                service_result = _composition_handler(typed_req)
-            else:
-                from ipc.composition import run_generation
-
-                service_result = run_generation(typed_req)
-        except Exception:
-            # Unhandled service failure: build sanitized fallback internal error
-            service_result = build_fallback_internal_error_response(typed_req.request_id)
-
-        # Enforce response schema contract; fallback to sanitized internal error on violation
-        try:
-            validate_response_payload(service_result)
-            final_response = service_result
-        except ResponseValidationError:
-            fallback = build_fallback_internal_error_response(typed_req.request_id)
-            validate_response_payload(fallback)
-            final_response = fallback
-
-        # Serialize compact 7-bit ASCII response
-        serialized_final = serialize_response(final_response)
-
-        # Emit contract completion progress before delivering response
-        _emit_progress(descriptors.orig_stderr_fd, "response_ready")
-
-        # Deliver single response to preserved standard output
-        _write_all(descriptors.orig_stdout_fd, serialized_final)
-        return 0
 
     except KeyboardInterrupt:
         # Cancellation via Ctrl+C / CTRL_BREAK: allow Python unwinding, no stdout response, exit 130
@@ -186,3 +229,7 @@ def _run_stdio(
     finally:
         if owns_descriptors and descriptors is not None:
             descriptors.close()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

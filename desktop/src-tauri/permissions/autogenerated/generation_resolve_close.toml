@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-generation-resolve-close"
+description = "Enables the generation_resolve_close command without any pre-configured scope."
+commands.allow = ["generation_resolve_close"]
+
+[[permission]]
+identifier = "deny-generation-resolve-close"
+description = "Denies the generation_resolve_close command without any pre-configured scope."
+commands.deny = ["generation_resolve_close"]

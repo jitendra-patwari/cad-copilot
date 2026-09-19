@@ -849,16 +849,38 @@ This section defines acceptance criteria specifically for the Milestone 6.1 clea
    - Strict non-disclosure: completely suppresses exception messages, stack traces, component stacks, filesystem paths, and environment variables from rendered DOM.
    - Avoids recording error details or secrets in browser storage or frontend history.
 
-5. **Downstream Vertical-Slice Integration Seams**:
-   - M6.1 establishes the clean UI shell and host foundation without introducing an uncontained or speculative bridge.
-   - **M6.2 (Generate Vertical Slice)**: Delivers prompt/example input, preview, session-only key handling, output picker, progress, cancellation, and artifact reveal alongside the minimum secure native IPC bridge executing `cad-copilot-generate`.
-   - **M6.3 (Batch Vertical Slice)**: Delivers batch file/folder selection, format/operation selection, Parasolid presentation, per-file progress, cancellation, and manifest reveal alongside the minimum secure native IPC bridge executing `cad-copilot-batch`.
-   - **M6.4 (Shared Hardening & Diagnostics)**: Consolidates proven shared child tracking, path-containment policy, diagnostics readback, cross-request isolation, and full negative security matrix.
 
-6. **Automated & Static Verification Baseline (FR-20 — Verified)**:
-   - Component and integration tests (Vitest + React Testing Library): **41 passed, 0 failed** across 7 test suites verifying default navigation, view switching, sidebar collapse/expand usability, diagnostics open/close/focus trapping and return, error boundary fallback with strict non-disclosure, zero network requests, zero native IPC, zero persistent storage, and absence of rejected features.
-   - Configuration and Rust tests: **1 passed** (`test_tauri_context_generates`) and static checks verify restrictive capability definitions, strict production CSP and matching dev CSP, distinct target names (`cad-copilot-desktop` and `cad_copilot_desktop_lib`), zero optional plugin dependencies, and zero custom command handlers in Rust entrypoints.
-   - Rust linting and formatting: `cargo fmt --check` and `cargo clippy -- -D warnings` clean with zero warnings/errors.
-   - TypeScript and linting: `tsc -b --noEmit` and `eslint . --max-warnings=0` clean with zero errors/warnings.
-   - Frontend and native builds: Vite production build succeeded (`dist/index.html`, `dist/assets/`); multi-layer Windows icon (`desktop/src-tauri/icons/icon.ico`) compiled into debug and release native binaries.
-   - Full monorepo script verification: root convenience scripts (`:desktop`) and safe root test composition (`test:engine:offline` + `test:desktop`).
+### Milestone 6.2 Component Acceptance Criteria (FR-21 — Generate End-to-End Vertical Slice)
+
+This section defines acceptance criteria specifically for the Milestone 6.2 Generate vertical slice (FR-21):
+
+1. **Scoped Native Commands & Permissions (FR-21)**:
+   - Dedicated application permissions defined in `desktop/src-tauri/permissions/generation.toml` for narrow commands: `generation_snapshot`, `generation_select_output`, `generation_set_key`, `generation_start`, `generation_cancel`, `generation_result`, `generation_preview`, `generation_reveal`, `generation_resolve_close`.
+   - Capability configuration in `capabilities/default.json` grants only these exact unprefixed application permissions and core `core:event:allow-listen` / `core:event:allow-unlisten` to the `main` window; zero wildcard permissions, remote origins, or plugin permissions.
+   - Native commands verify the caller window label (`window.label() == "main"`).
+
+2. **Single-Run State & Session Secret Privacy (FR-21)**:
+   - Application-owned single-run state slot enforces at most one active generation; concurrent or double-submit attempts are rejected with `RUN_ACTIVE`.
+   - Session Gemini API key is retained strictly in native memory for the duration of the application session; renderer memory is cleared immediately after save.
+   - API key is never serialized in native snapshots, logged in diagnostics or console, passed on child command-line arguments, or persisted to disk or browser storage.
+   - Key is delivered to child processes exclusively via child-only `GEMINI_API_KEY` for prompt requests, and stripped for example plan runs.
+
+3. **Output Authority & Path Containment (FR-21)**:
+   - Output directory selection is mediated via a native folder dialog returning an opaque `selectionId` and display path; frontend cannot specify arbitrary filesystem paths.
+   - Native layer strictly verifies path canonicalization, regular directory status, containment, and absence of junctions, symlinks, reparse points, ADS streams, and UNC/device paths.
+   - Output reveal opens only the verified run directory via fixed Explorer command execution with safely separated arguments.
+
+4. **Strict Transport, Progress & Cancellation (FR-21)**:
+   - Native launcher resolves trusted source-run interpreter `.venv/Scripts/python.exe` and validates prerequisite probe before execution.
+   - Child process execution communicates via bounded pipes: 131,072-byte stdin request envelope, 1 MiB stdout response cap, 1,024-byte line cap and 1 MiB aggregate cap on stderr progress records.
+   - Stdout strictly parsed as single JSON object matching generation response schema; stderr parsed as curated 4-phase progress events (`request_received`, `request_validated`, `generation_started`, `response_ready`).
+   - Windows lifecycle: Targeted cancellation via `CTRL_BREAK_EVENT` delivered to the child process group (shared console) or child console (hidden console); `stdio.py` installs a scoped main-thread `SIGBREAK` handler translating to `KeyboardInterrupt`, executing teardown `finally:` blocks and exiting 130 with empty stdout; 180s deadline and 10s grace period enforced.
+
+5. **Output Validation & Static Preview (FR-21)**:
+   - Published artifacts (`.par`, `.step`, `.stl`, optional `.jpg`) verified against sidecar `run_manifest.json` schema (`cad_copilot.run_manifest.v1`) and SHA-256 digests.
+   - Preview JPEG validated natively for bounded header/dimensions (max 8,192 px per axis, 32M pixels) without native pixel decode, transferred via binary IPC, and rendered via `blob:` URL with CSP `img-src 'self' blob:`.
+
+6. **Generate UI & Accessibility (FR-21)**:
+   - Generate workspace provides explicit Prompt and Example modes, defaulting to deterministic `Conceptual Spur Gear`.
+   - Masked session key editor lives inline in an expandable section of `GenerateForm.tsx` with Save/Replace/Clear controls; Diagnostics panel remains read-only.
+   - Full keyboard navigation, predictable focus management, and responsive layout between 900x600 and 1200x800 preserved.

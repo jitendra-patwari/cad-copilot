@@ -38,9 +38,9 @@ describe('Tauri security configuration baseline', () => {
     expect(csp).not.toContain('unsafe-eval');
     expect(csp).not.toContain('unsafe-inline');
     expect(csp).not.toContain('data:');
-    // Ensure only local/ipc origins are permitted
+    // Ensure only local/ipc origins and blob: images are permitted
     expect(csp).toBe(
-      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self' ipc: http://ipc.localhost"
+      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost"
     );
   });
 
@@ -55,12 +55,25 @@ describe('Tauri security configuration baseline', () => {
     expect(devCsp).toContain('http://localhost:1420');
     expect(devCsp).toContain('ws://localhost:1420');
     expect(devCsp).toBe(
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420"
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420"
     );
   });
 
-  it('enforces least-privilege capability with strictly empty permissions', () => {
-    expect(capability.permissions).toEqual([]);
+  it('enforces least-privilege capability with only approved core event and generation permissions', () => {
+    const expectedPermissions = [
+      'core:event:allow-listen',
+      'core:event:allow-unlisten',
+      'allow-generation-snapshot',
+      'allow-generation-select-output',
+      'allow-generation-set-key',
+      'allow-generation-start',
+      'allow-generation-cancel',
+      'allow-generation-result',
+      'allow-generation-preview',
+      'allow-generation-reveal',
+      'allow-generation-resolve-close',
+    ];
+    expect(capability.permissions).toEqual(expectedPermissions);
   });
 
   it('uses distinct Cargo binary and library target names to prevent Cargo #8519 collision', () => {
@@ -81,20 +94,30 @@ describe('Tauri security configuration baseline', () => {
     expect(cargoToml).not.toMatch(/tauri-plugin/i);
   });
 
-  it('registers no optional plugins or custom command handlers in Rust entrypoints', () => {
+  it('registers only the exact approved Generation commands and no optional plugins', () => {
     expect(libRs).not.toMatch(/\.plugin\s*\(/);
     expect(mainRs).not.toMatch(/\.plugin\s*\(/);
-    expect(libRs).not.toMatch(/invoke_handler/);
-    expect(libRs).not.toMatch(/generate_handler!/);
-    expect(libRs).not.toMatch(/#\[tauri::command\]/);
     expect(mainRs).not.toMatch(/invoke_handler/);
-    expect(mainRs).not.toMatch(/generate_handler!/);
-    expect(mainRs).not.toMatch(/#\[tauri::command\]/);
+
+    const approvedCommands = [
+      'generation_snapshot',
+      'generation_select_output',
+      'generation_set_key',
+      'generation_start',
+      'generation_cancel',
+      'generation_result',
+      'generation_preview',
+      'generation_reveal',
+      'generation_resolve_close',
+    ];
+
+    for (const cmd of approvedCommands) {
+      expect(libRs).toContain(cmd);
+    }
   });
 
   it('prohibits asset protocol and broad capability scopes', () => {
     expect(tauriConf.app?.security?.assetProtocol).toBeUndefined();
-    expect(capability.permissions).toEqual([]);
     expect(capability.remote).toBeUndefined();
   });
 

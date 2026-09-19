@@ -3,5 +3,17 @@
   "identifier": "default",
   "description": "Default capability for CAD Copilot desktop foundation",
   "windows": ["main"],
-  "permissions": []
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-generation-snapshot",
+    "allow-generation-select-output",
+    "allow-generation-set-key",
+    "allow-generation-start",
+    "allow-generation-cancel",
+    "allow-generation-result",
+    "allow-generation-preview",
+    "allow-generation-reveal",
+    "allow-generation-resolve-close"
+  ]
 }

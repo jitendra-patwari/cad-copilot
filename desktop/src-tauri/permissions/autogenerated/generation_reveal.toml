@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-generation-reveal"
+description = "Enables the generation_reveal command without any pre-configured scope."
+commands.allow = ["generation_reveal"]
+
+[[permission]]
+identifier = "deny-generation-reveal"
+description = "Denies the generation_reveal command without any pre-configured scope."
+commands.deny = ["generation_reveal"]

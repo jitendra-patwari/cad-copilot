@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-generation-select-output"
+description = "Enables the generation_select_output command without any pre-configured scope."
+commands.allow = ["generation_select_output"]
+
+[[permission]]
+identifier = "deny-generation-select-output"
+description = "Denies the generation_select_output command without any pre-configured scope."
+commands.deny = ["generation_select_output"]

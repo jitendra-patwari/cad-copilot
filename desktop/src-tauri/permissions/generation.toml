@@ -1,0 +1,46 @@
+# Scoped permissions for CAD Copilot Generate feature (FR-21)
+
+[[permission]]
+identifier = "allow-generation-snapshot"
+description = "Enables fetching the current sanitized generation snapshot."
+commands.allow = ["generation_snapshot"]
+
+[[permission]]
+identifier = "allow-generation-select-output"
+description = "Enables native output folder selection dialog."
+commands.allow = ["generation_select_output"]
+
+[[permission]]
+identifier = "allow-generation-set-key"
+description = "Enables setting or clearing the in-memory session API key."
+commands.allow = ["generation_set_key"]
+
+[[permission]]
+identifier = "allow-generation-start"
+description = "Enables starting a single generation run."
+commands.allow = ["generation_start"]
+
+[[permission]]
+identifier = "allow-generation-cancel"
+description = "Enables cancelling an active generation run."
+commands.allow = ["generation_cancel"]
+
+[[permission]]
+identifier = "allow-generation-result"
+description = "Enables fetching containment-checked result metadata."
+commands.allow = ["generation_result"]
+
+[[permission]]
+identifier = "allow-generation-preview"
+description = "Enables fetching validated JPEG preview bytes."
+commands.allow = ["generation_preview"]
+
+[[permission]]
+identifier = "allow-generation-reveal"
+description = "Enables revealing the verified output directory in Explorer."
+commands.allow = ["generation_reveal"]
+
+[[permission]]
+identifier = "allow-generation-resolve-close"
+description = "Enables resolving a pending window close decision."
+commands.allow = ["generation_resolve_close"]

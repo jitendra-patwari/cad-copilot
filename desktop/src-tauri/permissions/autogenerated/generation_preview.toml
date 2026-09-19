@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-generation-preview"
+description = "Enables the generation_preview command without any pre-configured scope."
+commands.allow = ["generation_preview"]
+
+[[permission]]
+identifier = "deny-generation-preview"
+description = "Denies the generation_preview command without any pre-configured scope."
+commands.deny = ["generation_preview"]

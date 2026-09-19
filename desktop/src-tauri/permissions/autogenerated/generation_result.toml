@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-generation-result"
+description = "Enables the generation_result command without any pre-configured scope."
+commands.allow = ["generation_result"]
+
+[[permission]]
+identifier = "deny-generation-result"
+description = "Denies the generation_result command without any pre-configured scope."
+commands.deny = ["generation_result"]

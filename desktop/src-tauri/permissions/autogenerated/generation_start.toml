@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-generation-start"
+description = "Enables the generation_start command without any pre-configured scope."
+commands.allow = ["generation_start"]
+
+[[permission]]
+identifier = "deny-generation-start"
+description = "Denies the generation_start command without any pre-configured scope."
+commands.deny = ["generation_start"]
