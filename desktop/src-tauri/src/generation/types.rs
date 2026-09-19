@@ -145,6 +145,7 @@ pub struct RevealResponse {
 pub struct GenerationArtifactRecord {
     pub format: String,
     pub filename: String,
+    pub path: String,
     pub size_bytes: u64,
 }
 
@@ -155,7 +156,17 @@ pub struct GenerationResultResponse {
     pub run_folder: String,
     pub artifacts: Vec<GenerationArtifactRecord>,
     pub has_preview: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview_sha256: Option<String>,
     pub manifest_summary: Option<ManifestSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManifestDiagnosticItem {
+    pub severity: String,
+    pub code: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -165,7 +176,12 @@ pub struct ManifestSummary {
     pub provenance_kind: String,
     pub source_id: Option<String>,
     pub cad_runtime_version: Option<String>,
+    pub operations_executed: u32,
+    pub plan_sha256: String,
+    pub prompt_sha256: Option<String>,
     pub warnings: Vec<String>,
+    #[serde(default)]
+    pub diagnostics: Vec<ManifestDiagnosticItem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

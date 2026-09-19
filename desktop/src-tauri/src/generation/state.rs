@@ -11,6 +11,8 @@ use super::types::{
 pub struct ActiveRunState {
     pub request_id: String,
     pub input: GenerationInput,
+    pub output_root: PathBuf,
+    pub output_root_identity: super::output::FileSystemIdentity,
     pub state: RunState,
     pub phase: Option<RunPhase>,
     pub engine_status: Option<EngineStatus>,
@@ -22,6 +24,9 @@ pub struct ActiveRunState {
     pub warnings: Vec<String>,
     pub cancel_token: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub response_data: Option<super::protocol::WireResponseData>,
+    pub cached_result: Option<super::types::GenerationResultResponse>,
+    pub verified_preview_sha256: Option<String>,
+    pub verification_cancel_token: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl ActiveRunState {
@@ -246,10 +251,19 @@ impl GenerationState {
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         let request_id = format!("gen_{:016x}", nanos);
+        let output_root = self.selected_output_path.clone().ok_or_else(|| {
+            CommandError::new(
+                "OUTPUT_UNAVAILABLE",
+                "The selected output directory path is unavailable.",
+            )
+        })?;
+        let output_root_identity = super::output::get_path_filesystem_identity(&output_root)?;
         let cancel_token = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.active_run = Some(ActiveRunState {
             request_id,
             input,
+            output_root,
+            output_root_identity,
             state: RunState::Starting,
             phase: None,
             engine_status: None,
@@ -261,6 +275,9 @@ impl GenerationState {
             warnings: Vec::new(),
             cancel_token,
             response_data: None,
+            cached_result: None,
+            verified_preview_sha256: None,
+            verification_cancel_token: None,
         });
 
         self.revision += 1;
@@ -280,6 +297,10 @@ impl GenerationState {
                 "RUN_NOT_FOUND",
                 "The requested generation run was not found or is no longer active.",
             ));
+        }
+
+        if let Some(token) = &run.verification_cancel_token {
+            token.store(true, std::sync::atomic::Ordering::SeqCst);
         }
 
         let is_active = matches!(
@@ -329,6 +350,9 @@ impl GenerationState {
             }
             CloseDecision::CancelAndClose => {
                 run.close_after_cleanup = true;
+                if let Some(token) = &run.verification_cancel_token {
+                    token.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
                 let is_active = matches!(
                     run.state,
                     RunState::Starting | RunState::Running | RunState::Cancelling
@@ -440,16 +464,27 @@ mod tests {
         assert_eq!(err.code, "OUTPUT_SELECTION_REQUIRED");
     }
 
+    fn create_test_output_dir(prefix: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("cad_test_state_{}_{}", prefix, nanos));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
     #[test]
     fn test_reserve_run_prompt_requires_key() {
         let mut state = GenerationState::new();
+        let test_dir = create_test_output_dir("prompt_req_key");
         state
             .set_output(
                 GenerationOutputSelection {
                     selection_id: "sel_1".to_string(),
-                    display_path: "C:\\outputs".to_string(),
+                    display_path: test_dir.to_string_lossy().to_string(),
                 },
-                PathBuf::from("C:\\outputs"),
+                test_dir,
             )
             .unwrap();
 
@@ -467,13 +502,14 @@ mod tests {
     #[test]
     fn test_reserve_run_example_spur_gear_success_and_active_guard() {
         let mut state = GenerationState::new();
+        let test_dir = create_test_output_dir("spur_gear_success");
         state
             .set_output(
                 GenerationOutputSelection {
                     selection_id: "sel_1".to_string(),
-                    display_path: "C:\\outputs".to_string(),
+                    display_path: test_dir.to_string_lossy().to_string(),
                 },
-                PathBuf::from("C:\\outputs"),
+                test_dir,
             )
             .unwrap();
 
@@ -525,13 +561,14 @@ mod tests {
     #[test]
     fn test_request_cancel_transitions_and_signals() {
         let mut state = GenerationState::new();
+        let test_dir = create_test_output_dir("cancel_transitions");
         state
             .set_output(
                 GenerationOutputSelection {
                     selection_id: "sel_1".to_string(),
-                    display_path: "C:\\outputs".to_string(),
+                    display_path: test_dir.to_string_lossy().to_string(),
                 },
-                PathBuf::from("C:\\outputs"),
+                test_dir,
             )
             .unwrap();
 
@@ -571,13 +608,14 @@ mod tests {
     #[test]
     fn test_resolve_close_decisions() {
         let mut state = GenerationState::new();
+        let test_dir = create_test_output_dir("close_decisions");
         state
             .set_output(
                 GenerationOutputSelection {
                     selection_id: "sel_1".to_string(),
-                    display_path: "C:\\outputs".to_string(),
+                    display_path: test_dir.to_string_lossy().to_string(),
                 },
-                PathBuf::from("C:\\outputs"),
+                test_dir,
             )
             .unwrap();
 

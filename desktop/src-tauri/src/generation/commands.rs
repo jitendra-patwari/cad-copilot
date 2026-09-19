@@ -1,4 +1,5 @@
-use tauri::{command, State, Window};
+use tauri::ipc::Response;
+use tauri::{command, Emitter, State, Window};
 
 use super::state::AppState;
 use super::types::{
@@ -160,61 +161,200 @@ pub fn generation_cancel(
 }
 
 #[command]
-pub fn generation_result(
+pub async fn generation_result(
     window: Window,
     state: State<'_, AppState>,
     request: RunTargetRequest,
 ) -> Result<GenerationResultResponse, CommandError> {
     verify_main_window(&window)?;
-    let guard = state.lock().map_err(|_| {
-        CommandError::new(
-            "INTERNAL_ERROR",
-            "Failed to acquire internal application lock.",
-        )
-    })?;
+    let (output_path, output_identity, expected_kind, wire_artifacts, cancel_token) = {
+        let mut guard = state.lock().map_err(|_| {
+            CommandError::new(
+                "INTERNAL_ERROR",
+                "Failed to acquire internal application lock.",
+            )
+        })?;
 
-    if let Some(run) = &guard.active_run {
-        if run.request_id == request.request_id {
+        let run = guard.active_run.as_mut().ok_or_else(|| {
+            CommandError::new(
+                "RUN_NOT_FOUND",
+                "The requested generation run was not found.",
+            )
+        })?;
+
+        if run.request_id != request.request_id {
             return Err(CommandError::new(
-                "RESULT_ACCESS_UNAVAILABLE",
-                "Results are not yet available for this generation run.",
+                "RUN_NOT_FOUND",
+                "The requested generation run was not found.",
             ));
         }
-    }
 
-    Err(CommandError::new(
-        "RUN_NOT_FOUND",
-        "The requested generation run was not found.",
-    ))
+        if run.state != super::types::RunState::Succeeded {
+            return Err(CommandError::new(
+                "RESULT_ACCESS_UNAVAILABLE",
+                "Results are only available for successfully completed generation runs.",
+            ));
+        }
+
+        if run.result_access == super::types::ResultAccess::Checking {
+            return Err(CommandError::new(
+                "RUN_ACTIVE",
+                "Result verification is already in progress for this generation run.",
+            ));
+        }
+
+        if let Some(cached) = &run.cached_result {
+            return Ok(cached.clone());
+        }
+
+        let output_path = run.output_root.clone();
+        let output_identity = run.output_root_identity;
+        let expected_kind = match &run.input {
+            super::types::GenerationInput::ExamplePlan { .. } => "example_plan",
+            super::types::GenerationInput::PromptToCad { .. } => "prompt_to_cad",
+        };
+        let wire_artifacts = run.response_data.as_ref().map(|d| d.artifacts.clone());
+
+        let cancel_token = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        run.verification_cancel_token = Some(cancel_token.clone());
+
+        // Transition to Checking and notify UI
+        run.result_access = super::types::ResultAccess::Checking;
+        guard.revision += 1;
+        let snap = guard.to_snapshot();
+        let _ = window.emit("generation-state", snap);
+
+        (
+            output_path,
+            output_identity,
+            expected_kind,
+            wire_artifacts,
+            cancel_token,
+        )
+    };
+
+    let req_id = request.request_id.clone();
+    let res = tauri::async_runtime::spawn_blocking(move || {
+        super::output::validate_and_load_result(
+            &output_path,
+            &req_id,
+            Some(&cancel_token),
+            Some(expected_kind),
+            wire_artifacts.as_deref(),
+            Some(output_identity),
+        )
+    })
+    .await
+    .map_err(|e| CommandError::new("INTERNAL_ERROR", format!("Verification task failed: {}", e)))?;
+
+    match res {
+        Ok((result, preview_sha)) => {
+            if let Ok(mut guard) = state.lock() {
+                if let Some(run) = guard.active_run.as_mut() {
+                    if run.request_id == request.request_id {
+                        run.result_access = super::types::ResultAccess::Ready;
+                        run.cached_result = Some(result.clone());
+                        run.verified_preview_sha256 = preview_sha;
+                        run.verification_cancel_token = None;
+                        guard.revision += 1;
+                        let snap = guard.to_snapshot();
+                        let _ = window.emit("generation-state", snap);
+                    }
+                }
+            }
+            Ok(result)
+        }
+        Err(err) => {
+            if let Ok(mut guard) = state.lock() {
+                if let Some(run) = guard.active_run.as_mut() {
+                    if run.request_id == request.request_id {
+                        run.result_access = super::types::ResultAccess::Unavailable;
+                        run.verification_cancel_token = None;
+                        guard.revision += 1;
+                        let snap = guard.to_snapshot();
+                        let _ = window.emit("generation-state", snap);
+                    }
+                }
+            }
+            Err(err)
+        }
+    }
 }
 
 #[command]
-pub fn generation_preview(
+pub async fn generation_preview(
     window: Window,
     state: State<'_, AppState>,
     request: RunTargetRequest,
-) -> Result<Vec<u8>, CommandError> {
+) -> Result<Response, CommandError> {
     verify_main_window(&window)?;
-    let guard = state.lock().map_err(|_| {
-        CommandError::new(
-            "INTERNAL_ERROR",
-            "Failed to acquire internal application lock.",
-        )
-    })?;
+    let (output_path, output_identity, preview_sha) = {
+        let guard = state.lock().map_err(|_| {
+            CommandError::new(
+                "INTERNAL_ERROR",
+                "Failed to acquire internal application lock.",
+            )
+        })?;
 
-    if let Some(run) = &guard.active_run {
-        if run.request_id == request.request_id {
+        let run = guard.active_run.as_ref().ok_or_else(|| {
+            CommandError::new(
+                "RUN_NOT_FOUND",
+                "The requested generation run was not found.",
+            )
+        })?;
+
+        if run.request_id != request.request_id {
             return Err(CommandError::new(
-                "RESULT_ACCESS_UNAVAILABLE",
-                "Preview image is not available for this run.",
+                "RUN_NOT_FOUND",
+                "The requested generation run was not found.",
             ));
         }
-    }
 
-    Err(CommandError::new(
-        "RUN_NOT_FOUND",
-        "The requested generation run was not found.",
-    ))
+        if run.state != super::types::RunState::Succeeded {
+            return Err(CommandError::new(
+                "RESULT_ACCESS_UNAVAILABLE",
+                "Preview image is only available for successfully completed generation runs.",
+            ));
+        }
+
+        if run.result_access != super::types::ResultAccess::Ready {
+            return Err(CommandError::new(
+                "RESULT_ACCESS_UNAVAILABLE",
+                "Preview image is only available after result verification has completed successfully.",
+            ));
+        }
+
+        let preview_sha = run
+            .verified_preview_sha256
+            .as_ref()
+            .ok_or_else(|| {
+                CommandError::new(
+                    "RESULT_ACCESS_UNAVAILABLE",
+                    "No preview image was verified for this run.",
+                )
+            })?
+            .clone();
+
+        (
+            run.output_root.clone(),
+            run.output_root_identity,
+            preview_sha,
+        )
+    };
+
+    let req_id = request.request_id.clone();
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        super::preview::load_preview_jpeg(
+            &output_path,
+            &req_id,
+            Some(&preview_sha),
+            Some(output_identity),
+        )
+    })
+    .await
+    .map_err(|e| CommandError::new("INTERNAL_ERROR", format!("Preview task failed: {}", e)))??;
+
+    Ok(Response::new(bytes))
 }
 
 #[command]
@@ -224,26 +364,39 @@ pub fn generation_reveal(
     request: RunTargetRequest,
 ) -> Result<RevealResponse, CommandError> {
     verify_main_window(&window)?;
-    let guard = state.lock().map_err(|_| {
-        CommandError::new(
-            "INTERNAL_ERROR",
-            "Failed to acquire internal application lock.",
-        )
-    })?;
+    let (output_path, output_identity) = {
+        let guard = state.lock().map_err(|_| {
+            CommandError::new(
+                "INTERNAL_ERROR",
+                "Failed to acquire internal application lock.",
+            )
+        })?;
 
-    if let Some(run) = &guard.active_run {
-        if run.request_id == request.request_id {
+        let run = guard.active_run.as_ref().ok_or_else(|| {
+            CommandError::new(
+                "RUN_NOT_FOUND",
+                "The requested generation run was not found.",
+            )
+        })?;
+
+        if run.request_id != request.request_id {
             return Err(CommandError::new(
-                "OUTPUT_UNAVAILABLE",
-                "Output directory cannot be revealed until generation has completed.",
+                "RUN_NOT_FOUND",
+                "The requested generation run was not found.",
             ));
         }
-    }
 
-    Err(CommandError::new(
-        "RUN_NOT_FOUND",
-        "The requested generation run was not found.",
-    ))
+        if run.state != super::types::RunState::Succeeded {
+            return Err(CommandError::new(
+                "OUTPUT_UNAVAILABLE",
+                "Output directory cannot be revealed until generation has successfully completed.",
+            ));
+        }
+
+        (run.output_root.clone(), run.output_root_identity)
+    };
+
+    super::output::reveal_in_explorer(&output_path, &request.request_id, Some(output_identity))
 }
 
 #[command]

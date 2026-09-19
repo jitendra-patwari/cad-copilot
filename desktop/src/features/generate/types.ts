@@ -46,7 +46,14 @@ export type GenerationInput =
 export interface GenerationArtifactRecord {
   format: string;
   filename: string;
+  path: string;
   sizeBytes: number;
+}
+
+export interface ManifestDiagnosticItem {
+  severity: string;
+  code: string;
+  message: string;
 }
 
 export interface ManifestSummary {
@@ -54,7 +61,11 @@ export interface ManifestSummary {
   provenanceKind: string;
   sourceId: string | null;
   cadRuntimeVersion: string | null;
+  operationsExecuted: number;
+  planSha256: string;
+  promptSha256: string | null;
   warnings: string[];
+  diagnostics: ManifestDiagnosticItem[];
 }
 
 export interface GenerationResultResponse {

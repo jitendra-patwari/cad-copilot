@@ -1194,7 +1194,7 @@ fn run_supervisor(window: Window, request_id: String) {
                             (
                                 RunState::Succeeded,
                                 effective_cleanup(CleanupState::NoFailureObserved),
-                                ResultAccess::Ready,
+                                ResultAccess::None,
                                 Some(r),
                             )
                         }
@@ -1272,7 +1272,7 @@ fn run_supervisor(window: Window, request_id: String) {
                         EngineStatus::Accepted => (
                             RunState::Succeeded,
                             effective_cleanup(CleanupState::NoFailureObserved),
-                            ResultAccess::Ready,
+                            ResultAccess::None,
                         ),
                         EngineStatus::Rejected => (
                             RunState::Rejected,

@@ -1,5 +1,7 @@
 pub mod commands;
 pub mod launcher;
+pub mod output;
+pub mod preview;
 pub mod process;
 pub mod protocol;
 pub mod state;

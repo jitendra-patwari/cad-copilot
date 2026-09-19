@@ -81,15 +81,20 @@ describe('Application Shell Navigation', () => {
     ).toBeInTheDocument();
   });
 
-  it('does not render premature operational controls in Generate view', () => {
+  it('renders verified Generate workflow controls and avoids prohibited viewport and upload controls', () => {
     render(<App />);
 
     const main = screen.getByRole('main');
-    expect(main.querySelectorAll('textarea, input, select, canvas, button')).toHaveLength(0);
+    // Operational controls exist for Generate in M6.2
+    expect(screen.getByRole('button', { name: /run cad generation/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /choose directory/i })).toBeInTheDocument();
+
+    // Prohibited controls remain strictly absent: no 3D canvas, no file upload
+    expect(main.querySelectorAll('canvas')).toHaveLength(0);
+    expect(main.querySelectorAll('input[type="file"]')).toHaveLength(0);
 
     const mainText = main.textContent?.toLowerCase() ?? '';
     expect(mainText).not.toContain('viewport');
-    expect(mainText).not.toContain('gemini-2');
   });
 
   it('does not render premature operational controls in Batch view', () => {

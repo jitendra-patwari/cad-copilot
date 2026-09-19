@@ -93,10 +93,10 @@ export async function getGenerationPreview(requestId: string): Promise<Uint8Arra
       message: 'Preview retrieval is only available in the desktop application.',
     } satisfies CommandError;
   }
-  const bytes = await invoke<number[]>('generation_preview', {
+  const data = await invoke<ArrayBuffer | number[]>('generation_preview', {
     request: { requestId },
   });
-  return new Uint8Array(bytes);
+  return data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data);
 }
 
 export async function revealGenerationOutput(requestId: string): Promise<{ revealed: boolean }> {
@@ -129,7 +129,11 @@ export async function subscribeGenerationState(
   if (!isTauriAvailable()) {
     return () => {};
   }
-  return listen<GenerationSnapshot>('generation-state', (event) => {
-    callback(event.payload);
-  });
+  try {
+    return await listen<GenerationSnapshot>('generation-state', (event) => {
+      callback(event.payload);
+    });
+  } catch {
+    return () => {};
+  }
 }

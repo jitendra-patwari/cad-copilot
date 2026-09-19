@@ -1,17 +1,23 @@
 import React, { useEffect, useRef } from 'react';
 import { X, Activity } from 'lucide-react';
-import { FOUNDATION_DIAGNOSTICS } from './diagnostics';
+import type { DiagnosticItem } from './diagnostics';
 
 export interface DiagnosticsPanelProps {
   readonly isOpen: boolean;
   readonly onClose: () => void;
   readonly triggerRef?: React.RefObject<HTMLElement | null>;
+  readonly outputDisplayPath?: string | null;
+  readonly keyConfigured?: boolean;
+  readonly lastRunCadBuild?: string | null;
 }
 
 export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({
   isOpen,
   onClose,
   triggerRef,
+  outputDisplayPath,
+  keyConfigured,
+  lastRunCadBuild,
 }) => {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -76,6 +82,44 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({
     return null;
   }
 
+  const items: DiagnosticItem[] = [
+    {
+      id: 'output_dir',
+      label: 'Output Directory',
+      value: outputDisplayPath || 'Not selected',
+      status: outputDisplayPath ? 'neutral' : 'neutral',
+      hint: 'Directory configured per generation or batch run.',
+    },
+    {
+      id: 'solid_edge',
+      label: 'Solid Edge Automation',
+      value: lastRunCadBuild ? `Solid Edge ${lastRunCadBuild}` : 'Not checked',
+      status: 'neutral',
+      hint: 'Local Siemens Solid Edge installation check.',
+    },
+    {
+      id: 'gemini',
+      label: 'Gemini AI Integration',
+      value: keyConfigured ? 'Configured (Session only)' : 'Not configured',
+      status: 'neutral',
+      hint: 'Generative geometric plan proposal integration.',
+    },
+    {
+      id: 'model',
+      label: 'AI Model',
+      value: keyConfigured ? 'Gemini 3.5 Flash Lite' : 'Not loaded',
+      status: 'neutral',
+      hint: 'Geometric reasoning and feature proposal model.',
+    },
+    {
+      id: 'engine_version',
+      label: 'Python CAD Engine',
+      value: 'Not connected',
+      status: 'unavailable',
+      hint: 'Local Python CAD automation engine.',
+    },
+  ];
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
@@ -117,7 +161,7 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({
         </div>
 
         <div className="px-6 py-2 divide-y divide-slate-100" role="list">
-          {FOUNDATION_DIAGNOSTICS.map((item) => (
+          {items.map((item) => (
             <div key={item.id} className="py-3" role="listitem">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-slate-700">{item.label}</span>

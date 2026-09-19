@@ -77,8 +77,17 @@ describe('Zero runtime network and zero persistent storage baseline', () => {
     });
 
     // Native IPC test doubles
-    tauriInvokeSpy = vi.fn(() => {
-      throw new Error('Blocked unexpected native Tauri IPC invoke');
+    tauriInvokeSpy = vi.fn((cmd: string) => {
+      if (cmd === 'generation_snapshot') {
+        return Promise.resolve({
+          revision: 1,
+          nativeAvailable: true,
+          keyConfigured: false,
+          output: null,
+          run: null,
+        });
+      }
+      throw new Error(`Blocked unexpected native Tauri IPC invoke: ${cmd}`);
     });
     tauriIpcSpy = vi.fn(() => {
       throw new Error('Blocked unexpected native Tauri IPC postMessage');
@@ -106,7 +115,7 @@ describe('Zero runtime network and zero persistent storage baseline', () => {
     sessionStorage.clear();
   });
 
-  it('makes zero network requests and zero native IPC calls during render, navigation, collapse/expand, and diagnostics', async () => {
+  it('makes zero network requests and no automatic generation calls during render, navigation, collapse/expand, and diagnostics', async () => {
     const { getByRole } = render(<App />);
 
     // Collapse sidebar
@@ -134,12 +143,16 @@ describe('Zero runtime network and zero persistent storage baseline', () => {
     // Settle effects before asserting
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    // Verify zero network and zero native IPC invocations
+    // Verify zero network calls
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(xhrSpy).not.toHaveBeenCalled();
     expect(wsSpy).not.toHaveBeenCalled();
-    expect(tauriInvokeSpy).not.toHaveBeenCalled();
     expect(tauriIpcSpy).not.toHaveBeenCalled();
+
+    // Verify no automatic generation execution was launched
+    const invokedCommands = tauriInvokeSpy.mock.calls.map((c) => c[0]);
+    expect(invokedCommands).not.toContain('generation_start');
+    expect(invokedCommands.every((c) => c === 'generation_snapshot')).toBe(true);
   });
 
   it('creates zero persistent settings, keys, or browser storage entries across all interactions', () => {
