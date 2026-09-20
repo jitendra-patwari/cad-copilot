@@ -39,7 +39,7 @@ PDF_EOF_MARKER: Final[bytes] = b"%%EOF"
 PDF_TAIL_SCAN_BYTES: Final[int] = 1024
 PDF_VERSION_PATTERN: Final[re.Pattern[bytes]] = re.compile(rb"^%PDF-(?:1\.[0-7]|2\.0)(?:\r?\n|\r)")
 
-MAX_DXF_LINES: Final[int] = 1_000_000
+MAX_DXF_LINES: Final[int] = 5_000_000
 MAX_DXF_LINE_CHARS: Final[int] = 2048
 DXF_BINARY_SENTINEL: Final[bytes] = b"AutoCAD Binary DXF"
 

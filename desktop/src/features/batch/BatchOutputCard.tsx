@@ -19,7 +19,7 @@ export const BatchOutputCard: React.FC<BatchOutputCardProps> = ({
         <div>
           <h2 className="text-sm font-semibold text-slate-900">3. Output Directory</h2>
           <p className="text-xs text-slate-500">
-            Designate the destination directory for exported artifacts and run manifest.
+            Designate the destination directory for exported artifacts and batch manifest.
           </p>
         </div>
         <button

@@ -166,9 +166,12 @@ pub fn build_and_serialize_request(
         ));
     }
 
+    let clean_source_root = crate::generation::output::simplify_windows_path(source_root);
+    let clean_output_root = crate::generation::output::simplify_windows_path(output_root);
+
     // Portable forward slash normalized paths
-    let root_str = source_root.to_string_lossy().replace('\\', "/");
-    let out_str = output_root.to_string_lossy().replace('\\', "/");
+    let root_str = clean_source_root.to_string_lossy().replace('\\', "/");
+    let out_str = clean_output_root.to_string_lossy().replace('\\', "/");
 
     let wire_req = BatchWireRequest {
         contract_version: "1.0".to_string(),
@@ -1665,6 +1668,29 @@ mod tests {
         let s = std::str::from_utf8(&bytes).unwrap();
         assert!(s.contains("\"request_id\":\"batch-001\""));
         assert!(s.contains("\"type\":\"export_3d\""));
+    }
+
+    #[test]
+    fn test_build_and_serialize_request_strips_extended_prefix() {
+        let files = vec!["part1.par".to_string()];
+        let formats = vec!["step".to_string()];
+        let bytes = build_and_serialize_request(
+            "batch-002",
+            Path::new(r"\\?\C:\my_cad_parts"),
+            &files,
+            Path::new(r"\\?\C:\my_cad_parts\output"),
+            "export_3d",
+            &formats,
+            true,
+            100,
+        )
+        .unwrap();
+
+        let s = std::str::from_utf8(&bytes).unwrap();
+        assert!(s.contains("\"root\":\"C:/my_cad_parts\""));
+        assert!(s.contains("\"output_root\":\"C:/my_cad_parts/output\""));
+        assert!(!s.contains("//?/"));
+        assert!(!s.contains(r"\\?\"));
     }
 
     #[test]

@@ -127,24 +127,18 @@ export const BatchOperationCard: React.FC<BatchOperationCardProps> = ({
                 aria-pressed={isChecked}
                 disabled={disabled}
                 onClick={() => onToggleFormat(fmt.id)}
-                className={`flex items-start gap-2.5 rounded-lg border p-2.5 text-left transition-all ${
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition-all ${
                   isChecked
                     ? 'border-blue-500 bg-blue-50/40 text-blue-900'
                     : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
                 } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 {isChecked ? (
-                  <CheckSquare className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
+                  <CheckSquare className="h-4 w-4 shrink-0 text-blue-600" />
                 ) : (
-                  <Square className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                  <Square className="h-4 w-4 shrink-0 text-slate-400" />
                 )}
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-semibold">{fmt.name}</span>
-                    <span className="font-mono text-[10px] text-slate-500">({fmt.id})</span>
-                  </div>
-                  <p className="text-[10px] text-slate-500 leading-tight mt-0.5">{fmt.note}</p>
-                </div>
+                <span className="text-xs font-semibold">{fmt.name}</span>
               </button>
             );
           })}

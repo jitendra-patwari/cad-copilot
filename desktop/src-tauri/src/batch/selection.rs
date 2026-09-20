@@ -182,7 +182,9 @@ pub fn detect_supported_extension(path: &Path) -> Option<&'static str> {
 }
 
 pub fn to_canonical_relative_path(path: &Path, root: &Path) -> Result<String, CommandError> {
-    let rel = path.strip_prefix(root).map_err(|_| {
+    let clean_path = crate::generation::output::simplify_windows_path(path);
+    let clean_root = crate::generation::output::simplify_windows_path(root);
+    let rel = clean_path.strip_prefix(&clean_root).map_err(|_| {
         CommandError::new(
             "INPUT_PATH_NOT_ALLOWED",
             format!(
@@ -251,6 +253,7 @@ pub fn process_picked_files(files: Vec<PathBuf>) -> Result<SelectedBatchSource, 
             format!("Failed to resolve source root directory: {}", e),
         )
     })?;
+    let canonical_root = crate::generation::output::simplify_windows_path(&canonical_root);
 
     validate_path_security(&canonical_root)?;
     if is_reparse_point(&canonical_root) {
@@ -300,6 +303,8 @@ pub fn process_picked_files(files: Vec<PathBuf>) -> Result<SelectedBatchSource, 
                 format!("Parent resolution error: {}", e),
             )
         })?;
+        let current_canonical_parent =
+            crate::generation::output::simplify_windows_path(&current_canonical_parent);
 
         // Enforce the one-parent rule
         if current_canonical_parent != canonical_root {
@@ -415,6 +420,7 @@ pub fn scan_folder_bounded(folder: PathBuf) -> Result<SelectedBatchSource, Comma
             format!("Failed to resolve folder path: {}", e),
         )
     })?;
+    let canonical_root = crate::generation::output::simplify_windows_path(&canonical_root);
 
     validate_path_security(&canonical_root)?;
 
@@ -596,6 +602,7 @@ pub fn process_picked_output(folder: PathBuf) -> Result<SelectedBatchOutput, Com
             format!("Failed to resolve output directory: {}", e),
         )
     })?;
+    let canonical_root = crate::generation::output::simplify_windows_path(&canonical_root);
 
     validate_path_security(&canonical_root)?;
 
@@ -770,5 +777,46 @@ mod tests {
 
         assert!(!has_reparse_component(&f));
         assert!(!has_reparse_component(&sub));
+    }
+
+    #[test]
+    fn test_canonical_root_has_no_extended_prefix() {
+        let temp_dir = TestDir::new("prefix_test");
+        let f = temp_dir.path().join("part.par");
+        File::create(&f).unwrap();
+
+        // 1. process_picked_files
+        let picked = process_picked_files(vec![f.clone()]).unwrap();
+        let root_str = picked.canonical_root.to_string_lossy();
+        assert!(
+            !root_str.starts_with(r"\\?\"),
+            "process_picked_files root should not start with \\\\?\\"
+        );
+        let summary = picked.to_summary();
+        assert!(
+            !summary.display_root.starts_with(r"\\?\"),
+            "display_root should not start with \\\\?\\"
+        );
+
+        // 2. scan_folder_bounded
+        let scanned = scan_folder_bounded(temp_dir.path().to_path_buf()).unwrap();
+        let scan_root_str = scanned.canonical_root.to_string_lossy();
+        assert!(
+            !scan_root_str.starts_with(r"\\?\"),
+            "scan_folder_bounded root should not start with \\\\?\\"
+        );
+
+        // 3. process_picked_output
+        let output = process_picked_output(temp_dir.path().to_path_buf()).unwrap();
+        let out_root_str = output.canonical_root.to_string_lossy();
+        assert!(
+            !out_root_str.starts_with(r"\\?\"),
+            "process_picked_output root should not start with \\\\?\\"
+        );
+
+        // 4. to_canonical_relative_path with extended prefix
+        let extended_path = PathBuf::from(format!(r"\\?\{}", f.to_string_lossy()));
+        let rel = to_canonical_relative_path(&extended_path, &picked.canonical_root).unwrap();
+        assert_eq!(rel, "part.par");
     }
 }

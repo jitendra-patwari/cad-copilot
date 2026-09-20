@@ -719,6 +719,29 @@ def test_validate_batch_output_dxf_line_length_cap(tmp_path: Path) -> None:
     assert "maximum line length" in exc_info.value.message
 
 
+def test_validate_batch_output_dxf_line_count_cap(tmp_path: Path) -> None:
+    """Proves MAX_DXF_LINES bound: exact line count accepted, line count + 1 rejected."""
+    from batch.format_validation import MAX_DXF_LINES
+
+    assert MAX_DXF_LINES == 5_000_000
+
+    dxf_file = tmp_path / "line_count.dxf"
+    # Minimal structurally valid DXF: exactly 8 lines
+    dxf_file.write_text("0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n", encoding="utf-8")
+
+    # Boundary test: exactly 8 lines with limit 8 succeeds
+    with patch("batch.format_validation.MAX_DXF_LINES", 8):
+        snap = validate_batch_output("dxf", dxf_file)
+        assert snap.size_bytes > 0
+
+    # Boundary test: 8 lines with limit 7 fails closed with ARTIFACT_EXPORT_FAILED
+    with patch("batch.format_validation.MAX_DXF_LINES", 7):
+        with pytest.raises(BatchFormatValidationError) as exc_info:
+            validate_batch_output("dxf", dxf_file)
+        assert exc_info.value.code == "ARTIFACT_EXPORT_FAILED"
+        assert "exceeds maximum line count (7)" in exc_info.value.message
+
+
 def test_validate_batch_output_dxf_drawing_byte_caps(tmp_path: Path) -> None:
     """Proves MAX_BATCH_DRAWING_BYTES bound for DXF: 100,000,000 accepted, 100,000,001 rejected."""
     dxf_file = tmp_path / "capped.dxf"

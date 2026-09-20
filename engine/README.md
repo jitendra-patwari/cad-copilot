@@ -2,9 +2,9 @@
 
 CAD Copilot is an open-source project for local Solid Edge generation and native-file batch export.
 
-## Current implementation (Milestones 1–6.2)
+## Current implementation (Milestones 1–6.3)
 
-As of 19 September 2026:
+As of 20 September 2026:
 
 - M1/M2: domain interfaces, JSON contracts, pure geometry, parsing, validation, lowering, and bounded STEP text smoke checking.
 - M3.0: scope, contract, governance, and Python tooling reconciliation.
@@ -22,15 +22,16 @@ As of 19 September 2026:
 - M5.4: genuine batch format handlers and native export operations (FR-17) supporting 3D CAD models (STEP and STL from native `.par`, `.psm`, `.asm`) and 2D engineering drawings (PDF and text ASCII DXF from native `.dft`), with in-memory drawing view refresh without disk saves, authoritative assembly occurrence reference verification via official Siemens `FileMissing()` COM API with fail-closed missing component isolation and grounded component resilience, non-destructive closed-output structure validators (`validate_batch_output`), and production composition wiring (`Export3DHandler`, `PublishDrawingHandler`, `build_initial_operation_bindings`).
 - M5.5: conditional Parasolid batch export gate (FR-18) supporting native 3D model export to Parasolid text (`.x_t`) across Ordered part (`.par`), sheet metal (`.psm`), and assembly (`.asm`) documents with non-destructive structural validation (`validate_parasolid_artifact` via `validate_batch_output`), non-mutating reopen count verification via `OpenWithTemplate`, zero sidecar leakage, and full promotion across canonical schemas, models, and registry.
 - M5.6: batch summary manifest publication (`<request_id>.batch_manifest.json`), atomic no-replace publication, strict batch stdio IPC (`cad-copilot-batch` console entrypoint and `engine/scripts/batch.cmd` source wrapper), JSONL progress events on `stderr` across 6 phases, cooperative signal cancellation (`CTRL_BREAK` / `SIGINT`), packaged schema resources in isolated wheel distributions, and live integration gates (FR-19).
+- M6.3: Batch desktop vertical slice (FR-22) connecting the Tauri/React desktop frontend to the Python batch engine (`ipc.batch_stdio`). Supports native source file and folder selection with single-parent root containment, bounded 20,000-entry scan, `.par/.psm/.asm` 3D export (STEP, STL, Parasolid `.x_t`), `.dft` 2D drawing publication (PDF, text DXF), native output directory binding, fixed no-replace collision policy, 6-phase JSONL progress streaming over `stderr`, cooperative `CTRL_BREAK` cancellation with clean partial-result accounting, root-level manifest verification (`<request_id>.batch_manifest.json`), itemized results presentation, and native Explorer reveal. Fully implemented, hardened, and verified across automated, native, live COM, and desktop GUI acceptance gates (both Tauri dev and windowed release hosts); subsequent shared consolidation and packaging (M6.4) remains planned.
 
-Milestone 4, Milestone 5, Milestone 6.1 (Clean Desktop Foundation, FR-20), and Milestone 6.2 (Generate Vertical Slice, FR-21) are fully implemented, hardened, and verified. Downstream batch desktop integration (M6.3) remains planned.
+Milestone 4, Milestone 5, Milestone 6.1 (Clean Desktop Foundation, FR-20), Milestone 6.2 (Generate Vertical Slice, FR-21), and Milestone 6.3 (Batch Vertical Slice, FR-22) are fully implemented, hardened, and verified. Downstream shared consolidation and packaging (M6.4) remains planned.
 
 Install optional Gemini support via `pip install -e ".[gemini]"`. Deterministic example workflows, geometry parsing, validation, lowering, and offline tests do not require the Google SDK.
 
 ## Verification boundary
 
-- Full offline test suite: **2,398 passed, 4 skipped, 55 deselected in 75.94s** across all domain packages (`pytest -c pytest.ini -m "not com and not live_ai"`, the 4 skips being Windows symlink-permission guards).
-- Dedicated batch test suite: **783 passed, 2 skipped** across 30 test modules (`pytest tests/batch -q`).
+- Full offline test suite: **2,403 passed, 4 skipped, 55 deselected in 69.05s** across all domain packages (`pytest -c pytest.ini -m "not com and not live_ai"`, the 4 skips being Windows symlink-permission guards).
+- Dedicated batch test suite: **814 passed, 2 skipped** across 30 test modules (`pytest tests/batch -q`).
 - Focused runtime lifecycle/security suite: **84 passed** (`pytest tests/drivers/test_runtime_document_task.py tests/drivers/test_runtime_lifecycle.py tests/drivers/test_ownership_teardown_safety.py tests/drivers/test_error_sanitization.py -q`).
 - Strict mypy: **Success (0 issues across 174 source files)** checked across `src`, `tests/batch`, `tests/ipc`, and `tests/drivers`.
 - Ruff linting and formatting: clean across all engine files (`ruff check src tests` and `ruff format --check src tests`).

@@ -293,7 +293,7 @@ describe('BatchResultCard', () => {
 
     expect(screen.getByText('Completed')).toBeInTheDocument();
     expect(screen.getByText('batch-req-001')).toBeInTheDocument();
-    expect(screen.getByText(/run manifest validated/i)).toBeInTheDocument();
+    expect(screen.getByText(/batch manifest validated/i)).toBeInTheDocument();
     expect(screen.getByText('part1.par')).toBeInTheDocument();
     expect(screen.getByText('part2.par')).toBeInTheDocument();
     expect(screen.getAllByText('Succeeded')).toHaveLength(2);
@@ -410,7 +410,7 @@ describe('BatchResultCard', () => {
 
     render(<BatchResultCard result={result} onRevealOutput={vi.fn()} />);
 
-    expect(screen.getByText(/run manifest is unavailable/i)).toBeInTheDocument();
+    expect(screen.getByText(/batch manifest is unavailable/i)).toBeInTheDocument();
     expect(screen.getByText('STEP (unverified location)')).toBeInTheDocument();
   });
 });

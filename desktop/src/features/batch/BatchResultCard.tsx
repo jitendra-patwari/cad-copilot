@@ -158,7 +158,7 @@ export const BatchResultCard: React.FC<BatchResultCardProps> = ({ result, onReve
         <div className="flex items-center gap-2 rounded-lg bg-emerald-50/70 px-3 py-2 text-xs text-emerald-900 border border-emerald-200">
           <FileCheck className="h-4 w-4 text-emerald-600 shrink-0" />
           <span>
-            Run manifest validated and published to output root:{' '}
+            Batch manifest validated and published to output root:{' '}
             <span className="font-mono text-emerald-950 font-semibold">{result.manifestPath}</span>
           </span>
         </div>
@@ -167,7 +167,7 @@ export const BatchResultCard: React.FC<BatchResultCardProps> = ({ result, onReve
         <div className="flex items-center gap-2 rounded-lg bg-amber-50/70 px-3 py-2 text-xs text-amber-900 border border-amber-200">
           <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
           <span>
-            Run manifest is unavailable or could not be published; file result accounting is
+            Batch manifest is unavailable or could not be published; file result accounting is
             preserved.
           </span>
         </div>
