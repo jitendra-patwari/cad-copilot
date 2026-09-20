@@ -468,6 +468,46 @@ The implementation is in `engine/src/drivers/solidedge/`. The requirements below
   - Result view displays verified artifact cards with file formats, byte sizes, and contained "Show in folder" action.
   - Modal focus trapping, Escape dismissal, and focus restoration for close confirmation dialogs.
 
+### FR-22: Batch Operations Vertical Slice (Milestone 6.3 — Planned)
+- **Native Source Authority & Selection**:
+  - Native file and folder selection dialogs via `rfd` mediated entirely by the native Tauri layer.
+  - File picker selection enforces single-parent root containment for all chosen files.
+  - Folder picker performs bounded recursive scan beneath chosen root (capped at 20,000 entries, 500 supported files); exceeding limits fails closed with curated diagnostic rather than returning partial data.
+  - Case-insensitive recognition of native Solid Edge formats: `.par`, `.psm`, `.asm`, and `.dft`.
+  - Reparse points, symlinks, junctions, UNC shares, device paths, and alternate data streams (`:`) are detected and rejected/skipped with visible disclosure without following external links.
+  - Discovered supported files (up to 500 canonical relative paths) and kind counts returned once under an opaque `selectionId`; pre-run list is display/search-only in React, while Rust retains authoritative source inventory and filesystem identity.
+- **Operation Routing & Format Compatibility**:
+  - Fixed operation family routing: `export_3d` accepts `.par`, `.psm`, and `.asm` inputs with STEP, STL, and Parasolid (`.x_t`) output formats (1–3 formats); `publish_drawing` accepts `.dft` inputs with PDF and text DXF output formats (1–2 formats).
+  - Incompatible source kinds for the selected operation are excluded from request submission and reported clearly in the UI; mixed selections require explicit operation choice without silent splitting.
+  - Default 100-file cap enforced unless explicitly raised by user (hard ceiling of 500 files); requests exceeding 500 files are rejected before child spawn.
+- **Output Authority & Collision Policy**:
+  - Output directory selected via native dialog returning opaque `selectionId` and display path; frontend cannot pass arbitrary filesystem paths.
+  - Output directory identity bound natively and verified before launch and reveal.
+  - Source-relative directory structure mirrored under output root; batch summary manifest published directly under output root.
+  - Fixed no-replace collision policy (`TARGET_ALREADY_EXISTS` / `fail_if_exists`); permanent UI assurances confirm source files are never modified and existing outputs are never overwritten.
+  - `continue_on_error` option exposed (default enabled); stops on first failure when disabled while preserving previously exported artifacts.
+- **App-Wide Concurrency & Supervised Transport**:
+  - Single app-wide `run_claim` coordinator enforces mutual exclusion between Generate and Batch; concurrent or cross-slice run starts are rejected with `RUN_ACTIVE`.
+  - One owned Python subprocess per batch request launching direct `ipc.batch_stdio` under trusted source-run interpreter (`.venv\Scripts\python.exe`); zero secondary preflight subprocesses.
+  - Bounded stdio communication: 128 KiB stdin request envelope, 10 MiB stdout response cap, 4 KiB per line and 20 MiB aggregate stderr cap.
+  - Single Solid Edge connection per batch holding explicit document handles; sequential document processing with no-save close.
+- **Curated Progress & Cooperative Signal Cancellation**:
+  - Stderr stream parsed as compact JSONL adhering strictly to the 6 canonical phases: `batch_started`, `file_started`, `format_started`, `format_finished`, `file_finished`, and `batch_finished`.
+  - Windows targeted cancellation delivers `CTRL_BREAK_EVENT` to the owned child process group (shared console) or hidden child console.
+  - Cooperative cancellation contract: engine catches `SIGBREAK` inside `_cooperative_cancellation_scope`, completes in-flight file teardown, outputs schema-valid `BatchResponse` with `status="cancelled"` and terminal accounting, and exits with code **0**.
+  - Exit code 130 handled as pre-handler / unhooked interruption with incomplete cleanup reporting.
+  - Reaping and teardown never terminates `Edge.exe`, borrowed CAD sessions, or unrelated host processes.
+- **Terminal Accounting, Manifest Verification & Reveal**:
+  - Authoritative terminal response validation across Succeeded (`accepted`), Partial (`partial`), Failed (`failed`), Cancelled, and Unprocessed categories matching engine response.
+  - Manifest derivation (`<output_root>/<request_id>.batch_manifest.json`) bounded to 10 MiB; read-back validation against canonical `batch-manifest-v1.schema.json` and semantic agreement with stdout response.
+  - Clear UI distinction: "Manifest validated" vs "Manifest unavailable" (retaining valid engine response accounting).
+  - Explorer reveal strictly limited to bound output root with no shell interpolation.
+- **Scoped Diagnostics & Operation-Aware Window Close**:
+  - Window close requests dispatched by active run claim: Batch owner sets Batch `closeRequested` and emits `batch-state`; Generate owner routes to Generate resolver.
+  - Accessible confirmation dialog with operation-specific copy ("Batch Operation in Progress" vs "Generation in Progress") and Keep running / Cancel and close actions.
+  - Diagnostics output path scoped to active tab: `currentView === 'batch' ? batch.snapshot.output?.displayPath : generation.snapshot.output?.displayPath` with "Not selected" fallback and zero cross-tab pollution.
+  - Zero leakage of API keys, CAD file contents, raw stderr traces, or full filesystem paths in diagnostics or events.
+
 ---
 
 ## 3. Non-Functional Requirements (NFRs)
@@ -932,3 +972,52 @@ This section defines acceptance criteria specifically for the Milestone 6.2 Gene
    - Live Solid Edge 2026 CLI & IPC integration: Verified end-to-end against licensed Siemens Solid Edge 2026 (`226.00.00.106`): `test_m45_live_01_example_plan_spur_gear_cmd_launcher` passed in 31.44s (genuine 24-tooth spur gear, positive volume inspection, all 4 published artifacts, schema-valid `run_manifest.json` sidecar, zero orphan `Edge.exe`), and `test_m45_live_03_route_and_configuration_isolation` passed in 22.68s (fast failure on missing key/invalid model, subsequent clean rerun).
    - Targeted cancellation: Targeted child console signal delivery (`CTRL_BREAK_EVENT`) unwinds the target process without signal bleed to unrelated control children (`generation_lifecycle.rs`).
    - Live Windows 11 GUI smoke acceptance (Dev & Release Hosts): Verified on running native desktop host across both development (`pnpm tauri dev`) and standalone release (`cad-copilot-desktop.exe`) environments: interactive folder selection via native dialog (`rfd`), deterministic example generation with 4 real-time progress phases, verified artifact cards (`.par`, `.step`, `.stl`), non-fatal preview handling, Explorer reveal, live Gemini 3.5 Flash Lite prompt-to-CAD generation (`Create a 50x40x10 mm rectangular block`), fast-fail route isolation with non-disclosure (`PROMPT_INTERPRETATION_FAILED`), in-flight active CAD cancellation via GUI Cancel button with clean child unwind (exit code 130) and zero orphan processes, in-flight provider-wait cancellation during `Request Validated` awaiting Gemini HTTPS response with clean exit 130 and zero CAD contact, in-flight window close interception ("Keep Generating" vs "Cancel & Exit"), release host hidden-console child spawn (`CREATE_NEW_CONSOLE` + `SW_HIDE`) with zero window flashing, release host prerequisite probe stdin handle hardening (`Stdio::null()`), release in-flight cancellation, relaunch privacy (session key wiped on restart, zero disk/storage persistence across relaunch), modal focus trapping, and keyboard Escape dismissal.
+
+### Milestone 6.3 Component Acceptance Criteria (FR-22 — Desktop Batch Vertical Slice — Planned)
+
+This section defines acceptance criteria specifically for the Milestone 6.3 Batch vertical slice (FR-22), connecting the desktop frontend to the verified Milestone 5 batch engine contracts:
+
+1. **Native Source Authority & Selection (FR-22, UI-05, SEC-06, BAT-02)**:
+   - Native file and folder selection dialogs via `rfd` mediated entirely by the native Tauri layer.
+   - File picker selection enforces single-parent root containment for all chosen files.
+   - Folder picker performs bounded recursive scan beneath the chosen root (capped at 20,000 visited filesystem entries and 500 supported files); exceeding limits fails closed with a curated warning rather than returning silent partial data.
+   - Case-insensitive recognition of native Solid Edge formats: `.par`, `.psm`, `.asm`, and `.dft`.
+   - Reparse points, symlinks, junctions, UNC shares, device paths, and alternate data streams (`:`) are detected and rejected/skipped with visible disclosure without following external links.
+   - Discovered supported files (up to 500 canonical relative paths) and kind counts are returned once to the frontend under an opaque `selectionId`; the pre-run list is display/search-only in React, while Rust retains authoritative source inventory and filesystem identity.
+
+2. **Operation Routing & Format Compatibility (FR-22, BAT-03, BAT-04, BAT-C01)**:
+   - Fixed operation family routing: `export_3d` accepts `.par`, `.psm`, and `.asm` inputs with STEP, STL, and Parasolid (`.x_t`) output formats (1–3 formats); `publish_drawing` accepts `.dft` inputs with PDF and text DXF output formats (1–2 formats).
+   - Incompatible source kinds for the selected operation are excluded from request submission and reported clearly in the UI; mixed selections require explicit operation choice without silent splitting.
+   - Default 100-file cap enforced unless explicitly raised by user (hard ceiling of 500 files); requests exceeding 500 files are rejected before child spawn.
+
+3. **Output Authority & Collision Policy (FR-22, ART-02–08, UI-06)**:
+   - Output directory selected via native dialog returning opaque `selectionId` and display path; frontend cannot pass arbitrary filesystem paths.
+   - Output directory identity bound natively and verified before launch and reveal.
+   - Source-relative directory structure mirrored under output root; batch summary manifest published directly under output root.
+   - Fixed no-replace collision policy (`TARGET_ALREADY_EXISTS` / `fail_if_exists`); permanent UI assurances confirm source files are never modified and existing outputs are never overwritten.
+   - `continue_on_error` option exposed (default enabled); stops on first failure when disabled while preserving previously exported artifacts.
+
+4. **App-Wide Concurrency & Supervised Transport (FR-22, IPC-01, IPC-07, SE-07)**:
+   - Single app-wide `run_claim` coordinator enforces mutual exclusion between Generate and Batch; concurrent or cross-slice run starts are rejected with `RUN_ACTIVE`.
+   - One owned Python subprocess per batch request launching direct `ipc.batch_stdio` under trusted source-run interpreter (`.venv\Scripts\python.exe`); zero secondary preflight subprocesses.
+   - Bounded stdio communication: 128 KiB stdin request envelope, 10 MiB stdout response cap, 4 KiB per line and 20 MiB aggregate stderr cap.
+   - Single Solid Edge connection per batch holding explicit document handles; sequential document processing with no-save close.
+
+5. **Curated Progress & Cooperative Signal Cancellation (FR-22, IPC-03, IPC-04, EXEC-05, EXEC-06)**:
+   - Stderr stream parsed as compact JSONL adhering strictly to the 6 canonical phases: `batch_started`, `file_started`, `format_started`, `format_finished`, `file_finished`, and `batch_finished`.
+   - Windows targeted cancellation delivers `CTRL_BREAK_EVENT` to the owned child process group (shared console) or hidden child console.
+   - Cooperative cancellation contract: engine catches `SIGBREAK` inside `_cooperative_cancellation_scope`, completes in-flight file teardown, outputs schema-valid `BatchResponse` with `status="cancelled"` and terminal accounting, and exits with code **0**.
+   - Exit code 130 handled as pre-handler / unhooked interruption with incomplete cleanup reporting.
+   - Reaping and teardown never terminates `Edge.exe`, borrowed CAD sessions, or unrelated host processes.
+
+6. **Terminal Accounting, Manifest Verification & Reveal (FR-22, OK-B01–04, ART-07, SEC-06)**:
+   - Authoritative terminal response validation across Succeeded (`accepted`), Partial (`partial`), Failed (`failed`), Cancelled, and Unprocessed categories matching engine response.
+   - Manifest derivation (`<output_root>/<request_id>.batch_manifest.json`) bounded to 10 MiB; read-back validation against canonical `batch-manifest-v1.schema.json` and semantic agreement with stdout response.
+   - Clear UI distinction: "Manifest validated" vs "Manifest unavailable" (retaining valid engine response accounting).
+   - Explorer reveal strictly limited to bound output root with no shell interpolation.
+
+7. **Scoped Diagnostics & Operation-Aware Window Close (FR-22, SE-03, SEC-07)**:
+   - Window close requests dispatched by active run claim: Batch owner sets Batch `closeRequested` and emits `batch-state`; Generate owner routes to Generate resolver.
+   - Accessible confirmation dialog with operation-specific copy ("Batch Operation in Progress" vs "Generation in Progress") and Keep running / Cancel and close actions.
+   - Diagnostics output path scoped to active tab: `currentView === 'batch' ? batch.snapshot.output?.displayPath : generation.snapshot.output?.displayPath` with "Not selected" fallback and zero cross-tab pollution.
+   - Zero leakage of API keys, CAD file contents, raw stderr traces, or full filesystem paths in diagnostics or events.

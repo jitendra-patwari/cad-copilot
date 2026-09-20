@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-batch-select-source"
+description = "Enables the batch_select_source command without any pre-configured scope."
+commands.allow = ["batch_select_source"]
+
+[[permission]]
+identifier = "deny-batch-select-source"
+description = "Denies the batch_select_source command without any pre-configured scope."
+commands.deny = ["batch_select_source"]

@@ -1,0 +1,41 @@
+# Scoped permissions for CAD Copilot Batch feature (FR-22)
+
+[[permission]]
+identifier = "allow-batch-snapshot"
+description = "Enables fetching the current sanitized batch snapshot."
+commands.allow = ["batch_snapshot"]
+
+[[permission]]
+identifier = "allow-batch-select-source"
+description = "Enables native source file or folder selection and bounded scan."
+commands.allow = ["batch_select_source"]
+
+[[permission]]
+identifier = "allow-batch-select-output"
+description = "Enables native output folder selection dialog."
+commands.allow = ["batch_select_output"]
+
+[[permission]]
+identifier = "allow-batch-start"
+description = "Enables starting a single batch operation run."
+commands.allow = ["batch_start"]
+
+[[permission]]
+identifier = "allow-batch-cancel"
+description = "Enables cancelling an active batch operation run."
+commands.allow = ["batch_cancel"]
+
+[[permission]]
+identifier = "allow-batch-result"
+description = "Enables fetching terminal batch results and manifest state."
+commands.allow = ["batch_result"]
+
+[[permission]]
+identifier = "allow-batch-reveal"
+description = "Enables revealing the verified batch output directory in Explorer."
+commands.allow = ["batch_reveal"]
+
+[[permission]]
+identifier = "allow-batch-resolve-close"
+description = "Enables resolving a pending batch window close decision."
+commands.allow = ["batch_resolve_close"]

@@ -14,6 +14,14 @@
     "allow-generation-result",
     "allow-generation-preview",
     "allow-generation-reveal",
-    "allow-generation-resolve-close"
+    "allow-generation-resolve-close",
+    "allow-batch-snapshot",
+    "allow-batch-select-source",
+    "allow-batch-select-output",
+    "allow-batch-start",
+    "allow-batch-cancel",
+    "allow-batch-result",
+    "allow-batch-reveal",
+    "allow-batch-resolve-close"
   ]
 }

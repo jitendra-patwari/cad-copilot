@@ -124,6 +124,7 @@ pub fn generation_select_output(
 pub fn generation_start(
     window: Window,
     state: State<'_, AppState>,
+    claim_state: State<'_, std::sync::Mutex<crate::run_claim::RunClaimCoordinator>>,
     request: StartGenerationRequest,
 ) -> Result<GenerationSnapshot, CommandError> {
     verify_main_window(&window)?;
@@ -134,7 +135,28 @@ pub fn generation_start(
                 "Failed to acquire internal application lock.",
             )
         })?;
-        guard.reserve_run(&request.selection_id, request.input)?
+
+        let mut claim_guard = claim_state.lock().map_err(|_| {
+            CommandError::new("INTERNAL_ERROR", "Failed to acquire run claim lock.")
+        })?;
+        if claim_guard.is_active() {
+            return Err(CommandError::new(
+                "RUN_ACTIVE",
+                "Another operation is currently in progress.",
+            ));
+        }
+
+        let snap = guard.reserve_run(&request.selection_id, request.input)?;
+        if let Some(run) = &snap.run {
+            if let Err(msg) =
+                claim_guard.claim(crate::run_claim::RunKind::Generation, &run.request_id)
+            {
+                guard.active_run = None;
+                guard.revision += 1;
+                return Err(CommandError::new("RUN_ACTIVE", msg));
+            }
+        }
+        snap
     };
 
     if let Some(run) = &snapshot.run {

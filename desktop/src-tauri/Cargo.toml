@@ -28,3 +28,9 @@ windows-sys = { version = "0.59", features = [
 ] }
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 jsonschema = { version = "0.28", default-features = false }
+
+[features]
+test-support = []
+
+[dev-dependencies]
+cad-copilot-desktop = { path = ".", features = ["test-support"] }

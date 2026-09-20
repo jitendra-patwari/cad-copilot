@@ -243,6 +243,18 @@ fn finalize_terminal(
         None => return,
     };
 
+    if let Some(coord) =
+        window.try_state::<std::sync::Mutex<crate::run_claim::RunClaimCoordinator>>()
+    {
+        if let Ok(mut claim_guard) = coord.lock() {
+            claim_guard.release(
+                crate::run_claim::RunKind::Generation,
+                request_id,
+                cleanup == CleanupState::Incomplete,
+            );
+        }
+    }
+
     if should_destroy {
         if let Err(e) = window.destroy() {
             let fallback_snap = with_state(window, |g| {

@@ -429,6 +429,7 @@ dependencies = [
 name = "cad-copilot-desktop"
 version = "0.1.0"
 dependencies = [
+ "cad-copilot-desktop",
  "image",
  "jsonschema",
  "rfd",

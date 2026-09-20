@@ -15,6 +15,7 @@ pub struct SourceLayout {
     pub engine_dir: PathBuf,
     pub cargo_manifest: PathBuf,
     pub generate_cmd: PathBuf,
+    pub batch_cmd: PathBuf,
 }
 
 impl SourceLayout {
@@ -22,6 +23,7 @@ impl SourceLayout {
         self.cargo_manifest.is_file()
             && self.python_exe.is_file()
             && self.generate_cmd.is_file()
+            && self.batch_cmd.is_file()
             && self.engine_dir.join("pyproject.toml").is_file()
     }
 }
@@ -61,6 +63,7 @@ pub fn resolve_source_layout() -> Result<SourceLayout, CommandError> {
         let cargo_manifest = cand.join("desktop").join("src-tauri").join("Cargo.toml");
         let engine_dir = cand.join("engine");
         let generate_cmd = engine_dir.join("scripts").join("generate.cmd");
+        let batch_cmd = engine_dir.join("scripts").join("batch.cmd");
         let python_exe = cand.join(".venv").join("Scripts").join("python.exe");
 
         let layout = SourceLayout {
@@ -69,6 +72,7 @@ pub fn resolve_source_layout() -> Result<SourceLayout, CommandError> {
             engine_dir,
             cargo_manifest,
             generate_cmd,
+            batch_cmd,
         };
 
         if layout.verify_files() {
