@@ -97,20 +97,20 @@ describe('Application Shell Navigation', () => {
     expect(mainText).not.toContain('viewport');
   });
 
-  it('does not render premature operational controls in Batch view', () => {
+  it('renders operational controls in Batch view without prohibited elements', () => {
     render(<App />);
 
     const batchBtn = screen.getByRole('button', { name: /^batch/i });
     fireEvent.click(batchBtn);
 
     const main = screen.getByRole('main');
-    expect(
-      main.querySelectorAll('textarea, input, select, canvas, button, table, form')
-    ).toHaveLength(0);
+    // Prohibited controls remain strictly absent: no 3D canvas, no browser file upload input
+    expect(main.querySelectorAll('canvas')).toHaveLength(0);
+    expect(main.querySelectorAll('input[type="file"]')).toHaveLength(0);
 
-    const mainText = main.textContent?.toLowerCase() ?? '';
-    expect(mainText).not.toContain('start batch');
-    expect(mainText).not.toContain('browse folder');
+    // Operational batch controls are present
+    expect(screen.getByRole('button', { name: /start batch run/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /select folder/i })).toBeInTheDocument();
   });
 
   it('toggles sidebar expansion and collapse via collapse toggle button', () => {

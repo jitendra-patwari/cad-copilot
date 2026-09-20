@@ -6,14 +6,18 @@ import { GeneratePage } from '../features/generate/GeneratePage';
 import { BatchPage } from '../features/batch/BatchPage';
 import { DiagnosticsPanel } from '../features/diagnostics/DiagnosticsPanel';
 import { useGeneration } from '../features/generate/useGeneration';
+import { useBatch } from '../features/batch/useBatch';
+import { isRunActive } from '../features/generate/generationState';
+import { isBatchRunActive } from '../features/batch/batchState';
 
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewMode>('generate');
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
   const diagnosticsTriggerRef = useRef<HTMLButtonElement>(null);
 
-  // Long-lived generation controller hoisted above view navigation
+  // Long-lived generation & batch controllers hoisted above view navigation
   const generation = useGeneration();
+  const batch = useBatch();
 
   const handleViewChange = (view: 'generate' | 'batch') => {
     if (view !== 'generate') {
@@ -25,13 +29,24 @@ export const App: React.FC = () => {
   const stayButtonRef = useRef<HTMLButtonElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const prevActiveElementRef = useRef<Element | null>(null);
-  const resolveCloseRef = useRef(generation.resolveClose);
+
+  const isGenClose =
+    !!generation.snapshot.run?.closeRequested && isRunActive(generation.snapshot.run?.state);
+  const isBatchClose =
+    !!batch.snapshot.run?.closeRequested && isBatchRunActive(batch.snapshot.run?.state);
+  const closeRequested = isGenClose || isBatchClose;
+
+  const resolveCloseRef = useRef<(decision: 'stay' | 'cancel_and_close') => void>(() => {});
 
   useEffect(() => {
-    resolveCloseRef.current = generation.resolveClose;
-  });
-
-  const closeRequested = !!generation.snapshot.run?.closeRequested;
+    resolveCloseRef.current = (decision) => {
+      if (isBatchClose) {
+        batch.resolveClose(decision);
+      } else if (isGenClose) {
+        generation.resolveClose(decision);
+      }
+    };
+  }, [isBatchClose, isGenClose, batch, generation]);
 
   useEffect(() => {
     if (!closeRequested) return;
@@ -88,16 +103,35 @@ export const App: React.FC = () => {
         diagnosticsTriggerRef={diagnosticsTriggerRef}
       >
         {currentView === 'generate' && <GeneratePage generation={generation} />}
-        {currentView === 'batch' && <BatchPage />}
+        {currentView === 'batch' && <BatchPage batch={batch} />}
       </AppShell>
 
       <DiagnosticsPanel
         isOpen={isDiagnosticsOpen}
         onClose={() => setIsDiagnosticsOpen(false)}
         triggerRef={diagnosticsTriggerRef}
-        outputDisplayPath={generation.snapshot.output?.displayPath}
+        outputDisplayPath={
+          currentView === 'batch'
+            ? batch.snapshot.output?.displayPath
+            : generation.snapshot.output?.displayPath
+        }
         keyConfigured={generation.snapshot.keyConfigured}
-        lastRunCadBuild={generation.activeResult?.manifestSummary?.cadRuntimeVersion}
+        lastRunCadBuild={
+          currentView === 'generate'
+            ? generation.activeResult?.manifestSummary?.cadRuntimeVersion
+            : null
+        }
+        pythonEngineConnected={
+          currentView === 'batch'
+            ? batch.activeResult !== null ||
+              (batch.snapshot.run !== null &&
+                (batch.snapshot.run.phase !== null ||
+                  batch.snapshot.run.manifestState === 'validated'))
+            : generation.activeResult !== null ||
+              (generation.snapshot.run !== null &&
+                (generation.snapshot.run.phase !== null ||
+                  generation.snapshot.run.engineStatus !== null))
+        }
       />
 
       {/* Accessible Close Confirmation Modal */}
@@ -116,32 +150,34 @@ export const App: React.FC = () => {
               </div>
               <div>
                 <h2 id="close-modal-title" className="text-sm font-bold text-slate-900">
-                  Generation In Progress
+                  {isBatchClose ? 'Batch Operation In Progress' : 'Generation In Progress'}
                 </h2>
                 <p className="text-xs text-slate-500">
-                  A CAD model is currently being generated in Siemens Solid Edge.
+                  {isBatchClose
+                    ? 'A batch CAD conversion operation is currently running in Siemens Solid Edge.'
+                    : 'A CAD model is currently being generated in Siemens Solid Edge.'}
                 </p>
               </div>
             </div>
 
             <p className="text-xs leading-relaxed text-slate-600">
-              Closing CAD Copilot now will deliver a cancellation signal to the engine process and
-              cleanly release CAD session locks. Do you want to cancel the generation and close, or
-              keep running?
+              {isBatchClose
+                ? 'Closing CAD Copilot now will deliver a cancellation signal to the batch process and cleanly release CAD session locks. Do you want to cancel the batch operation and close, or keep running?'
+                : 'Closing CAD Copilot now will deliver a cancellation signal to the engine process and cleanly release CAD session locks. Do you want to cancel the generation and close, or keep running?'}
             </p>
 
             <div className="flex justify-end gap-2 pt-2">
               <button
                 ref={stayButtonRef}
                 type="button"
-                onClick={() => generation.resolveClose('stay')}
+                onClick={() => resolveCloseRef.current('stay')}
                 className="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Keep Running
               </button>
               <button
                 type="button"
-                onClick={() => generation.resolveClose('cancel_and_close')}
+                onClick={() => resolveCloseRef.current('cancel_and_close')}
                 className="rounded-lg bg-rose-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-rose-700"
               >
                 Cancel & Close

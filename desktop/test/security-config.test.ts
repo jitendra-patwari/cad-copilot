@@ -59,7 +59,7 @@ describe('Tauri security configuration baseline', () => {
     );
   });
 
-  it('enforces least-privilege capability with only approved core event and generation permissions', () => {
+  it('enforces least-privilege capability with only approved core event, generation, and batch permissions', () => {
     const expectedPermissions = [
       'core:event:allow-listen',
       'core:event:allow-unlisten',
@@ -72,6 +72,14 @@ describe('Tauri security configuration baseline', () => {
       'allow-generation-preview',
       'allow-generation-reveal',
       'allow-generation-resolve-close',
+      'allow-batch-snapshot',
+      'allow-batch-select-source',
+      'allow-batch-select-output',
+      'allow-batch-start',
+      'allow-batch-cancel',
+      'allow-batch-result',
+      'allow-batch-reveal',
+      'allow-batch-resolve-close',
     ];
     expect(capability.permissions).toEqual(expectedPermissions);
   });
@@ -94,7 +102,7 @@ describe('Tauri security configuration baseline', () => {
     expect(cargoToml).not.toMatch(/tauri-plugin/i);
   });
 
-  it('registers only the exact approved Generation commands and no optional plugins', () => {
+  it('registers only the exact approved Generation and Batch commands and no optional plugins', () => {
     expect(libRs).not.toMatch(/\.plugin\s*\(/);
     expect(mainRs).not.toMatch(/\.plugin\s*\(/);
     expect(mainRs).not.toMatch(/invoke_handler/);
@@ -109,6 +117,14 @@ describe('Tauri security configuration baseline', () => {
       'generation_preview',
       'generation_reveal',
       'generation_resolve_close',
+      'batch_snapshot',
+      'batch_select_source',
+      'batch_select_output',
+      'batch_start',
+      'batch_cancel',
+      'batch_result',
+      'batch_reveal',
+      'batch_resolve_close',
     ];
 
     for (const cmd of approvedCommands) {

@@ -87,6 +87,15 @@ describe('Zero runtime network and zero persistent storage baseline', () => {
           run: null,
         });
       }
+      if (cmd === 'batch_snapshot') {
+        return Promise.resolve({
+          revision: 1,
+          nativeAvailable: true,
+          source: null,
+          output: null,
+          run: null,
+        });
+      }
       throw new Error(`Blocked unexpected native Tauri IPC invoke: ${cmd}`);
     });
     tauriIpcSpy = vi.fn(() => {
@@ -149,10 +158,13 @@ describe('Zero runtime network and zero persistent storage baseline', () => {
     expect(wsSpy).not.toHaveBeenCalled();
     expect(tauriIpcSpy).not.toHaveBeenCalled();
 
-    // Verify no automatic generation execution was launched
+    // Verify no automatic generation or batch execution was launched
     const invokedCommands = tauriInvokeSpy.mock.calls.map((c) => c[0]);
     expect(invokedCommands).not.toContain('generation_start');
-    expect(invokedCommands.every((c) => c === 'generation_snapshot')).toBe(true);
+    expect(invokedCommands).not.toContain('batch_start');
+    expect(
+      invokedCommands.every((c) => c === 'generation_snapshot' || c === 'batch_snapshot')
+    ).toBe(true);
   });
 
   it('creates zero persistent settings, keys, or browser storage entries across all interactions', () => {

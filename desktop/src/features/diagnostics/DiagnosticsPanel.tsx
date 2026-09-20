@@ -9,6 +9,7 @@ export interface DiagnosticsPanelProps {
   readonly outputDisplayPath?: string | null;
   readonly keyConfigured?: boolean;
   readonly lastRunCadBuild?: string | null;
+  readonly pythonEngineConnected?: boolean;
 }
 
 export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({
@@ -18,6 +19,7 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({
   outputDisplayPath,
   keyConfigured,
   lastRunCadBuild,
+  pythonEngineConnected,
 }) => {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -114,8 +116,8 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({
     {
       id: 'engine_version',
       label: 'Python CAD Engine',
-      value: 'Not connected',
-      status: 'unavailable',
+      value: pythonEngineConnected ? 'Verified in last run' : 'Not connected',
+      status: pythonEngineConnected ? 'neutral' : 'unavailable',
       hint: 'Local Python CAD automation engine.',
     },
   ];
