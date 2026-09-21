@@ -1,0 +1,46 @@
+# Pinned packaging and runtime dependencies for CAD Copilot desktop engine
+# Python 3.14.3 (Windows x64)
+
+# Packaging toolchain
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.7
+pefile==2024.8.26
+pywin32-ctypes==0.2.3
+altgraph==0.17.5
+packaging==26.3
+setuptools==84.0.0
+wheel==0.48.0
+
+# Direct and transitive runtime dependencies
+pywin32==312
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+referencing==0.37.0
+rpds-py==2026.6.3
+attrs==26.1.0
+google-genai==2.19.0
+google-auth==2.56.3
+pydantic==2.13.4
+pydantic-core==2.46.4
+typing-inspection==0.4.4
+annotated-types==0.8.0
+httpx==0.28.1
+httpcore==1.0.9
+h11==0.16.0
+anyio==4.14.2
+idna==3.19
+sniffio==1.3.1
+certifi==2026.7.22
+charset-normalizer==3.5.1
+cryptography==50.0.0
+cffi==2.1.1
+pycparser==3.0
+pyasn1==0.6.4
+pyasn1-modules==0.4.2
+requests==2.34.2
+urllib3==2.7.0
+websockets==16.1.1
+tenacity==9.1.4
+distro==1.9.0
+pillow==12.3.0
+typing-extensions==4.16.0

@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager, Window};
 
 use crate::run_claim::{RunClaimCoordinator, RunKind};
-use crate::shared::engine::{resolve_source_layout, SourceLayout};
+use crate::shared::engine::{
+    resolve_engine_launch, resolve_source_layout, EngineLaunch, EngineWorkflow, SourceLayout,
+};
 use crate::shared::windows::{
     force_terminate_process, send_cancellation_signal, spawn_engine_process_explicit,
     wait_process_timeout,
@@ -28,8 +30,8 @@ pub const RUN_DEADLINE_SECS: u64 = 14400; // 4 hours
 pub const CANCELLATION_GRACE_SECS: u64 = 60; // 60 seconds
 pub const POLL_INTERVAL_MS: u32 = 50; // 50 ms
 
-/// Builds a clean child environment inheriting allowed Windows system variables and prepending .venv/Scripts to PATH.
-pub fn prepare_batch_child_env(layout: &SourceLayout) -> HashMap<String, String> {
+/// Builds a clean child environment inheriting allowed Windows system variables and prepending engine/support directory to PATH.
+pub fn prepare_batch_child_env_for_launch(launch: &EngineLaunch) -> HashMap<String, String> {
     let mut env: HashMap<String, String> = HashMap::new();
 
     let allowed_vars = [
@@ -62,10 +64,25 @@ pub fn prepare_batch_child_env(layout: &SourceLayout) -> HashMap<String, String>
         }
     }
 
-    let venv_scripts = layout.python_exe.parent().unwrap_or(&layout.repo_root);
-    let original_path = std::env::var("PATH").unwrap_or_default();
-    let combined_path = format!("{};{}", venv_scripts.display(), original_path);
-    env.insert("PATH".to_string(), combined_path);
+    let support_dir = launch.program.parent().unwrap_or(&launch.cwd);
+    let path_val = if launch.is_packaged {
+        let sys_root = env
+            .get("SYSTEMROOT")
+            .cloned()
+            .or_else(|| env.get("WINDIR").cloned())
+            .unwrap_or_else(|| "C:\\Windows".to_string());
+        format!(
+            "{};{}\\System32;{};{}\\System32\\Wbem",
+            support_dir.display(),
+            sys_root,
+            sys_root,
+            sys_root
+        )
+    } else {
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        format!("{};{}", support_dir.display(), original_path)
+    };
+    env.insert("PATH".to_string(), path_val);
 
     env.insert("PYTHONUNBUFFERED".to_string(), "1".to_string());
 
@@ -80,14 +97,30 @@ pub fn prepare_batch_child_env(layout: &SourceLayout) -> HashMap<String, String>
     env
 }
 
+pub fn prepare_batch_child_env(layout: &SourceLayout) -> HashMap<String, String> {
+    let launch = EngineLaunch {
+        program: layout.python_exe.clone(),
+        args: vec!["-m".to_string(), "ipc.batch_stdio".to_string()],
+        cwd: layout.engine_dir.clone(),
+        is_packaged: false,
+    };
+    prepare_batch_child_env_for_launch(&launch)
+}
+
 pub trait BatchSupervisorHost: Send + Sync + 'static {
     fn with_batch_state(&self, f: &mut dyn FnMut(&mut BatchState));
     fn emit_event(&self, event: &str, payload: serde_json::Value);
     fn release_claim(&self, request_id: &str, incomplete: bool);
     fn destroy_window(&self);
+    fn resource_dir(&self) -> Option<std::path::PathBuf> {
+        None
+    }
 }
 
 impl BatchSupervisorHost for Window {
+    fn resource_dir(&self) -> Option<std::path::PathBuf> {
+        self.path().resource_dir().ok()
+    }
     fn with_batch_state(&self, f: &mut dyn FnMut(&mut BatchState)) {
         if let Some(app_state) = self.try_state::<AppState>() {
             if let Ok(mut guard) = app_state.lock() {
@@ -119,6 +152,7 @@ pub struct MockBatchHost {
     pub state: std::sync::Arc<AppState>,
     pub coordinator: std::sync::Arc<std::sync::Mutex<RunClaimCoordinator>>,
     pub events: std::sync::Arc<std::sync::Mutex<Vec<(String, serde_json::Value)>>>,
+    pub resource_dir: Option<PathBuf>,
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -131,12 +165,22 @@ impl MockBatchHost {
             state,
             coordinator,
             events: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            resource_dir: None,
         }
+    }
+
+    pub fn with_resource_dir(mut self, resource_dir: PathBuf) -> Self {
+        self.resource_dir = Some(resource_dir);
+        self
     }
 }
 
 #[cfg(any(test, feature = "test-support"))]
 impl BatchSupervisorHost for MockBatchHost {
+    fn resource_dir(&self) -> Option<PathBuf> {
+        self.resource_dir.clone()
+    }
+
     fn with_batch_state(&self, f: &mut dyn FnMut(&mut BatchState)) {
         if let Ok(mut guard) = self.state.lock() {
             f(&mut guard);
@@ -384,20 +428,47 @@ fn run_batch_supervisor(
         return;
     }
 
-    // 2. Resolve source layout and build request payload
-    let layout = match resolve_source_layout() {
-        Ok(l) => l,
-        Err(e) => {
-            finalize_terminal(
-                host.as_ref(),
-                &request_id,
-                Some(BatchEngineStatus::Failed),
-                Some(e.message),
-                CleanupState::NoFailureObserved,
-                ManifestState::NotApplicable,
-                None,
-            );
-            return;
+    // 2. Resolve engine launch configuration and build request payload
+    let (engine_launch, env) = match &cmd_override {
+        Some((prog, args)) => {
+            let layout_res = resolve_source_layout();
+            let cwd = layout_res
+                .as_ref()
+                .map(|l| l.engine_dir.clone())
+                .unwrap_or_else(|_| {
+                    prog.parent()
+                        .and_then(|p| p.parent())
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
+                });
+            let launch = EngineLaunch {
+                program: prog.clone(),
+                args: args.clone(),
+                cwd,
+                is_packaged: false,
+            };
+            let env = prepare_batch_child_env_for_launch(&launch);
+            (launch, env)
+        }
+        None => {
+            let res_dir = host.resource_dir();
+            let launch = match resolve_engine_launch(res_dir.as_deref(), EngineWorkflow::Batch) {
+                Ok(l) => l,
+                Err(e) => {
+                    finalize_terminal(
+                        host.as_ref(),
+                        &request_id,
+                        Some(BatchEngineStatus::Failed),
+                        Some(e.message),
+                        CleanupState::NoFailureObserved,
+                        ManifestState::NotApplicable,
+                        None,
+                    );
+                    return;
+                }
+            };
+            let env = prepare_batch_child_env_for_launch(&launch);
+            (launch, env)
         }
     };
 
@@ -426,8 +497,6 @@ fn run_batch_supervisor(
         }
     };
 
-    let env = prepare_batch_child_env(&layout);
-
     // Transition to Running state
     let snap = with_state(host.as_ref(), |guard| {
         if let Some(run) = &mut guard.active_run {
@@ -446,19 +515,14 @@ fn run_batch_supervisor(
     }
 
     // 3. Spawn engine process
-    let (program, args_vec) = match &cmd_override {
-        Some((prog, args)) => (prog.clone(), args.clone()),
-        None => (
-            layout.python_exe.clone(),
-            vec!["-m".to_string(), "ipc.batch_stdio".to_string()],
-        ),
-    };
-    let args_slices: Vec<&str> = args_vec.iter().map(|s| s.as_str()).collect();
+    let program = &engine_launch.program;
+    let args_slices: Vec<&str> = engine_launch.args.iter().map(|s| s.as_str()).collect();
+    let cwd = &engine_launch.cwd;
 
     let mut child = match spawn_engine_process_explicit(
-        &program,
+        program,
         &args_slices,
-        &layout.engine_dir,
+        cwd,
         &env,
         force_private_console,
     ) {

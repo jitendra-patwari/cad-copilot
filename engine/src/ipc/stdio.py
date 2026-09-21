@@ -144,6 +144,14 @@ def _run_stdio(
                 _emit_fatal_diagnostic(descriptors.orig_stderr_fd)
                 return 1
 
+            # In packaged desktop runtime, verify bundled AI SDK is importable before request ingestion
+            try:
+                import google.genai  # noqa: F401
+            except ImportError:
+                if getattr(sys, "frozen", False):
+                    _emit_fatal_diagnostic(descriptors.orig_stderr_fd)
+                    return 1
+
             # Read incoming request from binary input stream up to wire limit
             input_stream = _stdin_stream if _stdin_stream is not None else sys.stdin.buffer
             oversize_error = False

@@ -736,6 +736,7 @@ fn test_live_batch_cancellation_private_console() {
 }
 
 #[test]
+#[cfg(not(feature = "packaged-engine"))]
 fn test_live_batch_supervisor_installed_module_early_rejection() {
     let _console_lock = CONSOLE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let layout = resolve_source_layout().expect("Repo layout should resolve");

@@ -4,7 +4,9 @@ use std::time::{Duration, Instant};
 
 use tauri::{Emitter, Manager, Window};
 
-use super::launcher::{format_request_payload, prepare_child_env, resolve_source_layout};
+use super::launcher::{
+    format_request_payload, prepare_child_env_for_launch, resolve_engine_launch, EngineWorkflow,
+};
 use super::protocol::{
     WireResponse, WireResponseData, MAX_STDERR_AGGREGATE_BYTES, MAX_STDERR_LINE_BYTES,
     MAX_STDOUT_BYTES,
@@ -381,8 +383,9 @@ fn run_supervisor(window: Window, request_id: String) {
         return;
     }
 
-    // Step 2: Resolve source layout
-    let layout = match resolve_source_layout() {
+    // Step 2: Resolve engine launch configuration
+    let res_dir = window.path().resource_dir().ok();
+    let engine_launch = match resolve_engine_launch(res_dir.as_deref(), EngineWorkflow::Generate) {
         Ok(l) => l,
         Err(e) => {
             finalize_terminal(
@@ -436,13 +439,19 @@ fn run_supervisor(window: Window, request_id: String) {
     };
 
     let is_prompt = matches!(input, GenerationInput::PromptToCad { .. });
-    let child_env = prepare_child_env(&layout, &output_path, session_key.as_deref(), is_prompt);
+    let child_env = prepare_child_env_for_launch(
+        &engine_launch,
+        &output_path,
+        session_key.as_deref(),
+        is_prompt,
+    );
+    let args_slices: Vec<&str> = engine_launch.args.iter().map(|s| s.as_str()).collect();
 
     // Step 6: Spawn engine child process
     let mut child = match windows::spawn_engine_process(
-        &layout.python_exe,
-        &["-m", "ipc"],
-        &layout.repo_root,
+        &engine_launch.program,
+        &args_slices,
+        &engine_launch.cwd,
         &child_env,
     ) {
         Ok(c) => c,

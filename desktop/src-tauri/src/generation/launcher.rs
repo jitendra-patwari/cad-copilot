@@ -7,8 +7,8 @@ use super::protocol::{WireRequest, MAX_REQUEST_PAYLOAD_BYTES};
 use super::types::{CommandError, GenerationInput};
 
 /// Assembles a sanitized environment map for the child engine process.
-pub fn prepare_child_env(
-    layout: &SourceLayout,
+pub fn prepare_child_env_for_launch(
+    launch: &EngineLaunch,
     output_path: &Path,
     session_key: Option<&str>,
     is_prompt: bool,
@@ -45,11 +45,25 @@ pub fn prepare_child_env(
         }
     }
 
-    // Path handling: ensure .venv/Scripts is prepended to PATH
-    let venv_scripts = layout.python_exe.parent().unwrap_or(&layout.repo_root);
-    let original_path = std::env::var("PATH").unwrap_or_default();
-    let combined_path = format!("{};{}", venv_scripts.display(), original_path);
-    env.insert("PATH".to_string(), combined_path);
+    let support_dir = launch.program.parent().unwrap_or(&launch.cwd);
+    let path_val = if launch.is_packaged {
+        let sys_root = env
+            .get("SYSTEMROOT")
+            .cloned()
+            .or_else(|| env.get("WINDIR").cloned())
+            .unwrap_or_else(|| "C:\\Windows".to_string());
+        format!(
+            "{};{}\\System32;{};{}\\System32\\Wbem",
+            support_dir.display(),
+            sys_root,
+            sys_root,
+            sys_root
+        )
+    } else {
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        format!("{};{}", support_dir.display(), original_path)
+    };
+    env.insert("PATH".to_string(), path_val);
 
     // Slice-owned configuration
     env.insert("PYTHONUNBUFFERED".to_string(), "1".to_string());
@@ -75,6 +89,21 @@ pub fn prepare_child_env(
     env.remove("PYTHONDEBUG");
 
     env
+}
+
+pub fn prepare_child_env(
+    layout: &SourceLayout,
+    output_path: &Path,
+    session_key: Option<&str>,
+    is_prompt: bool,
+) -> HashMap<String, String> {
+    let launch = EngineLaunch {
+        program: layout.python_exe.clone(),
+        args: vec!["-m".to_string(), "ipc".to_string()],
+        cwd: layout.repo_root.clone(),
+        is_packaged: false,
+    };
+    prepare_child_env_for_launch(&launch, output_path, session_key, is_prompt)
 }
 
 /// Formats and validates the wire request JSON payload.
