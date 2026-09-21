@@ -1,16 +1,12 @@
 use std::fs::{self, File};
 use std::io::Read;
-use std::os::windows::ffi::OsStringExt;
 use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
-use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use windows_sys::Win32::Storage::FileSystem::{
-    GetFileInformationByHandle, GetFinalPathNameByHandleW, BY_HANDLE_FILE_INFORMATION,
-    FILE_FLAG_BACKUP_SEMANTICS, FILE_NAME_NORMALIZED, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    VOLUME_NAME_DOS,
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_READ, FILE_SHARE_WRITE,
 };
 
 use super::types::{
@@ -34,79 +30,9 @@ fn get_manifest_validator() -> &'static jsonschema::Validator {
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileSystemIdentity {
-    pub volume_serial_number: u32,
-    pub file_index: u64,
-}
+pub use crate::shared::path::*;
 
-/// Retrieves the NTFS volume serial number and 64-bit file index from an open handle.
-/// Rejects reparse points and junctions.
-pub fn get_handle_filesystem_identity(
-    file: &File,
-    path_for_err: &Path,
-) -> Result<FileSystemIdentity, CommandError> {
-    let handle = file.as_raw_handle() as windows_sys::Win32::Foundation::HANDLE;
-    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
-    let ok = unsafe { GetFileInformationByHandle(handle, &mut info) };
-    if ok == 0 {
-        return Err(CommandError::new(
-            "OUTPUT_UNAVAILABLE",
-            format!(
-                "Failed to query filesystem identity for '{}'.",
-                path_for_err.display()
-            ),
-        ));
-    }
-
-    if (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
-        return Err(CommandError::new(
-            "OUTPUT_PATH_NOT_ALLOWED",
-            format!(
-                "Path '{}' is a symlink, junction, or reparse point.",
-                path_for_err.display()
-            ),
-        ));
-    }
-
-    let file_index = ((info.nFileIndexHigh as u64) << 32) | (info.nFileIndexLow as u64);
-    Ok(FileSystemIdentity {
-        volume_serial_number: info.dwVolumeSerialNumber,
-        file_index,
-    })
-}
-
-/// Retrieves the NTFS volume serial number and 64-bit file index for a path via an open handle.
-/// Opens directories with `FILE_FLAG_BACKUP_SEMANTICS` and rejects reparse points/junctions.
-pub fn get_path_filesystem_identity(path: &Path) -> Result<FileSystemIdentity, CommandError> {
-    if !path.exists() {
-        return Err(CommandError::new(
-            "OUTPUT_UNAVAILABLE",
-            format!("Path does not exist: {}", path.display()),
-        ));
-    }
-
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-        .open(path)
-        .map_err(|e| {
-            CommandError::new(
-                "OUTPUT_UNAVAILABLE",
-                format!(
-                    "Failed to open path for identity check '{}': {}",
-                    path.display(),
-                    e
-                ),
-            )
-        })?;
-
-    get_handle_filesystem_identity(&file, path)
-}
-
-pub const MAX_MANIFEST_BYTES: u64 = 2_097_152; // 2 MiB
 const CHUNK_SIZE: usize = 65_536; // 64 KiB streaming buffer
-const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -302,11 +228,8 @@ pub fn verify_folder_containment(
         ));
     }
 
-    let canonical_root = selected_output_root.canonicalize().map_err(|e| {
-        CommandError::new(
-            "OUTPUT_UNAVAILABLE",
-            format!("Failed to canonicalize output root: {}", e),
-        )
+    let canonical_root = selected_output_root.canonicalize().map_err(|_| {
+        CommandError::new("OUTPUT_UNAVAILABLE", "Failed to canonicalize output root.")
     })?;
 
     let canon_root_str = canonical_root.to_string_lossy();
@@ -324,14 +247,10 @@ pub fn verify_folder_containment(
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
         .open(&canonical_root)
-        .map_err(|e| {
+        .map_err(|_| {
             CommandError::new(
                 "OUTPUT_UNAVAILABLE",
-                format!(
-                    "Failed to open output root directory '{}': {}",
-                    canonical_root.display(),
-                    e
-                ),
+                "Failed to open output root directory.",
             )
         })?;
 
@@ -353,10 +272,10 @@ pub fn verify_folder_containment(
         ));
     }
 
-    let canonical_run = run_folder.canonicalize().map_err(|e| {
+    let canonical_run = run_folder.canonicalize().map_err(|_| {
         CommandError::new(
             "OUTPUT_UNAVAILABLE",
-            format!("Failed to canonicalize run directory: {}", e),
+            "Failed to canonicalize run directory.",
         )
     })?;
 
@@ -382,16 +301,7 @@ pub fn verify_folder_containment(
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
         .open(&canonical_run)
-        .map_err(|e| {
-            CommandError::new(
-                "OUTPUT_UNAVAILABLE",
-                format!(
-                    "Failed to open run directory '{}': {}",
-                    canonical_run.display(),
-                    e
-                ),
-            )
-        })?;
+        .map_err(|_| CommandError::new("OUTPUT_UNAVAILABLE", "Failed to open run directory."))?;
 
     let run_identity = get_handle_filesystem_identity(&run_file, &canonical_run)?;
     if run_identity.volume_serial_number != root_identity.volume_serial_number {
@@ -401,10 +311,10 @@ pub fn verify_folder_containment(
         ));
     }
 
-    let meta = run_file.metadata().map_err(|e| {
+    let meta = run_file.metadata().map_err(|_| {
         CommandError::new(
             "OUTPUT_UNAVAILABLE",
-            format!("Failed to read metadata for run directory: {}", e),
+            "Failed to read metadata for run directory.",
         )
     })?;
 
@@ -459,11 +369,8 @@ fn compute_file_sha256(
             }
         }
 
-        let bytes_read = file.read(&mut buffer).map_err(|e| {
-            CommandError::new(
-                "RESULT_ACCESS_UNAVAILABLE",
-                format!("Failed to read artifact file: {}", e),
-            )
+        let bytes_read = file.read(&mut buffer).map_err(|_| {
+            CommandError::new("RESULT_ACCESS_UNAVAILABLE", "Failed to read artifact file.")
         })?;
         if bytes_read == 0 {
             break;
@@ -480,121 +387,6 @@ fn compute_file_sha256(
     }
 
     Ok((total_bytes, hex))
-}
-
-/// Simplifies a canonical Windows path by stripping extended-length `\\?\` or `\\?\UNC\` prefixes
-/// for compatibility with external shell tools (such as explorer.exe) and cleaner UI presentation.
-pub fn simplify_windows_path(path: &Path) -> PathBuf {
-    let s = path.to_string_lossy();
-    if let Some(stripped) = s.strip_prefix(r"\\?\UNC\") {
-        PathBuf::from(format!(r"\\{}", stripped))
-    } else if let Some(stripped) = s.strip_prefix(r"\\?\") {
-        PathBuf::from(stripped)
-    } else {
-        path.to_path_buf()
-    }
-}
-
-/// Verifies that an open file handle does not reference a reparse point or hardlink,
-/// resides on the expected volume (if provided), and that its final resolved path on disk
-/// is contained within `canonical_run`.
-/// This protects against TOCTOU junction / hardlink replacement attacks between path checks and reads.
-pub fn verify_open_file_handle(
-    file: &File,
-    canonical_run: &Path,
-    expected_volume: Option<u32>,
-) -> Result<(), CommandError> {
-    let handle = file.as_raw_handle() as windows_sys::Win32::Foundation::HANDLE;
-
-    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
-    let ok = unsafe { GetFileInformationByHandle(handle, &mut info) };
-    if ok == 0 {
-        return Err(CommandError::new(
-            "RESULT_ACCESS_UNAVAILABLE",
-            "Failed to retrieve file information from open handle.",
-        ));
-    }
-
-    if let Some(vol) = expected_volume {
-        if info.dwVolumeSerialNumber != vol {
-            return Err(CommandError::new(
-                "OUTPUT_PATH_NOT_ALLOWED",
-                "Open file handle resides on a different volume than designated run directory.",
-            ));
-        }
-    }
-
-    if (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
-        return Err(CommandError::new(
-            "OUTPUT_PATH_NOT_ALLOWED",
-            "Open file handle references a reparse point or symlink.",
-        ));
-    }
-
-    if info.nNumberOfLinks > 1 {
-        return Err(CommandError::new(
-            "OUTPUT_PATH_NOT_ALLOWED",
-            format!(
-                "Open file handle has {} hardlinks; hardlinks are not permitted.",
-                info.nNumberOfLinks
-            ),
-        ));
-    }
-
-    let mut buf = vec![0u16; 1024];
-    let mut len = unsafe {
-        GetFinalPathNameByHandleW(
-            handle,
-            buf.as_mut_ptr(),
-            buf.len() as u32,
-            FILE_NAME_NORMALIZED | VOLUME_NAME_DOS,
-        )
-    };
-
-    if len as usize > buf.len() {
-        buf.resize(len as usize + 1, 0);
-        len = unsafe {
-            GetFinalPathNameByHandleW(
-                handle,
-                buf.as_mut_ptr(),
-                buf.len() as u32,
-                FILE_NAME_NORMALIZED | VOLUME_NAME_DOS,
-            )
-        };
-    }
-
-    if len == 0 {
-        return Err(CommandError::new(
-            "RESULT_ACCESS_UNAVAILABLE",
-            "Failed to resolve final path from open file handle.",
-        ));
-    }
-
-    let raw_os = std::ffi::OsString::from_wide(&buf[..len as usize]);
-    let handle_final_path = PathBuf::from(raw_os);
-
-    let clean_handle = simplify_windows_path(&handle_final_path);
-    let clean_run = simplify_windows_path(canonical_run);
-
-    let handle_str = clean_handle.to_string_lossy().replace('/', "\\");
-    let run_str = clean_run.to_string_lossy().replace('/', "\\");
-    let normalized_run_prefix = if run_str.ends_with('\\') {
-        run_str
-    } else {
-        format!("{}\\", run_str)
-    };
-
-    if !handle_str
-        .to_ascii_lowercase()
-        .starts_with(&normalized_run_prefix.to_ascii_lowercase())
-    {
-        return Err(CommandError::new(
-            "OUTPUT_PATH_NOT_ALLOWED",
-            "Open file handle resolves outside the designated run directory.",
-        ));
-    }
-
-    Ok(())
 }
 
 pub fn validate_and_load_result(
@@ -641,10 +433,10 @@ pub fn validate_and_load_result(
 
     check_deadline()?;
 
-    let manifest_sym_meta = fs::symlink_metadata(&manifest_path).map_err(|e| {
+    let manifest_sym_meta = fs::symlink_metadata(&manifest_path).map_err(|_| {
         CommandError::new(
             "RESULT_ACCESS_UNAVAILABLE",
-            format!("Failed to read run_manifest.json metadata: {}", e),
+            "Failed to read run_manifest.json metadata.",
         )
     })?;
 
@@ -657,19 +449,19 @@ pub fn validate_and_load_result(
         ));
     }
 
-    let manifest_file = File::open(&manifest_path).map_err(|e| {
+    let manifest_file = File::open(&manifest_path).map_err(|_| {
         CommandError::new(
             "RESULT_ACCESS_UNAVAILABLE",
-            format!("Failed to open run_manifest.json: {}", e),
+            "Failed to open run_manifest.json.",
         )
     })?;
 
     binding.verify_file(&manifest_file)?;
 
-    let manifest_meta = manifest_file.metadata().map_err(|e| {
+    let manifest_meta = manifest_file.metadata().map_err(|_| {
         CommandError::new(
             "RESULT_ACCESS_UNAVAILABLE",
-            format!("Failed to read run_manifest.json metadata: {}", e),
+            "Failed to read run_manifest.json metadata.",
         )
     })?;
 
@@ -692,10 +484,7 @@ pub fn validate_and_load_result(
     if manifest_meta.len() > MAX_MANIFEST_BYTES {
         return Err(CommandError::new(
             "RESULT_ACCESS_UNAVAILABLE",
-            format!(
-                "Run manifest size ({} bytes) exceeds maximum permitted limit of 2 MiB.",
-                manifest_meta.len()
-            ),
+            "Run manifest size exceeds maximum permitted limit of 2 MiB.",
         ));
     }
 
@@ -704,10 +493,10 @@ pub fn validate_and_load_result(
     manifest_file
         .take(MAX_MANIFEST_BYTES + 1)
         .read_to_end(&mut manifest_bytes)
-        .map_err(|e| {
+        .map_err(|_| {
             CommandError::new(
                 "RESULT_ACCESS_UNAVAILABLE",
-                format!("Failed to read run_manifest.json: {}", e),
+                "Failed to read run_manifest.json.",
             )
         })?;
 
@@ -718,88 +507,68 @@ pub fn validate_and_load_result(
         ));
     }
 
-    let manifest_val: serde_json::Value = serde_json::from_slice(&manifest_bytes).map_err(|e| {
-        CommandError::new(
-            "INVALID_ENGINE_OUTPUT",
-            format!("run_manifest.json failed JSON parsing: {}", e),
-        )
-    })?;
+    let manifest_val: serde_json::Value =
+        serde_json::from_slice(&manifest_bytes).map_err(|_| {
+            CommandError::new(
+                "INVALID_ENGINE_OUTPUT",
+                "Run manifest JSON payload could not be parsed.",
+            )
+        })?;
 
     let validator = get_manifest_validator();
-    if let Err(err) = validator.validate(&manifest_val) {
+    if validator.validate(&manifest_val).is_err() {
         return Err(CommandError::new(
             "INVALID_ENGINE_OUTPUT",
-            format!(
-                "run_manifest.json failed canonical schema validation at {}: {}",
-                err.instance_path, err
-            ),
+            "Run manifest failed canonical schema validation.",
         ));
     }
 
-    let manifest: RunManifest = serde_json::from_value(manifest_val).map_err(|e| {
+    let manifest: RunManifest = serde_json::from_value(manifest_val).map_err(|_| {
         CommandError::new(
             "INVALID_ENGINE_OUTPUT",
-            format!("run_manifest.json deserialization failed: {}", e),
+            "Run manifest structure could not be deserialized.",
         )
     })?;
 
     if manifest.manifest_version != "cad_copilot.run_manifest.v1" {
         return Err(CommandError::new(
             "INVALID_ENGINE_OUTPUT",
-            format!(
-                "Unsupported manifest schema version '{}'.",
-                manifest.manifest_version
-            ),
+            "Unsupported run manifest schema version.",
         ));
     }
 
     if manifest.request.request_id != request_id {
         return Err(CommandError::new(
             "INVALID_ENGINE_OUTPUT",
-            format!(
-                "Manifest request ID mismatch: expected '{}', found '{}'.",
-                request_id, manifest.request.request_id
-            ),
+            "Manifest request ID mismatch.",
         ));
     }
 
     if manifest.request.contract_version != "1.0" {
         return Err(CommandError::new(
             "INVALID_ENGINE_OUTPUT",
-            format!(
-                "Unsupported request contract version '{}'.",
-                manifest.request.contract_version
-            ),
+            "Unsupported request contract version.",
         ));
     }
 
     if manifest.request.unit != "mm" {
         return Err(CommandError::new(
             "INVALID_ENGINE_OUTPUT",
-            format!(
-                "Unsupported request unit '{}'; expected 'mm'.",
-                manifest.request.unit
-            ),
+            "Unsupported request unit.",
         ));
     }
 
     if manifest.request.kind != "example_plan" && manifest.request.kind != "prompt_to_cad" {
         return Err(CommandError::new(
             "INVALID_ENGINE_OUTPUT",
-            format!(
-                "Unsupported request kind '{}'; expected 'example_plan' or 'prompt_to_cad'.",
-                manifest.request.kind
-            ),
+            "Unsupported request kind.",
         ));
     }
 
     if manifest.gate_mode != "capability_first" && manifest.gate_mode != "strict" {
         return Err(CommandError::new(
             "INVALID_ENGINE_OUTPUT",
-            format!(
-                "Unsupported gate_mode '{}'; expected 'capability_first' or 'strict'.",
-                manifest.gate_mode
-            ),
+            "Unsupported manifest gate mode.",
         ));
     }
 
@@ -834,10 +603,7 @@ pub fn validate_and_load_result(
     if manifest.stable_ids.part_id != plan_part_id {
         return Err(CommandError::new(
             "INVALID_ENGINE_OUTPUT",
-            format!(
-                "stable_ids.part_id '{}' does not match feature_plan part_id '{}'.",
-                manifest.stable_ids.part_id, plan_part_id
-            ),
+            "Manifest part ID does not match feature plan part ID.",
         ));
     }
 
@@ -853,10 +619,7 @@ pub fn validate_and_load_result(
         if manifest.request.kind != expected_k {
             return Err(CommandError::new(
                 "INVALID_ENGINE_OUTPUT",
-                format!(
-                    "Manifest request kind mismatch: expected '{}', found '{}'.",
-                    expected_k, manifest.request.kind
-                ),
+                "Manifest request kind does not match expected execution kind.",
             ));
         }
     }
@@ -865,11 +628,7 @@ pub fn validate_and_load_result(
         if manifest.artifacts.len() != wire_artifacts.len() {
             return Err(CommandError::new(
                 "INVALID_ENGINE_OUTPUT",
-                format!(
-                    "Artifact count mismatch: manifest specifies {} artifacts, wire response has {}.",
-                    manifest.artifacts.len(),
-                    wire_artifacts.len()
-                ),
+                "Manifest artifact count does not match engine wire response count.",
             ));
         }
 
@@ -897,52 +656,35 @@ pub fn validate_and_load_result(
                     if wire_file_name != manifest_file_name {
                         return Err(CommandError::new(
                             "INVALID_ENGINE_OUTPUT",
-                            format!(
-                                "Artifact filename mismatch: manifest '{}', wire '{}'.",
-                                a.path, wire_art.path
-                            ),
+                            "Artifact filename does not match engine wire response.",
                         ));
                     }
 
                     let expected_full_path = canonical_run.join(&a.path);
                     let wire_path = Path::new(&wire_art.path);
-                    let canon_expected = expected_full_path.canonicalize().map_err(|e| {
+                    let canon_expected = expected_full_path.canonicalize().map_err(|_| {
                         CommandError::new(
                             "OUTPUT_PATH_NOT_ALLOWED",
-                            format!(
-                                "Failed to canonicalize manifest artifact path '{}': {}",
-                                expected_full_path.display(),
-                                e
-                            ),
+                            "Failed to canonicalize manifest artifact path.",
                         )
                     })?;
-                    let canon_wire = wire_path.canonicalize().map_err(|e| {
+                    let canon_wire = wire_path.canonicalize().map_err(|_| {
                         CommandError::new(
                             "OUTPUT_PATH_NOT_ALLOWED",
-                            format!(
-                                "Failed to canonicalize wire artifact path '{}': {}",
-                                wire_art.path, e
-                            ),
+                            "Failed to canonicalize wire artifact path.",
                         )
                     })?;
                     if canon_expected != canon_wire {
                         return Err(CommandError::new(
                             "OUTPUT_PATH_NOT_ALLOWED",
-                            format!(
-                                "Wire artifact path '{}' does not match expected run folder path '{}'.",
-                                wire_art.path,
-                                expected_full_path.display()
-                            ),
+                            "Wire artifact path does not match expected run folder path.",
                         ));
                     }
                 }
                 None => {
                     return Err(CommandError::new(
                         "INVALID_ENGINE_OUTPUT",
-                        format!(
-                            "Manifest missing artifact declared in engine response: {} ({})",
-                            wire_art.path, wire_art.artifact_type
-                        ),
+                        "Manifest is missing an artifact declared in engine wire response.",
                     ));
                 }
             }
@@ -959,10 +701,7 @@ pub fn validate_and_load_result(
     if manifest.artifacts.len() < 3 || manifest.artifacts.len() > 4 {
         return Err(CommandError::new(
             "INVALID_ENGINE_OUTPUT",
-            format!(
-                "Manifest specifies {} artifacts; expected between 3 and 4.",
-                manifest.artifacts.len()
-            ),
+            "Manifest artifact count is invalid.",
         ));
     }
 
@@ -984,10 +723,7 @@ pub fn validate_and_load_result(
         {
             return Err(CommandError::new(
                 "OUTPUT_PATH_NOT_ALLOWED",
-                format!(
-                    "Artifact path '{}' contains prohibited directory separators or traversal.",
-                    item.path
-                ),
+                "Artifact path contains prohibited directory separators or traversal.",
             ));
         }
 
@@ -1003,10 +739,7 @@ pub fn validate_and_load_result(
                 if item.format != "par" || !item.path.ends_with(".par") {
                     return Err(CommandError::new(
                         "INVALID_ENGINE_OUTPUT",
-                        format!(
-                            "Mismatched native_part artifact format or extension: {}",
-                            item.path
-                        ),
+                        "Mismatched native_part artifact format or extension.",
                     ));
                 }
             }
@@ -1021,10 +754,7 @@ pub fn validate_and_load_result(
                 if item.format != "step" || !item.path.ends_with(".step") {
                     return Err(CommandError::new(
                         "INVALID_ENGINE_OUTPUT",
-                        format!(
-                            "Mismatched geometry_step artifact format or extension: {}",
-                            item.path
-                        ),
+                        "Mismatched geometry_step artifact format or extension.",
                     ));
                 }
             }
@@ -1039,10 +769,7 @@ pub fn validate_and_load_result(
                 if item.format != "stl" || !item.path.ends_with(".stl") {
                     return Err(CommandError::new(
                         "INVALID_ENGINE_OUTPUT",
-                        format!(
-                            "Mismatched mesh_stl artifact format or extension: {}",
-                            item.path
-                        ),
+                        "Mismatched mesh_stl artifact format or extension.",
                     ));
                 }
             }
@@ -1057,18 +784,15 @@ pub fn validate_and_load_result(
                 if item.format != "jpg" || !item.path.ends_with(".jpg") {
                     return Err(CommandError::new(
                         "INVALID_ENGINE_OUTPUT",
-                        format!(
-                            "Mismatched preview_image artifact format or extension: {}",
-                            item.path
-                        ),
+                        "Mismatched preview_image artifact format or extension.",
                     ));
                 }
                 verified_preview_sha = Some(item.sha256.clone());
             }
-            unknown => {
+            _ => {
                 return Err(CommandError::new(
                     "INVALID_ENGINE_OUTPUT",
-                    format!("Unknown manifest artifact type '{}'.", unknown),
+                    "Unknown manifest artifact type.",
                 ));
             }
         }
@@ -1080,16 +804,13 @@ pub fn validate_and_load_result(
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 return Err(CommandError::new(
                     "RESULT_ACCESS_UNAVAILABLE",
-                    format!("Artifact '{}' not found on disk: {}", item.path, e),
+                    "Required generation artifact was not found on disk.",
                 ));
             }
-            Err(e) => {
+            Err(_) => {
                 return Err(CommandError::new(
                     "RESULT_ACCESS_UNAVAILABLE",
-                    format!(
-                        "Failed to read metadata for artifact '{}': {}",
-                        item.path, e
-                    ),
+                    "Failed to read generation artifact metadata.",
                 ));
             }
         };
@@ -1099,7 +820,7 @@ pub fn validate_and_load_result(
         {
             return Err(CommandError::new(
                 "OUTPUT_PATH_NOT_ALLOWED",
-                format!("Artifact '{}' is a symlink or reparse point.", item.path),
+                "Generation artifact is a symlink or reparse point.",
             ));
         }
 
@@ -1107,26 +828,23 @@ pub fn validate_and_load_result(
             if !canon_art.starts_with(canonical_run) {
                 return Err(CommandError::new(
                     "OUTPUT_PATH_NOT_ALLOWED",
-                    format!("Artifact '{}' path escapes run directory.", item.path),
+                    "Generation artifact path escapes run directory.",
                 ));
             }
         }
 
-        let art_file = File::open(&artifact_path).map_err(|e| {
+        let art_file = File::open(&artifact_path).map_err(|_| {
             CommandError::new(
                 "RESULT_ACCESS_UNAVAILABLE",
-                format!("Artifact '{}' not found on disk: {}", item.path, e),
+                "Failed to open generation artifact file.",
             )
         })?;
 
         binding.verify_file(&art_file)?;
-        let art_meta = art_file.metadata().map_err(|e| {
+        let art_meta = art_file.metadata().map_err(|_| {
             CommandError::new(
                 "RESULT_ACCESS_UNAVAILABLE",
-                format!(
-                    "Failed to read metadata for artifact '{}': {}",
-                    item.path, e
-                ),
+                "Failed to read generation artifact metadata.",
             )
         })?;
 
@@ -1134,14 +852,14 @@ pub fn validate_and_load_result(
         {
             return Err(CommandError::new(
                 "OUTPUT_PATH_NOT_ALLOWED",
-                format!("Artifact '{}' is a symlink or reparse point.", item.path),
+                "Generation artifact is a symlink or reparse point.",
             ));
         }
 
         if !art_meta.is_file() {
             return Err(CommandError::new(
                 "RESULT_ACCESS_UNAVAILABLE",
-                format!("Artifact '{}' is not a regular file.", item.path),
+                "Generation artifact is not a regular file.",
             ));
         }
 
@@ -1151,20 +869,14 @@ pub fn validate_and_load_result(
         if file_len != item.size_bytes {
             return Err(CommandError::new(
                 "RESULT_ACCESS_UNAVAILABLE",
-                format!(
-                    "Artifact '{}' size mismatch: expected {} bytes, actual {} bytes.",
-                    item.path, item.size_bytes, file_len
-                ),
+                "Generation artifact size does not match manifest sidecar.",
             ));
         }
 
         if !file_sha.eq_ignore_ascii_case(&item.sha256) {
             return Err(CommandError::new(
                 "RESULT_ACCESS_UNAVAILABLE",
-                format!(
-                    "Artifact '{}' SHA-256 digest mismatch against manifest sidecar.",
-                    item.path
-                ),
+                "Generation artifact SHA-256 digest mismatch against manifest sidecar.",
             ));
         }
 
@@ -1189,6 +901,7 @@ pub fn validate_and_load_result(
         schema_version: manifest.manifest_version,
         provenance_kind: manifest.provenance.kind,
         source_id: manifest.provenance.source_id,
+        engine_version: Some(manifest.engine.version),
         cad_runtime_version: manifest.cad_runtime.version_build,
         operations_executed: manifest.execution.operations_executed,
         plan_sha256: manifest.fingerprints.plan_sha256,
@@ -1240,10 +953,10 @@ pub fn reveal_in_explorer(
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .map_err(|e| {
+        .map_err(|_| {
             CommandError::new(
                 "REVEAL_FAILED",
-                format!("Failed to spawn Windows Explorer: {}", e),
+                "Failed to open destination in Windows Explorer.",
             )
         })?;
 
@@ -2043,7 +1756,10 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err.code, "INVALID_ENGINE_OUTPUT");
-        assert!(err.message.contains("Artifact count mismatch"));
+        assert_eq!(
+            err.message,
+            "Manifest artifact count does not match engine wire response count."
+        );
     }
 
     #[test]

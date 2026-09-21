@@ -24,7 +24,7 @@ use windows_sys::Win32::System::Threading::{
     STARTF_USESHOWWINDOW, STARTF_USESTDHANDLES, STARTUPINFOEXW,
 };
 
-use super::types::CommandError;
+use super::error::CommandError;
 
 pub const SW_HIDE: u16 = 0;
 pub const ERROR_ACCESS_DENIED: u32 = 5;

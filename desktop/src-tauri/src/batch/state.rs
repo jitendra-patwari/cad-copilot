@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::generation::output::get_path_filesystem_identity;
+use crate::shared::path::{get_path_filesystem_identity, FileSystemIdentity};
 
 use super::selection::{
     detect_supported_extension, has_reparse_component, SelectedBatchOutput, SelectedBatchSource,
@@ -27,8 +27,8 @@ pub struct ActiveBatchRunState {
     pub eligible_files: Vec<String>,
     pub source_root: PathBuf,
     pub output_root: PathBuf,
-    pub source_root_identity: crate::generation::output::FileSystemIdentity,
-    pub output_root_identity: crate::generation::output::FileSystemIdentity,
+    pub source_root_identity: FileSystemIdentity,
+    pub output_root_identity: FileSystemIdentity,
     pub state: BatchRunState,
     pub engine_status: Option<BatchEngineStatus>,
     pub phase: Option<BatchPhase>,
@@ -101,6 +101,7 @@ impl BatchState {
                 display_path: o.canonical_root.to_string_lossy().to_string(),
             }),
             run: self.active_run.as_ref().map(|r| r.to_snapshot()),
+            engine_build: crate::shared::engine::current_engine_build_info(),
         }
     }
 
@@ -209,10 +210,10 @@ impl BatchState {
         }
 
         let current_source_id =
-            get_path_filesystem_identity(&source.canonical_root).map_err(|e| {
+            get_path_filesystem_identity(&source.canonical_root).map_err(|_| {
                 CommandError::new(
                     "INPUT_ROOT_NOT_FOUND",
-                    format!("Source root verification failed: {}", e.message),
+                    "Source root directory verification failed.",
                 )
             })?;
         if current_source_id != source.root_identity {
@@ -230,10 +231,10 @@ impl BatchState {
         }
 
         let current_output_id =
-            get_path_filesystem_identity(&output.canonical_root).map_err(|e| {
+            get_path_filesystem_identity(&output.canonical_root).map_err(|_| {
                 CommandError::new(
                     "OUTPUT_UNAVAILABLE",
-                    format!("Output root verification failed: {}", e.message),
+                    "Output directory verification failed.",
                 )
             })?;
         if current_output_id != output.root_identity {
@@ -338,23 +339,14 @@ impl BatchState {
         // Recheck filesystem identity for all eligible files before reserving run
         for rel_file in &eligible_files {
             let full_path = source.canonical_root.join(rel_file);
-            let current_id = get_path_filesystem_identity(&full_path).map_err(|e| {
-                CommandError::new(
-                    "INPUT_FILE_NOT_FOUND",
-                    format!(
-                        "Source file '{}' verification failed: {}",
-                        rel_file, e.message
-                    ),
-                )
+            let current_id = get_path_filesystem_identity(&full_path).map_err(|_| {
+                CommandError::new("INPUT_FILE_NOT_FOUND", "Source file verification failed.")
             })?;
             if let Some(&stored_id) = source.file_identities.get(rel_file) {
                 if current_id != stored_id {
                     return Err(CommandError::new(
                         "INPUT_FILE_NOT_FOUND",
-                        format!(
-                            "Source file '{}' identity changed since selection.",
-                            rel_file
-                        ),
+                        "Source file identity changed since selection.",
                     ));
                 }
             }

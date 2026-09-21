@@ -33,6 +33,8 @@ interface GenerateFormProps {
   isSubmitting: boolean;
   actionError: CommandError | null;
   clearActionError: () => void;
+  isSubscribed?: boolean;
+  retrySubscription?: () => Promise<void>;
 }
 
 export const GenerateForm: React.FC<GenerateFormProps> = ({
@@ -54,6 +56,8 @@ export const GenerateForm: React.FC<GenerateFormProps> = ({
   isSubmitting,
   actionError,
   clearActionError,
+  isSubscribed = true,
+  retrySubscription,
 }) => {
   const [showKeyText, setShowKeyText] = useState(false);
   const keyInputRef = useRef<HTMLInputElement>(null);
@@ -74,6 +78,7 @@ export const GenerateForm: React.FC<GenerateFormProps> = ({
   const promptLength = Array.from(prompt).length;
   const isPromptValid = mode === 'example' || (prompt.trim().length > 0 && promptLength <= 8000);
   const canSubmit =
+    isSubscribed &&
     !isRunActive &&
     !isSubmitting &&
     output !== null &&
@@ -343,13 +348,40 @@ export const GenerateForm: React.FC<GenerateFormProps> = ({
       {/* Action Error Banner */}
       {actionError && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" aria-hidden="true" />
-            <div className="space-y-0.5">
-              <p className="font-semibold">{actionError.code}</p>
-              <p>{actionError.message}</p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" aria-hidden="true" />
+              <div className="space-y-0.5">
+                <p className="font-semibold">{actionError.code}</p>
+                <p>{actionError.message}</p>
+              </div>
             </div>
+            {actionError.code === 'EVENT_SUBSCRIPTION_FAILED' && retrySubscription && (
+              <button
+                type="button"
+                onClick={retrySubscription}
+                className="cursor-pointer text-xs font-semibold text-rose-700 hover:text-rose-900 underline whitespace-nowrap"
+              >
+                Retry Connection
+              </button>
+            )}
           </div>
+        </div>
+      )}
+
+      {/* Disconnected Indicator */}
+      {!isSubscribed && (
+        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <span>Event listener disconnected. Runs are paused until connection recovers.</span>
+          {retrySubscription && (
+            <button
+              type="button"
+              onClick={retrySubscription}
+              className="cursor-pointer font-semibold text-amber-900 hover:underline"
+            >
+              Reconnect
+            </button>
+          )}
         </div>
       )}
 

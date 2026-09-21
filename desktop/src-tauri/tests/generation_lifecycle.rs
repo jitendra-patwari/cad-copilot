@@ -1,9 +1,11 @@
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::sync::Mutex;
 
-use cad_copilot_desktop_lib::generation::launcher::{prepare_child_env, resolve_source_layout};
-use cad_copilot_desktop_lib::generation::windows::{
+use cad_copilot_desktop_lib::generation::launcher::{format_request_payload, prepare_child_env};
+use cad_copilot_desktop_lib::generation::types::GenerationInput;
+use cad_copilot_desktop_lib::shared::engine::{resolve_source_layout, verify_engine_compatibility};
+use cad_copilot_desktop_lib::shared::windows::{
     force_terminate_process, send_cancellation_signal, spawn_engine_process,
     spawn_engine_process_explicit, wait_process_timeout,
 };
@@ -20,7 +22,7 @@ impl Drop for ProcessGuard {
 
 #[test]
 fn test_targeted_cancellation_unwinds_target_and_preserves_unrelated() {
-    let _console_lock = CONSOLE_TEST_LOCK.lock().unwrap();
+    let _console_lock = CONSOLE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let layout = resolve_source_layout().expect("Repo layout should resolve in tests");
     let mut env = HashMap::new();
     for (k, v) in std::env::vars() {
@@ -177,7 +179,7 @@ fn qualify_live_ipc_cancellation(private_console: bool) {
         return;
     }
 
-    let _console_lock = CONSOLE_TEST_LOCK.lock().unwrap();
+    let _console_lock = CONSOLE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let layout = resolve_source_layout().expect("Repo layout should resolve");
 
     let test_run_id = format!(
@@ -309,4 +311,308 @@ fn test_live_ipc_cancellation_shared_console() {
 #[test]
 fn test_live_ipc_cancellation_private_console() {
     qualify_live_ipc_cancellation(true);
+}
+
+#[test]
+fn test_generation_child_prerequisite_failure_before_cad_activation() {
+    let _console_lock = CONSOLE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let layout = resolve_source_layout().expect("Repo layout should resolve in tests");
+    let temp_output_root = std::env::temp_dir().join(format!(
+        "cad_gen_prereq_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&temp_output_root).expect("Failed to create temp output dir");
+    struct Cleaner<'a>(&'a std::path::Path);
+    impl<'a> Drop for Cleaner<'a> {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(self.0);
+        }
+    }
+    let _cleaner = Cleaner(&temp_output_root);
+
+    // Case 1: Mismatched engine artifact version rejected before execution
+    let temp_engine_dir = std::env::temp_dir().join(format!(
+        "cad_gen_mismatch_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&temp_engine_dir).expect("Create temp engine dir");
+    let dummy_pyproject = temp_engine_dir.join("pyproject.toml");
+    std::fs::write(
+        &dummy_pyproject,
+        "[project]\nname = \"cad-copilot\"\nversion = \"0.9.9\"\n",
+    )
+    .expect("Write dummy pyproject");
+    let compat_res = verify_engine_compatibility(&temp_engine_dir);
+    assert!(
+        compat_res.is_err(),
+        "Mismatched engine version must be rejected"
+    );
+    let compat_err = compat_res.unwrap_err();
+    assert_eq!(compat_err.code, "ENGINE_UNAVAILABLE");
+    assert_eq!(
+        compat_err.message,
+        "Engine specification version does not match supported desktop baseline."
+    );
+    let _ = std::fs::remove_dir_all(&temp_engine_dir);
+
+    // Common environment
+    let mut base_env = HashMap::new();
+    for (k, v) in std::env::vars() {
+        let k_up = k.to_uppercase();
+        if k_up == "SYSTEMROOT"
+            || k_up == "WINDIR"
+            || k_up == "PATH"
+            || k_up == "TEMP"
+            || k_up == "TMP"
+        {
+            base_env.insert(k, v);
+        }
+    }
+    base_env.insert("PYTHONUNBUFFERED".to_string(), "1".to_string());
+    base_env.insert(
+        "CAD_OUTPUT_ROOT".to_string(),
+        temp_output_root.to_string_lossy().to_string(),
+    );
+
+    // Case 2: Mismatched installed cad-copilot distribution metadata exits with code 1 before CAD activation
+    let mismatch_meta_cmd = "import sys, importlib.metadata; orig = importlib.metadata.version; importlib.metadata.version = lambda n: '9.9.9' if n == 'cad-copilot' else orig(n); from ipc.stdio import main; sys.exit(main())";
+    let mut child_mismatch = spawn_engine_process(
+        &layout.python_exe,
+        &["-c", mismatch_meta_cmd],
+        &layout.repo_root,
+        &base_env,
+    )
+    .expect("Failed to spawn child for mismatched distribution metadata test");
+    let _guard_mismatch = ProcessGuard(child_mismatch.process_handle);
+
+    let exit_mismatch = wait_process_timeout(child_mismatch.process_handle, 5000)
+        .expect("Wait mismatched metadata child failed");
+    assert_eq!(
+        exit_mismatch,
+        Some(1),
+        "Child with mismatched installed engine metadata must exit with code 1"
+    );
+
+    let mut stderr_mismatch = child_mismatch.stderr_read.take().unwrap();
+    let mut stderr_bytes = Vec::new();
+    stderr_mismatch
+        .read_to_end(&mut stderr_bytes)
+        .expect("Read stderr failed");
+    let stderr_str = String::from_utf8_lossy(&stderr_bytes);
+    assert!(
+        stderr_str.contains(r#""phase":"fatal""#),
+        "Mismatched metadata child must emit fatal diagnostic on stderr, got: {stderr_str}"
+    );
+
+    let mut stdout_mismatch = child_mismatch.stdout_read.take().unwrap();
+    let mut stdout_bytes = Vec::new();
+    stdout_mismatch
+        .read_to_end(&mut stdout_bytes)
+        .expect("Read stdout failed");
+    assert!(
+        stdout_bytes.is_empty(),
+        "Mismatched metadata child must produce no stdout"
+    );
+
+    // Also verify absent distribution metadata exits with code 1 before CAD activation
+    let absent_meta_cmd = "import sys, importlib.metadata\ndef _raise(n):\n    raise importlib.metadata.PackageNotFoundError(n)\nimportlib.metadata.version = _raise\nfrom ipc.stdio import main\nsys.exit(main())";
+    let mut child_absent = spawn_engine_process(
+        &layout.python_exe,
+        &["-c", absent_meta_cmd],
+        &layout.repo_root,
+        &base_env,
+    )
+    .expect("Failed to spawn child for absent distribution metadata test");
+    let _guard_absent = ProcessGuard(child_absent.process_handle);
+
+    let exit_absent = wait_process_timeout(child_absent.process_handle, 5000)
+        .expect("Wait absent metadata child failed");
+    assert_eq!(
+        exit_absent,
+        Some(1),
+        "Child with absent installed engine metadata must exit with code 1"
+    );
+
+    let mut stderr_absent = child_absent.stderr_read.take().unwrap();
+    let mut stderr_bytes = Vec::new();
+    stderr_absent
+        .read_to_end(&mut stderr_bytes)
+        .expect("Read stderr failed");
+    let stderr_str = String::from_utf8_lossy(&stderr_bytes);
+    assert!(
+        stderr_str.contains(r#""phase":"fatal""#),
+        "Absent metadata child must emit fatal diagnostic on stderr, got: {stderr_str}"
+    );
+
+    let mut stdout_absent = child_absent.stdout_read.take().unwrap();
+    let mut stdout_bytes = Vec::new();
+    stdout_absent
+        .read_to_end(&mut stdout_bytes)
+        .expect("Read stdout failed");
+    assert!(
+        stdout_bytes.is_empty(),
+        "Absent metadata child must produce no stdout"
+    );
+
+    // Case 3: Unavailable Gemini SDK fails in Phase B before CAD activation (even when key is present)
+    let mut sdk_env = base_env.clone();
+    sdk_env.insert("GEMINI_API_KEY".to_string(), "test_session_key".to_string());
+    // Simulate unavailable Gemini SDK by blocking the 'google' package in sys.modules
+    let block_sdk_cmd =
+        "import sys; sys.modules['google'] = None; from ipc.stdio import main; sys.exit(main())";
+    let mut child_no_sdk = spawn_engine_process(
+        &layout.python_exe,
+        &["-c", block_sdk_cmd],
+        &layout.repo_root,
+        &sdk_env,
+    )
+    .expect("Failed to spawn child simulating unavailable Gemini SDK");
+    let _guard_sdk = ProcessGuard(child_no_sdk.process_handle);
+
+    let mut stdin_sdk = child_no_sdk.stdin_write.take().unwrap();
+    let prompt_payload = format_request_payload(
+        "req-prereq-no-sdk",
+        &GenerationInput::PromptToCad {
+            prompt: "Create a simple mounting bracket".to_string(),
+        },
+    )
+    .expect("Format prompt payload failed");
+    stdin_sdk
+        .write_all(&prompt_payload)
+        .expect("Write prompt request failed");
+    drop(stdin_sdk);
+
+    let sdk_exit =
+        wait_process_timeout(child_no_sdk.process_handle, 10000).expect("Wait sdk child failed");
+    assert_eq!(
+        sdk_exit,
+        Some(0),
+        "Single execution child must handle unavailable SDK gracefully with exit 0"
+    );
+
+    let mut sdk_stdout = child_no_sdk.stdout_read.take().unwrap();
+    let mut sdk_stdout_bytes = Vec::new();
+    sdk_stdout
+        .read_to_end(&mut sdk_stdout_bytes)
+        .expect("Read sdk stdout failed");
+    let sdk_stdout_str = String::from_utf8_lossy(&sdk_stdout_bytes);
+    assert!(
+        sdk_stdout_str.contains(r#""status":"failed""#)
+            || sdk_stdout_str.contains(r#""status": "failed""#),
+        "Expected failed status when SDK is unavailable, got: {sdk_stdout_str}"
+    );
+    assert!(
+        sdk_stdout_str.contains("PROMPT_INTERPRETATION_FAILED"),
+        "Expected PROMPT_INTERPRETATION_FAILED error code, got: {sdk_stdout_str}"
+    );
+    assert!(
+        !sdk_stdout_str.contains("CAD_EXECUTION_FAILED"),
+        "Must fail in Phase B before Phase C CAD activation, got: {sdk_stdout_str}"
+    );
+
+    // Verify that output directory was never written to (zero CAD artifacts created)
+    let out_entries = std::fs::read_dir(&temp_output_root)
+        .expect("Read output dir")
+        .count();
+    assert_eq!(
+        out_entries, 0,
+        "No CAD artifacts or run directory should be created when SDK is unavailable"
+    );
+
+    // Case 4: Missing Gemini key also fails closed in Phase B before CAD activation
+    let mut child_prompt = spawn_engine_process(
+        &layout.python_exe,
+        &["-m", "ipc"],
+        &layout.repo_root,
+        &base_env, // no GEMINI_API_KEY
+    )
+    .expect("Failed to spawn live ipc child for prompt test");
+    let _guard_prompt = ProcessGuard(child_prompt.process_handle);
+
+    let mut stdin_prompt = child_prompt.stdin_write.take().unwrap();
+    stdin_prompt
+        .write_all(&prompt_payload)
+        .expect("Write prompt request failed");
+    drop(stdin_prompt);
+
+    let prompt_exit =
+        wait_process_timeout(child_prompt.process_handle, 10000).expect("Wait prompt child failed");
+    assert_eq!(
+        prompt_exit,
+        Some(0),
+        "Child should handle missing key failure cleanly with exit 0"
+    );
+
+    let mut prompt_stdout = child_prompt.stdout_read.take().unwrap();
+    let mut prompt_stdout_bytes = Vec::new();
+    prompt_stdout
+        .read_to_end(&mut prompt_stdout_bytes)
+        .expect("Read prompt stdout failed");
+    let prompt_stdout_str = String::from_utf8_lossy(&prompt_stdout_bytes);
+    assert!(
+        prompt_stdout_str.contains(r#""status":"failed""#)
+            || prompt_stdout_str.contains(r#""status": "failed""#),
+        "Expected failed status when prompt key is missing, got: {prompt_stdout_str}"
+    );
+    assert!(
+        prompt_stdout_str.contains("PROMPT_INTERPRETATION_FAILED"),
+        "Expected PROMPT_INTERPRETATION_FAILED error code, got: {prompt_stdout_str}"
+    );
+    assert!(
+        !prompt_stdout_str.contains("CAD_EXECUTION_FAILED"),
+        "Must fail in Phase B before Phase C CAD activation, got: {prompt_stdout_str}"
+    );
+
+    // Case 5: Wire schema rejection for invalid example ID in single child
+    let mut child_wire = spawn_engine_process(
+        &layout.python_exe,
+        &["-m", "ipc"],
+        &layout.repo_root,
+        &base_env,
+    )
+    .expect("Failed to spawn live ipc child");
+    let _guard_wire = ProcessGuard(child_wire.process_handle);
+
+    let mut stdin_wire = child_wire.stdin_write.take().unwrap();
+    let wire_payload = format_request_payload(
+        "req-prereq-wire",
+        &GenerationInput::ExamplePlan {
+            example_id: "nonexistent_example_catalog_item".to_string(),
+        },
+    )
+    .expect("Format request payload failed");
+    stdin_wire
+        .write_all(&wire_payload)
+        .expect("Write request failed");
+    drop(stdin_wire);
+
+    let wire_exit =
+        wait_process_timeout(child_wire.process_handle, 10000).expect("Wait wire child failed");
+    assert_eq!(
+        wire_exit,
+        Some(0),
+        "Single execution child should handle rejection cleanly with exit 0"
+    );
+
+    let mut wire_stdout = child_wire.stdout_read.take().unwrap();
+    let mut wire_stdout_bytes = Vec::new();
+    wire_stdout
+        .read_to_end(&mut wire_stdout_bytes)
+        .expect("Read stdout failed");
+    let wire_stdout_str = String::from_utf8_lossy(&wire_stdout_bytes);
+    assert!(
+        wire_stdout_str.contains(r#""status":"rejected""#)
+            || wire_stdout_str.contains(r#""status": "rejected""#),
+        "Expected rejected status in response, got: {wire_stdout_str}"
+    );
+    assert!(
+        wire_stdout_str.contains("INVALID_SCHEMA"),
+        "Expected INVALID_SCHEMA error code for invalid example catalog item, got: {wire_stdout_str}"
+    );
 }

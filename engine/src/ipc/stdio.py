@@ -132,6 +132,18 @@ def _run_stdio(
                 _emit_fatal_diagnostic(descriptors.orig_stderr_fd)
                 return 1
 
+            # Verify installed package metadata matches baseline before CAD activation
+            try:
+                import importlib.metadata
+
+                installed_version = importlib.metadata.version("cad-copilot")
+                if installed_version != "0.1.0":
+                    _emit_fatal_diagnostic(descriptors.orig_stderr_fd)
+                    return 1
+            except Exception:
+                _emit_fatal_diagnostic(descriptors.orig_stderr_fd)
+                return 1
+
             # Read incoming request from binary input stream up to wire limit
             input_stream = _stdin_stream if _stdin_stream is not None else sys.stdin.buffer
             oversize_error = False

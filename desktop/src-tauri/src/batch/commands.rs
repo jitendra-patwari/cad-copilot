@@ -89,7 +89,9 @@ pub async fn batch_select_source(
         }
     })
     .await
-    .map_err(|e| CommandError::new("INTERNAL_ERROR", format!("Scan task join error: {}", e)))??;
+    .map_err(|_| {
+        CommandError::new("INTERNAL_ERROR", "Source selection background task failed.")
+    })??;
 
     let mut guard = state
         .lock()
@@ -126,8 +128,8 @@ pub async fn batch_select_output(
         }
     })
     .await
-    .map_err(|e| {
-        CommandError::new("INTERNAL_ERROR", format!("Output picker join error: {}", e))
+    .map_err(|_| {
+        CommandError::new("INTERNAL_ERROR", "Output selection background task failed.")
     })??;
 
     let mut guard = state

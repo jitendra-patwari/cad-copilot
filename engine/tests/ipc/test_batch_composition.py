@@ -243,6 +243,38 @@ def test_run_batch_version_resolution_failure() -> None:
     assert not runtime_factory_called
 
 
+def test_run_batch_version_resolution_mismatch() -> None:
+    """Proves run_batch returns sanitized failed response when engine version mismatches baseline."""
+    req_payload = {
+        "contract_version": "1.0",
+        "request_id": "req-ver-mismatch",
+        "kind": "batch_operation",
+        "operation": {"type": "export_3d", "formats": ["step"]},
+        "input": {"root": "E:/input", "files": ["part1.par"]},
+        "output_root": "E:/output",
+    }
+    typed_req = build_typed_batch_request(req_payload)
+
+    runtime_factory_called = False
+
+    def spy_runtime_factory() -> Any:
+        nonlocal runtime_factory_called
+        runtime_factory_called = True
+        return FakeCADRuntime()
+
+    with patch("importlib.metadata.version", return_value="9.9.9"):
+        result = run_batch(
+            typed_req,
+            _engine_version=None,
+            _runtime_factory=spy_runtime_factory,
+        )
+
+    assert result["status"] == "failed"
+    assert result["request_id"] == "req-ver-mismatch"
+    assert result["errors"][0]["code"] == "INTERNAL_ERROR"
+    assert not runtime_factory_called
+
+
 def test_run_batch_invalid_request_type_raises() -> None:
     """Proves run_batch rejects non-BatchRequest input with TypeError."""
     with pytest.raises(TypeError, match="Expected BatchRequest"):

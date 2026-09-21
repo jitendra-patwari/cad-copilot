@@ -33,6 +33,8 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({ generation }) => {
     actionError,
     clearActionError,
     isSubmitting,
+    isSubscribed,
+    retrySubscription,
   } = generation;
 
   const run = snapshot.run;
@@ -89,6 +91,8 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({ generation }) => {
                 isSubmitting={isSubmitting}
                 actionError={actionError}
                 clearActionError={clearActionError}
+                isSubscribed={isSubscribed}
+                retrySubscription={retrySubscription}
               />
             </div>
           </section>

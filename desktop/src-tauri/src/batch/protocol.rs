@@ -9,6 +9,7 @@ use super::types::{
     BatchArtifactRecord, BatchFileRowRecord, BatchPhase, BatchRowCategory, BatchSummaryRecord,
     CommandError,
 };
+use crate::shared::path::simplify_windows_path;
 
 pub const MAX_REQUEST_PAYLOAD_BYTES: usize = 131_072; // 128 KiB
 pub const MAX_STDOUT_BYTES: usize = 10_485_760; // 10 MiB
@@ -166,8 +167,8 @@ pub fn build_and_serialize_request(
         ));
     }
 
-    let clean_source_root = crate::generation::output::simplify_windows_path(source_root);
-    let clean_output_root = crate::generation::output::simplify_windows_path(output_root);
+    let clean_source_root = simplify_windows_path(source_root);
+    let clean_output_root = simplify_windows_path(output_root);
 
     // Portable forward slash normalized paths
     let root_str = clean_source_root.to_string_lossy().replace('\\', "/");

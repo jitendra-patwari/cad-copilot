@@ -32,10 +32,10 @@ pub fn load_preview_jpeg(
         ));
     }
 
-    let sym_meta = std::fs::symlink_metadata(&preview_path).map_err(|e| {
+    let sym_meta = std::fs::symlink_metadata(&preview_path).map_err(|_| {
         CommandError::new(
             "RESULT_ACCESS_UNAVAILABLE",
-            format!("Failed to read preview metadata: {}", e),
+            "Failed to read preview metadata.",
         )
     })?;
 
@@ -55,19 +55,16 @@ pub fn load_preview_jpeg(
         }
     }
 
-    let file = std::fs::File::open(&preview_path).map_err(|e| {
-        CommandError::new(
-            "RESULT_ACCESS_UNAVAILABLE",
-            format!("Failed to open preview image: {}", e),
-        )
+    let file = std::fs::File::open(&preview_path).map_err(|_| {
+        CommandError::new("RESULT_ACCESS_UNAVAILABLE", "Failed to open preview image.")
     })?;
 
     binding.verify_file(&file)?;
 
-    let meta = file.metadata().map_err(|e| {
+    let meta = file.metadata().map_err(|_| {
         CommandError::new(
             "RESULT_ACCESS_UNAVAILABLE",
-            format!("Failed to read preview metadata: {}", e),
+            "Failed to read preview metadata.",
         )
     })?;
 
@@ -88,21 +85,15 @@ pub fn load_preview_jpeg(
     if meta.len() > MAX_PREVIEW_BYTES {
         return Err(CommandError::new(
             "RESULT_ACCESS_UNAVAILABLE",
-            format!(
-                "Preview image ({} bytes) exceeds maximum permitted limit of 20 MB.",
-                meta.len()
-            ),
+            "Preview image exceeds maximum permitted limit of 20 MB.",
         ));
     }
 
     let mut bytes = Vec::with_capacity(std::cmp::min(meta.len(), MAX_PREVIEW_BYTES) as usize);
     file.take(MAX_PREVIEW_BYTES + 1)
         .read_to_end(&mut bytes)
-        .map_err(|e| {
-            CommandError::new(
-                "RESULT_ACCESS_UNAVAILABLE",
-                format!("Failed to read preview image: {}", e),
-            )
+        .map_err(|_| {
+            CommandError::new("RESULT_ACCESS_UNAVAILABLE", "Failed to read preview image.")
         })?;
 
     if bytes.len() as u64 > MAX_PREVIEW_BYTES {
@@ -126,19 +117,16 @@ pub fn load_preview_jpeg(
         if !actual_digest.eq_ignore_ascii_case(expected_digest) {
             return Err(CommandError::new(
                 "RESULT_ACCESS_UNAVAILABLE",
-                format!(
-                    "Preview image digest mismatch: expected '{}', computed '{}'.",
-                    expected_digest, actual_digest
-                ),
+                "Preview image SHA-256 digest mismatch against manifest sidecar.",
             ));
         }
     }
 
     let cursor = std::io::Cursor::new(&bytes);
-    let decoder = image::codecs::jpeg::JpegDecoder::new(cursor).map_err(|e| {
+    let decoder = image::codecs::jpeg::JpegDecoder::new(cursor).map_err(|_| {
         CommandError::new(
             "RESULT_ACCESS_UNAVAILABLE",
-            format!("Failed to parse JPEG headers: {}", e),
+            "Failed to parse preview JPEG headers.",
         )
     })?;
 
@@ -153,10 +141,7 @@ pub fn load_preview_jpeg(
     if width > MAX_AXIS_PIXELS || height > MAX_AXIS_PIXELS {
         return Err(CommandError::new(
             "RESULT_ACCESS_UNAVAILABLE",
-            format!(
-                "Preview JPEG dimensions ({}x{}) exceed maximum permitted {} pixels per axis.",
-                width, height, MAX_AXIS_PIXELS
-            ),
+            "Preview JPEG dimensions exceed maximum permitted 8,192 pixels per axis.",
         ));
     }
 
@@ -164,10 +149,7 @@ pub fn load_preview_jpeg(
     if total_pixels > MAX_DECLARED_PIXELS {
         return Err(CommandError::new(
             "RESULT_ACCESS_UNAVAILABLE",
-            format!(
-                "Preview JPEG total declared pixels ({}) exceed maximum permitted limit of 32 million pixels.",
-                total_pixels
-            ),
+            "Preview JPEG total declared pixels exceed maximum permitted limit of 32 million pixels.",
         ));
     }
 

@@ -117,9 +117,17 @@ export const App: React.FC = () => {
         }
         keyConfigured={generation.snapshot.keyConfigured}
         lastRunCadBuild={
-          currentView === 'generate'
-            ? generation.activeResult?.manifestSummary?.cadRuntimeVersion
-            : null
+          currentView === 'batch'
+            ? batch.activeResult?.cadRuntimeVersion
+            : generation.activeResult?.manifestSummary?.cadRuntimeVersion
+        }
+        engineBuild={
+          currentView === 'batch' ? batch.snapshot.engineBuild : generation.snapshot.engineBuild
+        }
+        lastRunEngineVersion={
+          currentView === 'batch'
+            ? batch.activeResult?.engineVersion
+            : generation.activeResult?.manifestSummary?.engineVersion
         }
         pythonEngineConnected={
           currentView === 'batch'

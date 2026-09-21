@@ -129,11 +129,19 @@ export async function subscribeGenerationState(
   if (!isTauriAvailable()) {
     return () => {};
   }
-  try {
-    return await listen<GenerationSnapshot>('generation-state', (event) => {
-      callback(event.payload);
-    });
-  } catch {
-    return () => {};
-  }
+  const unlisten = await listen<GenerationSnapshot>('generation-state', (event) => {
+    callback(event.payload);
+  });
+  return () => {
+    if (isTauriAvailable()) {
+      try {
+        const res: unknown = unlisten();
+        if (res && typeof (res as Promise<void>).catch === 'function') {
+          (res as Promise<void>).catch(() => {});
+        }
+      } catch {
+        // Ignore unlisten errors during environment teardown
+      }
+    }
+  };
 }

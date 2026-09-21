@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, renderHook, act, waitFor } from '@testing-library/react';
+import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
 import {
   validatePrompt,
   formatBytes,
@@ -9,6 +10,7 @@ import {
 import { GenerateForm } from '../../src/features/generate/GenerateForm';
 import { GenerationProgress } from '../../src/features/generate/GenerationProgress';
 import { GenerationResult } from '../../src/features/generate/GenerationResult';
+import { useGeneration } from '../../src/features/generate/useGeneration';
 import type {
   GenerationResultResponse,
   GenerationRunSnapshot,
@@ -133,6 +135,145 @@ describe('GenerateForm component', () => {
     const cancelBtn = screen.getByRole('button', { name: /cancel/i });
     fireEvent.click(cancelBtn);
     expect(setIsKeyEditorOpenMock).toHaveBeenCalledWith(false);
+  });
+
+  it('disables submit and renders reconnect control when native event subscription is disconnected', () => {
+    const retryMock = vi.fn();
+
+    render(
+      <GenerateForm
+        mode="example"
+        setMode={vi.fn()}
+        prompt=""
+        setPrompt={vi.fn()}
+        output={{ selectionId: 'sel_1', displayPath: 'C:\\test_output' }}
+        selectFolder={vi.fn()}
+        keyConfigured={false}
+        isKeyEditorOpen={false}
+        setIsKeyEditorOpen={vi.fn()}
+        keyInput=""
+        setKeyInput={vi.fn()}
+        saveKey={vi.fn()}
+        clearKey={vi.fn()}
+        startRun={vi.fn()}
+        isRunActive={false}
+        isSubmitting={false}
+        actionError={{
+          code: 'EVENT_SUBSCRIPTION_FAILED',
+          message: 'Failed to subscribe to native generation state events.',
+        }}
+        clearActionError={vi.fn()}
+        isSubscribed={false}
+        retrySubscription={retryMock}
+      />
+    );
+
+    // Verify submit button is disabled
+    const submitBtn = screen.getByRole('button', { name: /run cad generation/i });
+    expect(submitBtn).toBeDisabled();
+
+    // Verify disconnected warning banner
+    expect(screen.getByText(/event listener disconnected/i)).toBeInTheDocument();
+
+    // Verify retry connection button in error banner
+    const retryBtn = screen.getByRole('button', { name: /retry connection/i });
+    fireEvent.click(retryBtn);
+    expect(retryMock).toHaveBeenCalledTimes(1);
+
+    // Verify reconnect button in warning banner
+    const reconnectBtn = screen.getByRole('button', { name: /reconnect/i });
+    fireEvent.click(reconnectBtn);
+    expect(retryMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('recovers from a rejected native listener via retrySubscription in useGeneration', async () => {
+    let shouldFailListen = true;
+    const eventListenerIds: Record<string, number[]> = {};
+
+    const invokeSpy = vi.fn(async (cmd: string, payload?: unknown) => {
+      const p = payload as Record<string, unknown> | undefined;
+      if (cmd === 'plugin:event|listen') {
+        if (shouldFailListen) {
+          throw new Error('IPC listener permission denied');
+        }
+        const event = p?.event as string;
+        const handlerId = p?.handler as number;
+        if (!eventListenerIds[event]) {
+          eventListenerIds[event] = [];
+        }
+        eventListenerIds[event].push(handlerId);
+        return Math.floor(Math.random() * 1000);
+      }
+      if (cmd === 'plugin:event|unlisten') {
+        return;
+      }
+      if (cmd === 'generation_snapshot') {
+        return {
+          revision: 1,
+          nativeAvailable: true,
+          keyConfigured: false,
+          output: { selectionId: 'sel_1', displayPath: 'C:\\test_out' },
+          run: null,
+        };
+      }
+      if (cmd === 'generation_start') {
+        return {
+          revision: 2,
+          nativeAvailable: true,
+          keyConfigured: false,
+          output: null,
+          run: {
+            requestId: 'gen_test_1',
+            state: 'running',
+            engineStatus: null,
+            phase: 'generation_started',
+            cleanup: 'no_failure_observed',
+            closeRequested: false,
+            manifestState: 'not_applicable',
+            reason: null,
+          },
+        };
+      }
+      return;
+    });
+
+    mockIPC(invokeSpy);
+
+    try {
+      const { result } = renderHook(() => useGeneration());
+
+      // 1. Initial subscription fails
+      await waitFor(() => {
+        expect(result.current.isSubscribed).toBe(false);
+        expect(result.current.actionError?.code).toBe('EVENT_SUBSCRIPTION_FAILED');
+      });
+
+      // 2. Calling startRun while unsubscribed is blocked
+      await act(async () => {
+        await result.current.startRun();
+      });
+      expect(invokeSpy).not.toHaveBeenCalledWith('generation_start', expect.anything());
+      expect(result.current.actionError?.code).toBe('SUBSCRIPTION_REQUIRED');
+
+      // 3. Recover via retrySubscription
+      shouldFailListen = false;
+      await act(async () => {
+        await result.current.retrySubscription();
+      });
+
+      await waitFor(() => {
+        expect(result.current.isSubscribed).toBe(true);
+        expect(result.current.actionError).toBeNull();
+      });
+
+      // 4. Now startRun succeeds
+      await act(async () => {
+        await result.current.startRun();
+      });
+      expect(invokeSpy).toHaveBeenCalledWith('generation_start', expect.anything());
+    } finally {
+      clearMocks();
+    }
   });
 });
 

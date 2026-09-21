@@ -4,9 +4,7 @@ use std::time::{Duration, Instant};
 
 use tauri::{Emitter, Manager, Window};
 
-use super::launcher::{
-    format_request_payload, prepare_child_env, resolve_source_layout, run_prerequisite_probe,
-};
+use super::launcher::{format_request_payload, prepare_child_env, resolve_source_layout};
 use super::protocol::{
     WireResponse, WireResponseData, MAX_STDERR_AGGREGATE_BYTES, MAX_STDERR_LINE_BYTES,
     MAX_STDOUT_BYTES,
@@ -15,7 +13,7 @@ use super::state::{is_valid_phase_transition, AppState, GenerationState};
 use super::types::{
     CleanupState, CommandError, EngineStatus, GenerationInput, ResultAccess, RunPhase, RunState,
 };
-use super::windows;
+use crate::shared::windows;
 
 pub const RUN_DEADLINE_SECS: u64 = 180;
 pub const CANCELLATION_GRACE_SECS: u64 = 10;
@@ -256,11 +254,12 @@ fn finalize_terminal(
     }
 
     if should_destroy {
-        if let Err(e) = window.destroy() {
+        if let Err(_e) = window.destroy() {
             let fallback_snap = with_state(window, |g| {
                 g.terminating = false;
                 if let Some(run) = &mut g.active_run {
-                    run.warnings.push(format!("Window destroy failed: {e}"));
+                    run.warnings
+                        .push("Application window closure failed during run cleanup.".to_string());
                 }
                 g.revision += 1;
                 g.to_snapshot()
@@ -401,23 +400,7 @@ fn run_supervisor(window: Window, request_id: String) {
         }
     };
 
-    // Step 3: Prerequisite probe
-    if let Err(probe_err) = run_prerequisite_probe(&layout, &input) {
-        finalize_terminal(
-            &window,
-            &request_id,
-            RunState::Failed,
-            None,
-            Some(probe_err.error.message),
-            ResultAccess::None,
-            probe_err.cleanup,
-            None,
-            vec![],
-        );
-        return;
-    }
-
-    // Step 4: Post-probe cancellation check
+    // Step 3: Cancellation check before engine launch
     if cancel_token.load(Ordering::SeqCst) {
         finalize_terminal(
             &window,
@@ -433,7 +416,7 @@ fn run_supervisor(window: Window, request_id: String) {
         return;
     }
 
-    // Step 5: Format payload & prepare environment
+    // Step 4: Format payload & prepare environment
     let payload = match format_request_payload(&request_id, &input) {
         Ok(p) => p,
         Err(e) => {
@@ -518,10 +501,10 @@ fn run_supervisor(window: Window, request_id: String) {
                     }
                     buffer.extend_from_slice(&chunk[..n]);
                 }
-                Err(e) => {
+                Err(_) => {
                     let _ = stdout_tx.send(Err(CommandError::new(
                         "TRANSPORT_ERROR",
-                        format!("Stdout read error: {e}"),
+                        "Failed to read standard output stream from engine process.",
                     )));
                     return;
                 }
@@ -717,10 +700,10 @@ fn run_supervisor(window: Window, request_id: String) {
                         line_buf.push(byte[0]);
                     }
                 }
-                Err(e) => {
+                Err(_) => {
                     let _ = stderr_tx.send(StderrEvent::Error(CommandError::new(
                         "TRANSPORT_ERROR",
-                        format!("Stderr read error: {e}"),
+                        "Failed to read standard error stream from engine process.",
                     )));
                     return;
                 }
@@ -846,9 +829,10 @@ fn run_supervisor(window: Window, request_id: String) {
         }
 
         // C. Check asynchronous stdin write error
-        if let Ok(Err(e)) = stdin_rx.try_recv() {
+        if let Ok(Err(_e)) = stdin_rx.try_recv() {
             if protocol_err.is_none() {
-                protocol_err = Some(format!("Failed to write request payload to engine: {e}"));
+                protocol_err =
+                    Some("Failed to transmit request payload to engine process.".to_string());
             }
         }
 
@@ -1347,15 +1331,18 @@ fn run_supervisor(window: Window, request_id: String) {
                 vec![],
             );
         } else {
+            let reason = match child_exit_code {
+                Some(code) => format!(
+                    "Engine process failed during startup or prerequisite verification (exit code {code})."
+                ),
+                None => "Engine process terminated unexpectedly before completing execution.".to_string(),
+            };
             finalize_terminal(
                 &window,
                 &request_id,
                 RunState::Failed,
                 None,
-                Some(format!(
-                    "Engine process exited with unexpected code {:?}.",
-                    child_exit_code
-                )),
+                Some(reason),
                 ResultAccess::None,
                 CleanupState::Incomplete,
                 None,

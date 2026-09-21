@@ -66,12 +66,20 @@ export interface BatchRunSnapshot {
   reason: string | null;
 }
 
+export type EngineBuildProvenance = 'source_build' | 'bundled_build';
+
+export interface EngineBuildInfo {
+  version: string;
+  provenance: EngineBuildProvenance;
+}
+
 export interface BatchSnapshot {
   revision: number;
   nativeAvailable: boolean;
   source: BatchSourceSelection | null;
   output: BatchOutputSelection | null;
   run: BatchRunSnapshot | null;
+  engineBuild?: EngineBuildInfo;
 }
 
 export interface BatchStartRequest {
@@ -117,6 +125,8 @@ export interface BatchResultResponse {
   manifestState: ManifestState;
   manifestPath: string | null;
   reason: string | null;
+  engineVersion?: string;
+  cadRuntimeVersion?: string;
 }
 
 export interface BatchRevealResponse {

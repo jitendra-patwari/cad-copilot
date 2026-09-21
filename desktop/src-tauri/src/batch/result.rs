@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::generation::output::{
+use crate::shared::path::{
     get_path_filesystem_identity, simplify_windows_path, verify_open_file_handle,
     FileSystemIdentity,
 };
@@ -133,6 +133,8 @@ pub struct WireBatchManifest {
     #[serde(default)]
     pub cancelled_files: Vec<String>,
     pub engine_version: String,
+    #[serde(default)]
+    pub cad_runtime_version_build: Option<String>,
 }
 
 pub fn curate_diagnostic_message(code: &str, format: Option<&str>) -> String {
@@ -239,6 +241,8 @@ pub fn validate_batch_result(
             },
             manifest_path: None,
             reason,
+            engine_version: None,
+            cad_runtime_version: None,
         });
     }
 
@@ -252,6 +256,8 @@ pub fn validate_batch_result(
 
     let mut manifest_state = ManifestState::NotApplicable;
     let mut manifest_path = None;
+    let mut engine_version = None;
+    let mut cad_runtime_version = None;
 
     if terminal_response.manifest.is_some() {
         manifest_state = ManifestState::Unavailable;
@@ -273,6 +279,8 @@ pub fn validate_batch_result(
                             .to_string_lossy()
                             .to_string(),
                     );
+                    engine_version = Some(manifest.engine_version);
+                    cad_runtime_version = manifest.cad_runtime_version_build;
 
                     // Enrich rows with actual verified artifact sizes and relative paths from manifest
                     let mut artifact_info: HashMap<(String, String), (u64, String)> =
@@ -299,10 +307,7 @@ pub fn validate_batch_result(
                     }
                 }
                 Err(e) => {
-                    eprintln!(
-                        "Manifest validation failed for request {}: {} ({})",
-                        request_id, e.code, e.message
-                    );
+                    eprintln!("Manifest validation failed: {}", e.code);
                     manifest_state = ManifestState::Unavailable;
                 }
             }
@@ -327,6 +332,8 @@ pub fn validate_batch_result(
         manifest_state,
         manifest_path,
         reason,
+        engine_version,
+        cad_runtime_version,
     })
 }
 
@@ -434,30 +441,21 @@ fn validate_and_read_manifest(
     if manifest.request_id != expected_request_id {
         return Err(CommandError::new(
             "INVALID_ENGINE_OUTPUT",
-            format!(
-                "Manifest request ID mismatch: expected '{}', found '{}'.",
-                expected_request_id, manifest.request_id
-            ),
+            "Manifest request ID mismatch against response.",
         ));
     }
 
     if manifest.status != terminal_response.status {
         return Err(CommandError::new(
             "INVALID_ENGINE_OUTPUT",
-            format!(
-                "Manifest status '{}' does not match response status '{}'.",
-                manifest.status, terminal_response.status
-            ),
+            "Manifest status does not match response status.",
         ));
     }
 
     if manifest.operation.operation_type != expected_op_type {
         return Err(CommandError::new(
             "INVALID_ENGINE_OUTPUT",
-            format!(
-                "Manifest operation type '{}' does not match expected '{}'.",
-                manifest.operation.operation_type, expected_op_type
-            ),
+            "Manifest operation type does not match expected operation.",
         ));
     }
 
@@ -488,11 +486,7 @@ fn validate_and_read_manifest(
     if manifest.results.len() != terminal_response.results.len() {
         return Err(CommandError::new(
             "INVALID_ENGINE_OUTPUT",
-            format!(
-                "Manifest results count ({}) does not match response results count ({}).",
-                manifest.results.len(),
-                terminal_response.results.len()
-            ),
+            "Manifest results count does not match response results count.",
         ));
     }
 
@@ -504,40 +498,26 @@ fn validate_and_read_manifest(
         if m_res.input != r_res.input {
             return Err(CommandError::new(
                 "INVALID_ENGINE_OUTPUT",
-                format!(
-                    "Manifest file result input mismatch: '{}' vs '{}'.",
-                    m_res.input, r_res.input
-                ),
+                "Manifest file result input mismatch.",
             ));
         }
         if m_res.status != r_res.status {
             return Err(CommandError::new(
                 "INVALID_ENGINE_OUTPUT",
-                format!(
-                    "Manifest file result status mismatch for '{}': '{}' vs '{}'.",
-                    m_res.input, m_res.status, r_res.status
-                ),
+                "Manifest file result status mismatch against response.",
             ));
         }
         if m_res.artifacts.len() != r_res.artifacts.len() {
             return Err(CommandError::new(
                 "INVALID_ENGINE_OUTPUT",
-                format!(
-                    "Manifest artifact count mismatch for file '{}': {} vs {}.",
-                    m_res.input,
-                    m_res.artifacts.len(),
-                    r_res.artifacts.len()
-                ),
+                "Manifest artifact count mismatch against response.",
             ));
         }
         for (m_art, r_art) in m_res.artifacts.iter().zip(r_res.artifacts.iter()) {
             if !m_art.format.eq_ignore_ascii_case(&r_art.format) {
                 return Err(CommandError::new(
                     "INVALID_ENGINE_OUTPUT",
-                    format!(
-                        "Manifest artifact format mismatch: '{}' vs '{}'.",
-                        m_art.format, r_art.format
-                    ),
+                    "Manifest artifact format mismatch against response.",
                 ));
             }
             let expected_full = normalize_path_str(&output_root.join(&m_art.relative_path));
@@ -547,10 +527,7 @@ fn validate_and_read_manifest(
             if !path_matches {
                 return Err(CommandError::new(
                     "INVALID_ENGINE_OUTPUT",
-                    format!(
-                        "Manifest artifact path mismatch: '{}' vs '{}'.",
-                        m_art.relative_path, r_art.path
-                    ),
+                    "Manifest artifact path mismatch against response.",
                 ));
             }
         }
@@ -582,21 +559,15 @@ fn validate_and_read_manifest(
             {
                 return Err(CommandError::new(
                     "OUTPUT_PATH_NOT_ALLOWED",
-                    format!(
-                        "Manifest artifact relative path '{}' contains prohibited components.",
-                        a.relative_path
-                    ),
+                    "Manifest artifact relative path contains prohibited components.",
                 ));
             }
 
             let full_art_path = output_root.join(&a.relative_path);
-            let art_file = File::open(&full_art_path).map_err(|e| {
+            let art_file = File::open(&full_art_path).map_err(|_| {
                 CommandError::new(
                     "RESULT_ACCESS_UNAVAILABLE",
-                    format!(
-                        "Failed to open artifact '{}' declared in manifest: {}",
-                        a.relative_path, e
-                    ),
+                    "Failed to open artifact declared in manifest.",
                 )
             })?;
 
@@ -606,22 +577,17 @@ fn validate_and_read_manifest(
                 Some(expected_root_identity.volume_serial_number),
             )?;
 
-            let art_meta = art_file.metadata().map_err(|e| {
+            let art_meta = art_file.metadata().map_err(|_| {
                 CommandError::new(
                     "RESULT_ACCESS_UNAVAILABLE",
-                    format!("Failed to read artifact metadata: {}", e),
+                    "Failed to read artifact metadata.",
                 )
             })?;
 
             if art_meta.len() != a.size_bytes {
                 return Err(CommandError::new(
                     "RESULT_ACCESS_UNAVAILABLE",
-                    format!(
-                        "Artifact '{}' size mismatch: expected {} bytes, found {} bytes.",
-                        a.relative_path,
-                        a.size_bytes,
-                        art_meta.len()
-                    ),
+                    "Manifest artifact size mismatch against file on disk.",
                 ));
             }
         }
@@ -649,10 +615,10 @@ pub fn reveal_batch_output(
         ));
     }
 
-    let current_id = get_path_filesystem_identity(output_root).map_err(|e| {
+    let current_id = get_path_filesystem_identity(output_root).map_err(|_| {
         CommandError::new(
             "OUTPUT_UNAVAILABLE",
-            format!("Output directory identity check failed: {}", e.message),
+            "Output directory identity check failed.",
         )
     })?;
 
@@ -675,10 +641,10 @@ pub fn reveal_batch_output(
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .map_err(|e| {
+        .map_err(|_| {
             CommandError::new(
                 "REVEAL_FAILED",
-                format!("Failed to spawn Windows Explorer: {}", e),
+                "Failed to open destination in Windows Explorer.",
             )
         })?;
 

@@ -43,6 +43,8 @@ export interface UseGenerationReturn {
   clearActionError: () => void;
   clearKeyDraft: () => void;
   isSubmitting: boolean;
+  isSubscribed: boolean;
+  retrySubscription: () => Promise<void>;
 }
 
 const DEFAULT_SNAPSHOT: GenerationSnapshot = {
@@ -63,6 +65,9 @@ export function useGeneration(): UseGenerationReturn {
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
   const [actionError, setActionError] = useState<CommandError | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isSubscribed, setIsSubscribed] = useState<boolean>(false);
+  const activeUnsubRef = useRef<(() => void) | null>(null);
+  const subscriptionSeqRef = useRef<number>(0);
 
   const clearKeyDraft = useCallback(() => {
     setKeyInput('');
@@ -102,7 +107,7 @@ export function useGeneration(): UseGenerationReturn {
   }, []);
 
   const clearActionError = useCallback(() => {
-    setActionError(null);
+    setActionError((prev) => (prev?.code === 'EVENT_SUBSCRIPTION_FAILED' ? prev : null));
   }, []);
 
   // Update snapshot safely with monotonic revision check
@@ -113,47 +118,68 @@ export function useGeneration(): UseGenerationReturn {
     }
   }, []);
 
-  // Initial mount: load snapshot & subscribe to native generation events
-  useEffect(() => {
-    let isMounted = true;
-    let unsubscribeFn: (() => void) | null = null;
-
-    async function init() {
-      try {
-        const unlisten = await subscribeGenerationState((evt) => {
-          if (isMounted) {
-            applySnapshot(evt);
-          }
-        });
-        if (isMounted) {
-          unsubscribeFn = unlisten;
-        } else {
-          unlisten();
+  const initSubscription = useCallback(async () => {
+    const seq = ++subscriptionSeqRef.current;
+    if (activeUnsubRef.current) {
+      activeUnsubRef.current();
+      activeUnsubRef.current = null;
+    }
+    try {
+      const unsub = await subscribeGenerationState((eventSnap) => {
+        if (subscriptionSeqRef.current === seq) {
+          applySnapshot(eventSnap);
         }
-      } catch (e) {
-        console.error('Failed to subscribe to generation events:', e);
+      });
+      if (subscriptionSeqRef.current !== seq) {
+        unsub();
+        return;
       }
-
-      try {
-        const initial = await getGenerationSnapshot();
-        if (isMounted) {
-          applySnapshot(initial);
-        }
-      } catch (e) {
-        console.error('Failed to get initial generation snapshot:', e);
+      activeUnsubRef.current = unsub;
+      setIsSubscribed(true);
+      setActionError((prev) =>
+        prev?.code === 'EVENT_SUBSCRIPTION_FAILED' || prev?.code === 'SUBSCRIPTION_REQUIRED'
+          ? null
+          : prev
+      );
+    } catch {
+      if (subscriptionSeqRef.current !== seq) {
+        return;
       }
+      setIsSubscribed(false);
+      setActionError({
+        code: 'EVENT_SUBSCRIPTION_FAILED',
+        message: 'Failed to subscribe to native generation state events.',
+      });
+      return;
     }
 
-    init();
+    try {
+      const initialSnap = await getGenerationSnapshot();
+      if (subscriptionSeqRef.current === seq) {
+        applySnapshot(initialSnap);
+      }
+    } catch {
+      // Handled by default fallback snapshot
+    }
+  }, [applySnapshot]);
+
+  const cancelActiveSubscription = useCallback(() => {
+    subscriptionSeqRef.current += 1;
+    if (activeUnsubRef.current) {
+      activeUnsubRef.current();
+      activeUnsubRef.current = null;
+    }
+  }, []);
+
+  // Initial mount: load snapshot & subscribe to native generation events
+  useEffect(() => {
+    initSubscription();
 
     return () => {
-      isMounted = false;
-      if (unsubscribeFn) {
-        unsubscribeFn();
-      }
+      cancelActiveSubscription();
       clearBlobUrl();
     };
-  }, [applySnapshot, clearBlobUrl]);
+  }, [initSubscription, cancelActiveSubscription, clearBlobUrl]);
 
   const runState = snapshot.run?.state;
   const runRequestId = snapshot.run?.requestId;
@@ -259,6 +285,14 @@ export function useGeneration(): UseGenerationReturn {
 
   const startRun = useCallback(async () => {
     setActionError(null);
+    if (!isSubscribed) {
+      setActionError({
+        code: 'SUBSCRIPTION_REQUIRED',
+        message: 'Native event subscription is unavailable. Please retry after state reconnects.',
+      });
+      return;
+    }
+
     if (isRunActive(snapshot.run?.state) || snapshot.run?.resultAccess === 'checking') {
       setActionError({
         code: 'RUN_ACTIVE',
@@ -319,6 +353,7 @@ export function useGeneration(): UseGenerationReturn {
     snapshot.keyConfigured,
     mode,
     prompt,
+    isSubscribed,
     clearBlobUrl,
     applySnapshot,
     setIsKeyEditorOpen,
@@ -392,5 +427,7 @@ export function useGeneration(): UseGenerationReturn {
     clearActionError,
     clearKeyDraft,
     isSubmitting,
+    isSubscribed,
+    retrySubscription: initSubscription,
   };
 }

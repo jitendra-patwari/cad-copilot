@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { X, Activity } from 'lucide-react';
 import type { DiagnosticItem } from './diagnostics';
+import type { EngineBuildInfo } from '../generate/types';
 
 export interface DiagnosticsPanelProps {
   readonly isOpen: boolean;
@@ -10,6 +11,8 @@ export interface DiagnosticsPanelProps {
   readonly keyConfigured?: boolean;
   readonly lastRunCadBuild?: string | null;
   readonly pythonEngineConnected?: boolean;
+  readonly engineBuild?: EngineBuildInfo | null;
+  readonly lastRunEngineVersion?: string | null;
 }
 
 export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({
@@ -20,6 +23,8 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({
   keyConfigured,
   lastRunCadBuild,
   pythonEngineConnected,
+  engineBuild,
+  lastRunEngineVersion,
 }) => {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -84,6 +89,53 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({
     return null;
   }
 
+  const getEngineDisplay = (): {
+    value: string;
+    status: 'neutral' | 'unavailable';
+    hint: string;
+  } => {
+    if (engineBuild) {
+      const provenanceLabel = engineBuild.provenance === 'bundled_build' ? 'Bundled' : 'Source';
+      const labelPrefix =
+        engineBuild.provenance === 'bundled_build'
+          ? 'Build-stamped bundled'
+          : 'Declared source compatibility';
+      if (lastRunEngineVersion) {
+        if (lastRunEngineVersion === engineBuild.version) {
+          return {
+            value: `v${engineBuild.version} (${provenanceLabel})`,
+            status: 'neutral',
+            hint: `${labelPrefix} engine verified in last run.`,
+          };
+        }
+        return {
+          value: `v${engineBuild.version} (${provenanceLabel})`,
+          status: 'neutral',
+          hint: `${labelPrefix} v${engineBuild.version}; last run reported v${lastRunEngineVersion}.`,
+        };
+      }
+      return {
+        value: `v${engineBuild.version} (${provenanceLabel})`,
+        status: 'neutral',
+        hint: `${labelPrefix} engine configuration.`,
+      };
+    }
+    if (pythonEngineConnected) {
+      return {
+        value: 'Verified in last run',
+        status: 'neutral',
+        hint: 'Local Python CAD automation engine.',
+      };
+    }
+    return {
+      value: 'Not connected',
+      status: 'unavailable',
+      hint: 'Local Python CAD automation engine.',
+    };
+  };
+
+  const engineDisplay = getEngineDisplay();
+
   const items: DiagnosticItem[] = [
     {
       id: 'output_dir',
@@ -95,7 +147,11 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({
     {
       id: 'solid_edge',
       label: 'Solid Edge Automation',
-      value: lastRunCadBuild ? `Solid Edge ${lastRunCadBuild}` : 'Not checked',
+      value: lastRunCadBuild
+        ? lastRunCadBuild.toLowerCase().startsWith('solid edge')
+          ? lastRunCadBuild
+          : `Solid Edge ${lastRunCadBuild}`
+        : 'Not checked',
       status: 'neutral',
       hint: 'Local Siemens Solid Edge installation check.',
     },
@@ -116,9 +172,9 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({
     {
       id: 'engine_version',
       label: 'Python CAD Engine',
-      value: pythonEngineConnected ? 'Verified in last run' : 'Not connected',
-      status: pythonEngineConnected ? 'neutral' : 'unavailable',
-      hint: 'Local Python CAD automation engine.',
+      value: engineDisplay.value,
+      status: engineDisplay.status,
+      hint: engineDisplay.hint,
     },
   ];
 

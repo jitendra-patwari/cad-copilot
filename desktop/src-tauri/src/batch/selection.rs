@@ -3,7 +3,9 @@ use std::fs;
 use std::os::windows::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 
-use crate::generation::output::{get_path_filesystem_identity, FileSystemIdentity};
+use crate::shared::path::{
+    get_path_filesystem_identity, simplify_windows_path, FileSystemIdentity,
+};
 
 use super::types::{BatchSelectSourceResponse, BatchSourceSelection, CommandError};
 
@@ -126,7 +128,7 @@ pub fn is_reserved_windows_name(stem: &str) -> bool {
 }
 
 pub fn validate_path_security(path: &Path) -> Result<(), CommandError> {
-    let clean_path = crate::generation::output::simplify_windows_path(path);
+    let clean_path = simplify_windows_path(path);
     let s = clean_path.to_string_lossy();
     if s.starts_with(r"\\") || s.starts_with(r"//") {
         return Err(CommandError::new(
@@ -182,16 +184,12 @@ pub fn detect_supported_extension(path: &Path) -> Option<&'static str> {
 }
 
 pub fn to_canonical_relative_path(path: &Path, root: &Path) -> Result<String, CommandError> {
-    let clean_path = crate::generation::output::simplify_windows_path(path);
-    let clean_root = crate::generation::output::simplify_windows_path(root);
+    let clean_path = simplify_windows_path(path);
+    let clean_root = simplify_windows_path(root);
     let rel = clean_path.strip_prefix(&clean_root).map_err(|_| {
         CommandError::new(
             "INPUT_PATH_NOT_ALLOWED",
-            format!(
-                "Path '{}' is not under root '{}'.",
-                path.display(),
-                root.display()
-            ),
+            "Path is not under root directory.",
         )
     })?;
 
@@ -221,11 +219,7 @@ pub fn process_picked_files(files: Vec<PathBuf>) -> Result<SelectedBatchSource, 
     if files.len() > MAX_SUPPORTED_FILES {
         return Err(CommandError::new(
             "TOO_MANY_FILES",
-            format!(
-                "Selected {} files, which exceeds the maximum limit of {}.",
-                files.len(),
-                MAX_SUPPORTED_FILES
-            ),
+            "Selected files exceed the maximum limit of 500.",
         ));
     }
 
@@ -247,13 +241,13 @@ pub fn process_picked_files(files: Vec<PathBuf>) -> Result<SelectedBatchSource, 
         )
     })?;
 
-    let canonical_root = fs::canonicalize(parent_dir).map_err(|e| {
+    let canonical_root = fs::canonicalize(parent_dir).map_err(|_| {
         CommandError::new(
             "INPUT_ROOT_NOT_FOUND",
-            format!("Failed to resolve source root directory: {}", e),
+            "Failed to resolve source root directory.",
         )
     })?;
-    let canonical_root = crate::generation::output::simplify_windows_path(&canonical_root);
+    let canonical_root = simplify_windows_path(&canonical_root);
 
     validate_path_security(&canonical_root)?;
     if is_reparse_point(&canonical_root) {
@@ -263,10 +257,10 @@ pub fn process_picked_files(files: Vec<PathBuf>) -> Result<SelectedBatchSource, 
         ));
     }
 
-    let root_identity = get_path_filesystem_identity(&canonical_root).map_err(|e| {
+    let root_identity = get_path_filesystem_identity(&canonical_root).map_err(|_| {
         CommandError::new(
             "INPUT_ROOT_NOT_FOUND",
-            format!("Failed to query root filesystem identity: {}", e.message),
+            "Failed to query root filesystem identity.",
         )
     })?;
 
@@ -286,10 +280,7 @@ pub fn process_picked_files(files: Vec<PathBuf>) -> Result<SelectedBatchSource, 
         if has_reparse_component(file_path) {
             return Err(CommandError::new(
                 "INPUT_PATH_NOT_ALLOWED",
-                format!(
-                    "Selected file '{}' or an ancestor directory is a symlink or reparse point.",
-                    file_path.display()
-                ),
+                "Selected file or an ancestor directory is a symlink, junction, or reparse point.",
             ));
         }
 
@@ -297,14 +288,13 @@ pub fn process_picked_files(files: Vec<PathBuf>) -> Result<SelectedBatchSource, 
             .parent()
             .ok_or_else(|| CommandError::new("INPUT_PATH_NOT_ALLOWED", "Invalid file parent."))?;
 
-        let current_canonical_parent = fs::canonicalize(current_parent).map_err(|e| {
+        let current_canonical_parent = fs::canonicalize(current_parent).map_err(|_| {
             CommandError::new(
                 "INPUT_PATH_NOT_ALLOWED",
-                format!("Parent resolution error: {}", e),
+                "Parent directory resolution failed.",
             )
         })?;
-        let current_canonical_parent =
-            crate::generation::output::simplify_windows_path(&current_canonical_parent);
+        let current_canonical_parent = simplify_windows_path(&current_canonical_parent);
 
         // Enforce the one-parent rule
         if current_canonical_parent != canonical_root {
@@ -317,10 +307,7 @@ pub fn process_picked_files(files: Vec<PathBuf>) -> Result<SelectedBatchSource, 
         if is_reparse_point(file_path) {
             return Err(CommandError::new(
                 "INPUT_PATH_NOT_ALLOWED",
-                format!(
-                    "Selected file '{}' is a symlink or reparse point.",
-                    file_path.display()
-                ),
+                "Selected file is a symlink or reparse point.",
             ));
         }
 
@@ -342,21 +329,12 @@ pub fn process_picked_files(files: Vec<PathBuf>) -> Result<SelectedBatchSource, 
         if !seen_casefold.insert(casefold_key) {
             return Err(CommandError::new(
                 "DUPLICATE_INPUT_DETECTED",
-                format!(
-                    "Case-insensitive filename collision detected for '{}'.",
-                    file_name
-                ),
+                "Case-insensitive filename collision detected in selection.",
             ));
         }
 
-        let identity = get_path_filesystem_identity(file_path).map_err(|e| {
-            CommandError::new(
-                "INPUT_FILE_NOT_FOUND",
-                format!(
-                    "Failed to query identity for '{}': {}",
-                    file_name, e.message
-                ),
-            )
+        let identity = get_path_filesystem_identity(file_path).map_err(|_| {
+            CommandError::new("INPUT_FILE_NOT_FOUND", "Failed to query file identity.")
         })?;
 
         match ext {
@@ -400,10 +378,7 @@ pub fn scan_folder_bounded(folder: PathBuf) -> Result<SelectedBatchSource, Comma
     if !folder.exists() || !folder.is_dir() {
         return Err(CommandError::new(
             "INPUT_ROOT_NOT_FOUND",
-            format!(
-                "Selected folder does not exist or is not a directory: {}",
-                folder.display()
-            ),
+            "Selected folder does not exist or is not a directory.",
         ));
     }
 
@@ -414,13 +389,9 @@ pub fn scan_folder_bounded(folder: PathBuf) -> Result<SelectedBatchSource, Comma
         ));
     }
 
-    let canonical_root = fs::canonicalize(&folder).map_err(|e| {
-        CommandError::new(
-            "INPUT_ROOT_NOT_FOUND",
-            format!("Failed to resolve folder path: {}", e),
-        )
-    })?;
-    let canonical_root = crate::generation::output::simplify_windows_path(&canonical_root);
+    let canonical_root = fs::canonicalize(&folder)
+        .map_err(|_| CommandError::new("INPUT_ROOT_NOT_FOUND", "Failed to resolve folder path."))?;
+    let canonical_root = simplify_windows_path(&canonical_root);
 
     validate_path_security(&canonical_root)?;
 
@@ -431,10 +402,10 @@ pub fn scan_folder_bounded(folder: PathBuf) -> Result<SelectedBatchSource, Comma
         ));
     }
 
-    let root_identity = get_path_filesystem_identity(&canonical_root).map_err(|e| {
+    let root_identity = get_path_filesystem_identity(&canonical_root).map_err(|_| {
         CommandError::new(
             "INPUT_ROOT_NOT_FOUND",
-            format!("Failed to query root filesystem identity: {}", e.message),
+            "Failed to query root filesystem identity.",
         )
     })?;
 
@@ -465,10 +436,7 @@ pub fn scan_folder_bounded(folder: PathBuf) -> Result<SelectedBatchSource, Comma
             if visited_entries > MAX_SCAN_ENTRIES {
                 return Err(CommandError::new(
                     "SELECTION_SCAN_OVERFLOW",
-                    format!(
-                        "Folder scan exceeded the maximum of {} visited entries. Please select a narrower folder.",
-                        MAX_SCAN_ENTRIES
-                    ),
+                    "Folder scan exceeded the maximum of 10,000 visited entries. Please select a narrower folder.",
                 ));
             }
 
@@ -514,10 +482,7 @@ pub fn scan_folder_bounded(folder: PathBuf) -> Result<SelectedBatchSource, Comma
                 if !seen_casefold.insert(casefold_key) {
                     return Err(CommandError::new(
                         "DUPLICATE_INPUT_DETECTED",
-                        format!(
-                            "Case-insensitive filename collision detected for relative path '{}'.",
-                            rel_path
-                        ),
+                        "Case-insensitive filename collision detected for relative path.",
                     ));
                 }
 
@@ -540,10 +505,7 @@ pub fn scan_folder_bounded(folder: PathBuf) -> Result<SelectedBatchSource, Comma
                 if (par_count + psm_count + asm_count + dft_count) as usize > MAX_SUPPORTED_FILES {
                     return Err(CommandError::new(
                         "TOO_MANY_FILES",
-                        format!(
-                            "Found more than {} supported files. Maximum supported batch size is {}.",
-                            MAX_SUPPORTED_FILES, MAX_SUPPORTED_FILES
-                        ),
+                        "Found more than 500 supported files. Maximum supported batch size is 500.",
                     ));
                 }
 
@@ -582,10 +544,7 @@ pub fn process_picked_output(folder: PathBuf) -> Result<SelectedBatchOutput, Com
     if !folder.exists() || !folder.is_dir() {
         return Err(CommandError::new(
             "OUTPUT_UNAVAILABLE",
-            format!(
-                "Selected path does not exist or is not a directory: {}",
-                folder.display()
-            ),
+            "Selected path does not exist or is not a directory.",
         ));
     }
 
@@ -596,13 +555,10 @@ pub fn process_picked_output(folder: PathBuf) -> Result<SelectedBatchOutput, Com
         ));
     }
 
-    let canonical_root = fs::canonicalize(&folder).map_err(|e| {
-        CommandError::new(
-            "OUTPUT_UNAVAILABLE",
-            format!("Failed to resolve output directory: {}", e),
-        )
+    let canonical_root = fs::canonicalize(&folder).map_err(|_| {
+        CommandError::new("OUTPUT_UNAVAILABLE", "Failed to resolve output directory.")
     })?;
-    let canonical_root = crate::generation::output::simplify_windows_path(&canonical_root);
+    let canonical_root = simplify_windows_path(&canonical_root);
 
     validate_path_security(&canonical_root)?;
 
@@ -613,10 +569,10 @@ pub fn process_picked_output(folder: PathBuf) -> Result<SelectedBatchOutput, Com
         ));
     }
 
-    let root_identity = get_path_filesystem_identity(&canonical_root).map_err(|e| {
+    let root_identity = get_path_filesystem_identity(&canonical_root).map_err(|_| {
         CommandError::new(
             "OUTPUT_UNAVAILABLE",
-            format!("Failed to query output filesystem identity: {}", e.message),
+            "Failed to query output filesystem identity.",
         )
     })?;
 

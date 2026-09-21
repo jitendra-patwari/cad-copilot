@@ -32,12 +32,20 @@ export interface GenerationRunSnapshot {
   warnings: string[];
 }
 
+export type EngineBuildProvenance = 'source_build' | 'bundled_build';
+
+export interface EngineBuildInfo {
+  version: string;
+  provenance: EngineBuildProvenance;
+}
+
 export interface GenerationSnapshot {
   revision: number;
   nativeAvailable: boolean;
   keyConfigured: boolean;
   output: GenerationOutputSelection | null;
   run: GenerationRunSnapshot | null;
+  engineBuild?: EngineBuildInfo;
 }
 
 export type GenerationInput =
@@ -60,6 +68,7 @@ export interface ManifestSummary {
   schemaVersion: string;
   provenanceKind: string;
   sourceId: string | null;
+  engineVersion?: string;
   cadRuntimeVersion: string | null;
   operationsExecuted: number;
   planSha256: string;

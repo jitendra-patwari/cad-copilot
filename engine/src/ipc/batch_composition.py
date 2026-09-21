@@ -59,7 +59,7 @@ def run_batch(
     if engine_ver is None:
         try:
             resolved = importlib.metadata.version("cad-copilot")
-            if resolved and resolved.strip() == resolved:
+            if resolved and resolved.strip() == resolved and resolved == "0.1.0":
                 engine_ver = resolved
         except Exception:
             engine_ver = None

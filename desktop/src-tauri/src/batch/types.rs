@@ -1,53 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CommandError {
-    pub code: String,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub field: Option<String>,
-}
-
-impl CommandError {
-    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            code: code.into(),
-            message: message.into(),
-            field: None,
-        }
-    }
-
-    pub fn with_field(
-        code: impl Into<String>,
-        message: impl Into<String>,
-        field: impl Into<String>,
-    ) -> Self {
-        Self {
-            code: code.into(),
-            message: message.into(),
-            field: Some(field.into()),
-        }
-    }
-}
-
-impl From<crate::generation::types::CommandError> for CommandError {
-    fn from(err: crate::generation::types::CommandError) -> Self {
-        Self {
-            code: err.code,
-            message: err.message,
-            field: err.field,
-        }
-    }
-}
-
-impl std::fmt::Display for CommandError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.code, self.message)
-    }
-}
-
-impl std::error::Error for CommandError {}
+pub use crate::shared::engine::EngineBuildInfo;
+pub use crate::shared::error::CommandError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,6 +11,7 @@ pub struct BatchSnapshot {
     pub source: Option<BatchSourceSelection>,
     pub output: Option<BatchOutputSelection>,
     pub run: Option<BatchRunSnapshot>,
+    pub engine_build: EngineBuildInfo,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -263,6 +218,10 @@ pub struct BatchResultResponse {
     pub manifest_state: ManifestState,
     pub manifest_path: Option<String>,
     pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cad_runtime_version: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

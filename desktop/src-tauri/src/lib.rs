@@ -1,6 +1,7 @@
 pub mod batch;
 pub mod generation;
 pub mod run_claim;
+pub mod shared;
 
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, WindowEvent};

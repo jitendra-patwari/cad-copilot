@@ -6,12 +6,12 @@ use std::time::{Duration, Instant};
 
 use tauri::{Emitter, Manager, Window};
 
-use crate::generation::launcher::{resolve_source_layout, SourceLayout};
-use crate::generation::windows::{
+use crate::run_claim::{RunClaimCoordinator, RunKind};
+use crate::shared::engine::{resolve_source_layout, SourceLayout};
+use crate::shared::windows::{
     force_terminate_process, send_cancellation_signal, spawn_engine_process_explicit,
     wait_process_timeout,
 };
-use crate::run_claim::{RunClaimCoordinator, RunKind};
 
 use super::protocol::{
     build_and_serialize_request, parse_progress_line, parse_terminal_response,
@@ -512,8 +512,8 @@ fn run_batch_supervisor(
             let line = match line_res {
                 Ok(Some(l)) => l,
                 Ok(None) => break,
-                Err(e) => {
-                    let err_msg = format!("Progress stream error: {}", e);
+                Err(_) => {
+                    let err_msg = "Progress stream read error encountered.".to_string();
                     *stream_violation_clone.lock().unwrap() = Some(err_msg);
                     cancel_token_clone.store(true, Ordering::SeqCst);
                     break;
@@ -531,7 +531,7 @@ fn run_batch_supervisor(
             match parse_progress_line(&line, &req_id_clone, &formats_clone, &files_clone) {
                 Ok(BatchStderrItem::Progress(evt)) => {
                     if let Err(track_err) = tracker.update(&evt) {
-                        eprintln!("Progress stream sequence violation: {}", track_err.message);
+                        eprintln!("Progress stream sequence violation: {}", track_err.code);
                         *stream_violation_clone.lock().unwrap() = Some(
                             "Protocol violation: Progress sequence or completion count was invalid."
                                 .to_string(),
@@ -565,14 +565,14 @@ fn run_batch_supervisor(
                         serde_json::to_value(&evt).unwrap_or(serde_json::Value::Null),
                     );
                 }
-                Ok(BatchStderrItem::FatalDiagnostic(msg)) => {
-                    eprintln!("Fatal engine diagnostic on stderr: {}", msg);
+                Ok(BatchStderrItem::FatalDiagnostic(_msg)) => {
+                    eprintln!("Fatal engine diagnostic on stderr");
                     *stream_violation_clone.lock().unwrap() =
                         Some("Batch process failed before producing a response.".to_string());
                     break;
                 }
                 Err(parse_err) => {
-                    eprintln!("Malformed progress line: {}", parse_err.message);
+                    eprintln!("Malformed progress line: {}", parse_err.code);
                     *stream_violation_clone.lock().unwrap() = Some(
                         "Protocol violation: Engine progress stream was malformed.".to_string(),
                     );
@@ -617,7 +617,7 @@ fn run_batch_supervisor(
         // Check cancellation
         if cancel_token.load(Ordering::SeqCst) && !cancellation_sent {
             if let Err(e) = send_cancellation_signal(child.pid, child.child_has_private_console) {
-                eprintln!("Failed to send cancellation signal: {}", e.message);
+                eprintln!("Failed to send cancellation signal: {}", e.code);
             }
             cancellation_sent = true;
             let grace =
@@ -643,10 +643,7 @@ fn run_batch_supervisor(
 
         if let Some(c_deadline) = cancellation_deadline {
             if Instant::now() > c_deadline {
-                eprintln!(
-                    "Cancellation grace expired; force terminating child PID {}",
-                    child.pid
-                );
+                eprintln!("Cancellation grace expired; force terminating child process");
                 cleanup = CleanupState::Incomplete;
                 let _ = force_terminate_process(child.process_handle, 1);
                 let _ = wait_process_timeout(child.process_handle, 1000);
@@ -714,12 +711,12 @@ fn run_batch_supervisor(
 
     let stdout_bytes = match stdout_res.unwrap() {
         Ok(bytes) => bytes,
-        Err(e) => {
+        Err(_) => {
             finalize_terminal(
                 host.as_ref(),
                 &request_id,
                 Some(BatchEngineStatus::Failed),
-                Some(format!("Failed to read batch process stdout: {}", e)),
+                Some("Failed to read batch process stdout stream.".to_string()),
                 CleanupState::Incomplete,
                 ManifestState::Unavailable,
                 None,
@@ -779,7 +776,7 @@ fn run_batch_supervisor(
         Some(0) => match parse_terminal_response(&stdout_bytes, &request_id, &eligible_files) {
             Ok(resp) => {
                 if let Err(e) = verify_progress_tracker_terminal_accounting(&tracker, &resp) {
-                    eprintln!("Progress tracker accounting mismatch: {}", e.message);
+                    eprintln!("Progress tracker accounting mismatch: {}", e.code);
                     finalize_terminal(
                         host.as_ref(),
                         &request_id,
@@ -818,7 +815,7 @@ fn run_batch_supervisor(
                         );
                     }
                     Err(e) => {
-                        eprintln!("Batch result validation error: {}", e.message);
+                        eprintln!("Batch result validation error: {}", e.code);
                         finalize_terminal(
                             host.as_ref(),
                             &request_id,
@@ -832,7 +829,7 @@ fn run_batch_supervisor(
                 }
             }
             Err(e) => {
-                eprintln!("Terminal response validation failed: {}", e.message);
+                eprintln!("Terminal response validation failed: {}", e.code);
                 finalize_terminal(
                     host.as_ref(),
                     &request_id,
@@ -956,11 +953,11 @@ mod tests {
                 eligible_files: vec!["part.par".to_string()],
                 source_root: PathBuf::from("C:\\src"),
                 output_root: PathBuf::from("C:\\out"),
-                source_root_identity: crate::generation::output::FileSystemIdentity {
+                source_root_identity: crate::shared::path::FileSystemIdentity {
                     volume_serial_number: 1,
                     file_index: 1,
                 },
-                output_root_identity: crate::generation::output::FileSystemIdentity {
+                output_root_identity: crate::shared::path::FileSystemIdentity {
                     volume_serial_number: 1,
                     file_index: 2,
                 },

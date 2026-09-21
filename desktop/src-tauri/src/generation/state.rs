@@ -79,6 +79,7 @@ impl GenerationState {
             key_configured: self.session_key.is_some(),
             output: self.selected_output.clone(),
             run: self.active_run.as_ref().map(|r| r.to_snapshot()),
+            engine_build: crate::shared::engine::current_engine_build_info(),
         }
     }
 

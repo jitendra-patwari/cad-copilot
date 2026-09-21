@@ -267,7 +267,7 @@ pub async fn generation_result(
         )
     })
     .await
-    .map_err(|e| CommandError::new("INTERNAL_ERROR", format!("Verification task failed: {}", e)))?;
+    .map_err(|_| CommandError::new("INTERNAL_ERROR", "Verification background task failed."))?;
 
     match res {
         Ok((result, preview_sha)) => {
@@ -374,7 +374,7 @@ pub async fn generation_preview(
         )
     })
     .await
-    .map_err(|e| CommandError::new("INTERNAL_ERROR", format!("Preview task failed: {}", e)))??;
+    .map_err(|_| CommandError::new("INTERNAL_ERROR", "Preview background task failed."))??;
 
     Ok(Response::new(bytes))
 }

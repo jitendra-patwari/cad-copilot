@@ -9,11 +9,11 @@ use cad_copilot_desktop_lib::batch::state::ActiveBatchRunState;
 use cad_copilot_desktop_lib::batch::types::{
     BatchEngineStatus, BatchPhase, BatchRunState, CleanupState, ManifestState,
 };
-use cad_copilot_desktop_lib::generation::launcher::resolve_source_layout;
-use cad_copilot_desktop_lib::generation::windows::{
+use cad_copilot_desktop_lib::run_claim::{RunClaimCoordinator, RunKind};
+use cad_copilot_desktop_lib::shared::engine::resolve_source_layout;
+use cad_copilot_desktop_lib::shared::windows::{
     force_terminate_process, send_cancellation_signal, spawn_engine_process, wait_process_timeout,
 };
-use cad_copilot_desktop_lib::run_claim::{RunClaimCoordinator, RunKind};
 
 static CONSOLE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -349,14 +349,12 @@ fn qualify_production_supervisor(private_console: bool, test_cancellation: bool)
     }
     let _cleaner = OutputCleaner(&temp_output_root);
 
-    let out_id = cad_copilot_desktop_lib::generation::output::get_path_filesystem_identity(
-        &temp_output_root,
-    )
-    .expect("Filesystem identity for output root should succeed");
-    let source_id = cad_copilot_desktop_lib::generation::output::get_path_filesystem_identity(
-        &layout.repo_root,
-    )
-    .expect("Filesystem identity for repo root should succeed");
+    let out_id =
+        cad_copilot_desktop_lib::shared::path::get_path_filesystem_identity(&temp_output_root)
+            .expect("Filesystem identity for output root should succeed");
+    let source_id =
+        cad_copilot_desktop_lib::shared::path::get_path_filesystem_identity(&layout.repo_root)
+            .expect("Filesystem identity for repo root should succeed");
 
     let state = std::sync::Arc::new(Mutex::new(cad_copilot_desktop_lib::batch::BatchState::new()));
     let coord = std::sync::Arc::new(Mutex::new(RunClaimCoordinator::new()));
@@ -760,14 +758,12 @@ fn test_live_batch_supervisor_installed_module_early_rejection() {
     }
     let _cleaner = OutputCleaner(&temp_output_root);
 
-    let out_id = cad_copilot_desktop_lib::generation::output::get_path_filesystem_identity(
-        &temp_output_root,
-    )
-    .expect("Filesystem identity for output root should succeed");
-    let source_id = cad_copilot_desktop_lib::generation::output::get_path_filesystem_identity(
-        &layout.repo_root,
-    )
-    .expect("Filesystem identity for repo root should succeed");
+    let out_id =
+        cad_copilot_desktop_lib::shared::path::get_path_filesystem_identity(&temp_output_root)
+            .expect("Filesystem identity for output root should succeed");
+    let source_id =
+        cad_copilot_desktop_lib::shared::path::get_path_filesystem_identity(&layout.repo_root)
+            .expect("Filesystem identity for repo root should succeed");
 
     let state = std::sync::Arc::new(Mutex::new(cad_copilot_desktop_lib::batch::BatchState::new()));
     let coord = std::sync::Arc::new(Mutex::new(RunClaimCoordinator::new()));
@@ -922,14 +918,12 @@ fn test_batch_supervisor_pre_handler_exit_130() {
     }
     let _cleaner = OutputCleaner(&temp_output_root);
 
-    let out_id = cad_copilot_desktop_lib::generation::output::get_path_filesystem_identity(
-        &temp_output_root,
-    )
-    .expect("Filesystem identity for output root should succeed");
-    let source_id = cad_copilot_desktop_lib::generation::output::get_path_filesystem_identity(
-        &layout.repo_root,
-    )
-    .expect("Filesystem identity for repo root should succeed");
+    let out_id =
+        cad_copilot_desktop_lib::shared::path::get_path_filesystem_identity(&temp_output_root)
+            .expect("Filesystem identity for output root should succeed");
+    let source_id =
+        cad_copilot_desktop_lib::shared::path::get_path_filesystem_identity(&layout.repo_root)
+            .expect("Filesystem identity for repo root should succeed");
 
     let state = std::sync::Arc::new(Mutex::new(cad_copilot_desktop_lib::batch::BatchState::new()));
     let coord = std::sync::Arc::new(Mutex::new(RunClaimCoordinator::new()));
@@ -1068,14 +1062,12 @@ fn test_batch_stalled_child_and_worker_settlement() {
     }
     let _cleaner = OutputCleaner(&temp_output_root);
 
-    let out_id = cad_copilot_desktop_lib::generation::output::get_path_filesystem_identity(
-        &temp_output_root,
-    )
-    .expect("Filesystem identity for output root should succeed");
-    let source_id = cad_copilot_desktop_lib::generation::output::get_path_filesystem_identity(
-        &layout.repo_root,
-    )
-    .expect("Filesystem identity for repo root should succeed");
+    let out_id =
+        cad_copilot_desktop_lib::shared::path::get_path_filesystem_identity(&temp_output_root)
+            .expect("Filesystem identity for output root should succeed");
+    let source_id =
+        cad_copilot_desktop_lib::shared::path::get_path_filesystem_identity(&layout.repo_root)
+            .expect("Filesystem identity for repo root should succeed");
 
     let state = std::sync::Arc::new(Mutex::new(cad_copilot_desktop_lib::batch::BatchState::new()));
     let coord = std::sync::Arc::new(Mutex::new(RunClaimCoordinator::new()));

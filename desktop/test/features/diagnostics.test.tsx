@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { App } from '../../src/app/App';
+import { DiagnosticsPanel } from '../../src/features/diagnostics/DiagnosticsPanel';
 
 describe('Settings & Diagnostics Surface', () => {
   it('is closed by default and opens when trigger button is clicked', () => {
@@ -138,5 +139,54 @@ describe('Settings & Diagnostics Surface', () => {
     expect(dialogText).not.toContain('telemetry');
     expect(dialogText).not.toContain('account');
     expect(dialogText).not.toContain('save');
+  });
+
+  it('renders truthful engine build provenance for source and bundled builds', () => {
+    const { rerender } = render(
+      <DiagnosticsPanel
+        isOpen={true}
+        onClose={() => {}}
+        engineBuild={{ version: '0.1.0', provenance: 'source_build' }}
+      />
+    );
+
+    expect(screen.getByText('Python CAD Engine')).toBeInTheDocument();
+    expect(screen.getByText('v0.1.0 (Source)')).toBeInTheDocument();
+    expect(
+      screen.getByText('Declared source compatibility engine configuration.')
+    ).toBeInTheDocument();
+
+    rerender(
+      <DiagnosticsPanel
+        isOpen={true}
+        onClose={() => {}}
+        engineBuild={{ version: '0.1.0', provenance: 'bundled_build' }}
+        lastRunEngineVersion="0.1.0"
+      />
+    );
+
+    expect(screen.getByText('v0.1.0 (Bundled)')).toBeInTheDocument();
+    expect(
+      screen.getByText('Build-stamped bundled engine verified in last run.')
+    ).toBeInTheDocument();
+  });
+
+  it('formats Solid Edge automation build without duplicate prefix', () => {
+    const { rerender } = render(
+      <DiagnosticsPanel isOpen={true} onClose={() => {}} lastRunCadBuild="226.00.00.106" />
+    );
+
+    expect(screen.getByText('Solid Edge 226.00.00.106')).toBeInTheDocument();
+
+    rerender(
+      <DiagnosticsPanel
+        isOpen={true}
+        onClose={() => {}}
+        lastRunCadBuild="Solid Edge 2026 (226.00.00.106)"
+      />
+    );
+
+    expect(screen.getByText('Solid Edge 2026 (226.00.00.106)')).toBeInTheDocument();
+    expect(screen.queryByText(/Solid Edge Solid Edge/)).not.toBeInTheDocument();
   });
 });
