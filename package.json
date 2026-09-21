@@ -19,7 +19,8 @@
     "format:desktop": "pnpm --filter @cad-copilot/desktop format",
     "format:check:desktop": "pnpm --filter @cad-copilot/desktop format:check",
     "build": "pnpm -r --if-present build",
-    "build:desktop": "pnpm --filter @cad-copilot/desktop build"
+    "build:desktop": "pnpm --filter @cad-copilot/desktop build",
+    "package:desktop": "pnpm --filter @cad-copilot/engine package:desktop && .\\.venv\\Scripts\\python.exe scripts/package_desktop.py"
   },
   "devDependencies": {}
 }

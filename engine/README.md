@@ -2,9 +2,9 @@
 
 CAD Copilot is an open-source project for local Solid Edge generation and native-file batch export.
 
-## Current implementation (Milestones 1–6.3)
+## Current implementation (Milestones 1–6.4)
 
-As of 20 September 2026:
+As of 22 September 2026:
 
 - M1/M2: domain interfaces, JSON contracts, pure geometry, parsing, validation, lowering, and bounded STEP text smoke checking.
 - M3.0: scope, contract, governance, and Python tooling reconciliation.
@@ -22,15 +22,16 @@ As of 20 September 2026:
 - M5.4: genuine batch format handlers and native export operations (FR-17) supporting 3D CAD models (STEP and STL from native `.par`, `.psm`, `.asm`) and 2D engineering drawings (PDF and text ASCII DXF from native `.dft`), with in-memory drawing view refresh without disk saves, authoritative assembly occurrence reference verification via official Siemens `FileMissing()` COM API with fail-closed missing component isolation and grounded component resilience, non-destructive closed-output structure validators (`validate_batch_output`), and production composition wiring (`Export3DHandler`, `PublishDrawingHandler`, `build_initial_operation_bindings`).
 - M5.5: conditional Parasolid batch export gate (FR-18) supporting native 3D model export to Parasolid text (`.x_t`) across Ordered part (`.par`), sheet metal (`.psm`), and assembly (`.asm`) documents with non-destructive structural validation (`validate_parasolid_artifact` via `validate_batch_output`), non-mutating reopen count verification via `OpenWithTemplate`, zero sidecar leakage, and full promotion across canonical schemas, models, and registry.
 - M5.6: batch summary manifest publication (`<request_id>.batch_manifest.json`), atomic no-replace publication, strict batch stdio IPC (`cad-copilot-batch` console entrypoint and `engine/scripts/batch.cmd` source wrapper), JSONL progress events on `stderr` across 6 phases, cooperative signal cancellation (`CTRL_BREAK` / `SIGINT`), packaged schema resources in isolated wheel distributions, and live integration gates (FR-19).
-- M6.3: Batch desktop vertical slice (FR-22) connecting the Tauri/React desktop frontend to the Python batch engine (`ipc.batch_stdio`). Supports native source file and folder selection with single-parent root containment, bounded 20,000-entry scan, `.par/.psm/.asm` 3D export (STEP, STL, Parasolid `.x_t`), `.dft` 2D drawing publication (PDF, text DXF), native output directory binding, fixed no-replace collision policy, 6-phase JSONL progress streaming over `stderr`, cooperative `CTRL_BREAK` cancellation with clean partial-result accounting, root-level manifest verification (`<request_id>.batch_manifest.json`), itemized results presentation, and native Explorer reveal. Fully implemented, hardened, and verified across automated, native, live COM, and desktop GUI acceptance gates (both Tauri dev and windowed release hosts); subsequent shared consolidation and packaging (M6.4) remains planned.
+- M6.3: Batch desktop vertical slice (FR-22) connecting the Tauri/React desktop frontend to the Python batch engine (`ipc.batch_stdio`). Supports native source file and folder selection with single-parent root containment, bounded 20,000-entry scan, `.par/.psm/.asm` 3D export (STEP, STL, Parasolid `.x_t`), `.dft` 2D drawing publication (PDF, text DXF), native output directory binding, fixed no-replace collision policy, 6-phase JSONL progress streaming over `stderr`, cooperative `CTRL_BREAK` cancellation with clean partial-result accounting, root-level manifest verification (`<request_id>.batch_manifest.json`), itemized results presentation, and native Explorer reveal. Fully implemented, hardened, and verified across automated, native, live COM, and desktop GUI acceptance gates (both Tauri dev and windowed release hosts).
+- M6.4: Desktop Packaging & Production Release Validation (FR-21, FR-22) (In Progress). Consolidated shared workflow supervision, pure packaged engine resolver (`desktop/src-tauri/src/shared/engine.rs`), deterministic PyInstaller engine distribution recipe (`engine/scripts/package_desktop_engine.py`), application-owned user profile `gen_py` cache, RFC 7396 Tauri NSIS release overlay (`desktop/src-tauri/tauri.packaged.conf.json`), per-user installation without elevation, comprehensive third-party redistribution notices, and verified offline lifecycle/cancellation. M6.4 packaging architecture, NSIS configuration, offline verification, per-user installation, installed Generate and Gemini success paths, and installed Generate cancellation are verified. The remaining installed failure, Batch, path, and uninstall acceptance gates remain pending.
 
-Milestone 4, Milestone 5, Milestone 6.1 (Clean Desktop Foundation, FR-20), Milestone 6.2 (Generate Vertical Slice, FR-21), and Milestone 6.3 (Batch Vertical Slice, FR-22) are fully implemented, hardened, and verified. Downstream shared consolidation and packaging (M6.4) remains planned.
+Milestones 4, 5, 6.1 (Clean Desktop Foundation, FR-20), 6.2 (Generate Vertical Slice, FR-21), and 6.3 (Batch Vertical Slice, FR-22) are fully implemented, hardened, and verified. M6.4 packaging architecture, NSIS configuration, offline verification, per-user installation, installed Generate and Gemini success paths, and installed Generate cancellation are verified. The remaining installed failure, Batch, path, and uninstall acceptance gates remain pending.
 
 Install optional Gemini support via `pip install -e ".[gemini]"`. Deterministic example workflows, geometry parsing, validation, lowering, and offline tests do not require the Google SDK.
 
 ## Verification boundary
 
-- Full offline test suite: **2,403 passed, 4 skipped, 55 deselected in 69.05s** across all domain packages (`pytest -c pytest.ini -m "not com and not live_ai"`, the 4 skips being Windows symlink-permission guards).
+- Full offline test suite: **2,434 passed, 4 skipped, 55 deselected in 74.05s** across all domain packages (`pytest -c pytest.ini -m "not com and not live_ai"`, the 4 skips being Windows symlink-permission guards).
 - Dedicated batch test suite: **814 passed, 2 skipped** across 30 test modules (`pytest tests/batch -q`).
 - Focused runtime lifecycle/security suite: **84 passed** (`pytest tests/drivers/test_runtime_document_task.py tests/drivers/test_runtime_lifecycle.py tests/drivers/test_ownership_teardown_safety.py tests/drivers/test_error_sanitization.py -q`).
 - Strict mypy: **Success (0 issues across 174 source files)** checked across `src`, `tests/batch`, `tests/ipc`, and `tests/drivers`.
@@ -40,7 +41,7 @@ Install optional Gemini support via `pip install -e ".[gemini]"`. Deterministic 
 
 ## Development and scope
 
-Python `>=3.14.3,<3.15` is required; the tested baseline is Python 3.14.3. Live automation requires Windows and a licensed local Solid Edge installation. Pure geometry and contract checks do not require COM; some offline driver tests use Windows process APIs. Use `-m "not com and not live_ai"` to exclude live CAD and AI tests explicitly.
+Python `>=3.14.3,<3.15` is required; the tested baseline is Python 3.14.3. Live automation requires Windows and a licensed local Solid Edge installation. On fresh Solid Edge user profiles, complete the vendor's one-time Ordered-mode confirmation dialog before unattended generation. Pure geometry and contract checks do not require COM; some offline driver tests use Windows process APIs. Use `-m "not com and not live_ai"` to exclude live CAD and AI tests explicitly.
 
 See [requirements](../docs/requirements.md) and [contribution guidance](../CONTRIBUTING.md). There is no mock CAD application in this baseline; the desktop host (`desktop/`) integrates the Generate stdio launcher (`generate.cmd`) with robust child supervision, single-run guards, targeted cancellation, and sidecar manifest validation (FR-21). Both generation and batch stdio launchers are fully implemented and verified.
 

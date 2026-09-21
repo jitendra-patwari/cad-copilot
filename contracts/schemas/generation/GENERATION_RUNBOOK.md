@@ -91,7 +91,7 @@ $env:GEMINI_API_KEY = "AIzaSy..."
 ### System Requirements
 - Windows 10/11 x64.
 - Python 3.14.3 virtual environment (`.venv\Scripts\python.exe`).
-- Siemens Solid Edge® installed and licensed.
+- Siemens Solid Edge® installed and licensed. On fresh Solid Edge user profiles, complete the vendor's one-time Ordered-mode confirmation dialog before unattended generation.
 
 ---
 

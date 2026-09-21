@@ -24,11 +24,11 @@ def configure_win32com_cache() -> bool:
     candidates: list[Path] = []
     local_appdata = os.environ.get("LOCALAPPDATA")
     if local_appdata:
-        candidates.append(Path(local_appdata) / "cad-copilot" / "gen_py")
+        candidates.append(Path(local_appdata) / "io.github.jitendra-patwari.cad-copilot" / "gen_py")
 
     temp_dir = os.environ.get("TEMP") or os.environ.get("TMP")
     if temp_dir:
-        candidates.append(Path(temp_dir) / "cad-copilot" / "gen_py")
+        candidates.append(Path(temp_dir) / "io.github.jitendra-patwari.cad-copilot" / "gen_py")
 
     for target_dir in candidates:
         try:

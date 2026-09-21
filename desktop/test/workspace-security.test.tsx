@@ -50,6 +50,15 @@ describe('Root workspace discovery and script behavior', () => {
     expect(scripts.typecheck).toBe('tsc -b --noEmit');
     expect(scripts['format:check']).toBe('prettier --check .');
   });
+
+  it('declares exact deterministic desktop packaging scripts in engine and root package.json', () => {
+    expect(enginePackageJson.scripts['package:desktop']).toBe(
+      '..\\.venv\\Scripts\\python.exe scripts/package_desktop_engine.py'
+    );
+    expect(rootPackageJson.scripts['package:desktop']).toBe(
+      'pnpm --filter @cad-copilot/engine package:desktop && .\\.venv\\Scripts\\python.exe scripts/package_desktop.py'
+    );
+  });
 });
 
 describe('Zero runtime network and zero persistent storage baseline', () => {

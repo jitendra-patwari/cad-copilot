@@ -34,6 +34,7 @@ def test_main_dispatches_generate() -> None:
 
 def test_main_frozen_ai_bootstrap_failure_returns_one(capfd: pytest.CaptureFixture[str]) -> None:
     import builtins
+
     orig_import = builtins.__import__
 
     def mock_import(name: str, *args: object, **kwargs: object) -> object:
@@ -41,12 +42,11 @@ def test_main_frozen_ai_bootstrap_failure_returns_one(capfd: pytest.CaptureFixtu
             raise ImportError("mocked import failure")
         return orig_import(name, *args, **kwargs)
 
-    with patch("sys.frozen", True, create=True):
-        with patch("builtins.__import__", side_effect=mock_import):
-            code = main(["generate"])
-            assert code == 1
-            captured = capfd.readouterr()
-            assert '"phase":"fatal"' in captured.err or '"phase": "fatal"' in captured.err
+    with patch("sys.frozen", True, create=True), patch("builtins.__import__", side_effect=mock_import):
+        code = main(["generate"])
+        assert code == 1
+        captured = capfd.readouterr()
+        assert '"phase":"fatal"' in captured.err or '"phase": "fatal"' in captured.err
 
 
 def test_main_dispatches_batch() -> None:
@@ -60,7 +60,7 @@ def test_configure_win32com_cache_first_run_creation(tmp_path: Path) -> None:
     test_local_appdata = tmp_path / "LocalAppData"
     with patch.dict("os.environ", {"LOCALAPPDATA": str(test_local_appdata)}):
         assert configure_win32com_cache() is True
-        target = test_local_appdata / "cad-copilot" / "gen_py"
+        target = test_local_appdata / "io.github.jitendra-patwari.cad-copilot" / "gen_py"
         assert target.is_dir()
         if sys.platform == "win32":
             import win32com
@@ -76,7 +76,7 @@ def test_configure_win32com_cache_gencache_synchronization_and_install_tree_prot
     test_local_appdata = tmp_path / "LocalAppData"
     with patch.dict("os.environ", {"LOCALAPPDATA": str(test_local_appdata)}):
         assert configure_win32com_cache() is True
-        target = test_local_appdata / "cad-copilot" / "gen_py"
+        target = test_local_appdata / "io.github.jitendra-patwari.cad-copilot" / "gen_py"
         assert target.is_dir()
 
         if sys.platform == "win32":
@@ -100,9 +100,7 @@ def test_configure_win32com_cache_gencache_synchronization_and_install_tree_prot
                 assert not pkg_gen_py.exists(), "gen_py directory must not be created inside packaged install tree"
 
 
-def test_configure_win32com_cache_unwritable_fails_closed(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_configure_win32com_cache_unwritable_fails_closed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     # Point candidate paths to non-creatable file paths
     fake_file = tmp_path / "blocker_file"
     fake_file.write_text("not a directory")

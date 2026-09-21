@@ -40,9 +40,8 @@ pub fn resolve_source_layout() -> Result<SourceLayout, CommandError> {
         }
     }
 
-    if let Some(manifest_dir) = option_env!("CARGO_MANIFEST_DIR") {
-        let manifest_path = PathBuf::from(manifest_dir);
-        let mut curr = Some(manifest_path.as_path());
+    if let Ok(cwd) = std::env::current_dir() {
+        let mut curr = Some(cwd.as_path());
         let mut count = 0;
         while let Some(parent) = curr {
             if count > 5 {
