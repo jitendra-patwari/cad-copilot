@@ -13,7 +13,7 @@ import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
 from interfaces.exceptions import (
     CADDocumentError,
@@ -51,7 +51,9 @@ from .types import (
 
 DEFAULT_ATTACH_TIMEOUT: float = 30.0
 
+DEFAULT_DOC_CREATE_TIMEOUT: float = 10.0
 DEFAULT_DOC_CLOSE_TIMEOUT: float = 10.0
+DEFAULT_DEFERRED_CREATE_TEARDOWN_TIMEOUT: float = 5.0
 DEFAULT_QUIT_TIMEOUT: float = 10.0
 DEFAULT_EXIT_POLL_TIMEOUT: float = 10.0
 
@@ -100,6 +102,21 @@ def _validate_pure_task_result(
         for k, v in result.items():
             _validate_pure_task_result(k, raw_doc, worker, _visited)
             _validate_pure_task_result(v, raw_doc, worker, _visited)
+
+
+@dataclasses.dataclass
+class _PendingDocumentCreation:
+    """Thread-safe state tracking an in-flight or abandoned Part document creation.
+
+    Contains strictly thread-safe metadata and synchronization primitives.
+    Zero raw COM references (raw_doc, raw_app) are ever stored in this structure.
+    """
+
+    abandoned: threading.Event = dataclasses.field(default_factory=threading.Event)
+    completed: threading.Event = dataclasses.field(default_factory=threading.Event)
+    doc_handle: SolidEdgePartDocumentHandle | None = None
+    cleanup_outcome: Literal["pending", "succeeded", "failed"] = "pending"
+    lock: threading.Lock = dataclasses.field(default_factory=threading.Lock)
 
 
 class STAThreadWorker(threading.Thread):
@@ -233,6 +250,7 @@ class SolidEdgeRuntime(CADRuntimeABC):
         self._open_document_handles: dict[str, SolidEdgeDocumentHandle | SolidEdgePartDocumentHandle] = {}
         self._closed_pending_idle_handles: set[str] = set()
         self._owned_process_identity: ProcessIdentity | None = None
+        self._pending_creation: _PendingDocumentCreation | None = None
         self._is_poisoned: bool = False
 
     def _ensure_worker(self) -> STAThreadWorker:
@@ -437,42 +455,120 @@ class SolidEdgeRuntime(CADRuntimeABC):
         """Create a fresh request-owned part document."""
         worker = self._ensure_worker()
 
-        def _create_task() -> SolidEdgePartDocumentHandle:
-            if worker._raw_app is None:
-                raise CADRuntimeError("No active Solid Edge application instance")
+        if self._is_poisoned:
+            raise CADRuntimeError("Cannot create part document: Solid Edge runtime is poisoned from a prior timeout")
 
-            app = worker._raw_app
-            raw_doc = worker._invoke_com(lambda: app.Documents.Add("SolidEdge.PartDocument"))
-            handle_id = str(uuid.uuid4())
-            doc_handle = SolidEdgePartDocumentHandle(handle_id=handle_id)
+        if self._pending_creation is not None and not self._pending_creation.completed.is_set():
+            raise CADRuntimeError("A Part document creation is already in progress")
 
-            # Track immediately so any subsequent teardown can find and close this document
-            worker._document_registry[handle_id] = raw_doc
-            self._open_document_handles[handle_id] = doc_handle
+        pending = _PendingDocumentCreation()
+        self._pending_creation = pending
 
+        def _create_task() -> SolidEdgePartDocumentHandle | None:
             try:
-                worker._invoke_com(lambda: setattr(raw_doc, "ModelingMode", 2))
-                current_mode = worker._invoke_com(lambda: getattr(raw_doc, "ModelingMode", None))
-                if current_mode != 2:
+                if worker._raw_app is None:
+                    raise CADRuntimeError("No active Solid Edge application instance")
+
+                app = worker._raw_app
+                raw_doc = worker._invoke_com(lambda: app.Documents.Add("SolidEdge.PartDocument"))
+                handle_id = str(uuid.uuid4())
+                doc_handle = SolidEdgePartDocumentHandle(handle_id=handle_id)
+
+                # Register in worker registry on STA thread immediately
+                worker._document_registry[handle_id] = raw_doc
+
+                with pending.lock:
+                    was_abandoned_before_mode = pending.abandoned.is_set()
+
+                if was_abandoned_before_mode:
+                    try:
+                        self._worker_close_document(worker, handle_id)
+                        self._closed_pending_idle_handles.discard(handle_id)
+                        with pending.lock:
+                            pending.cleanup_outcome = "succeeded"
+                    except Exception as close_exc:
+                        describe_exception(
+                            close_exc, "Failed to close abandoned Part document created after caller timeout"
+                        )
+                        self._open_document_handles[handle_id] = doc_handle
+                        with pending.lock:
+                            pending.cleanup_outcome = "failed"
+                    return None
+
+                try:
+                    worker._invoke_com(lambda: setattr(raw_doc, "ModelingMode", 2))
+                    current_mode = worker._invoke_com(lambda: getattr(raw_doc, "ModelingMode", None))
+                    if current_mode != 2:
+                        raise CADDocumentError(
+                            f"Failed to establish Ordered modeling mode on new Part document (expected 2, got {current_mode})"
+                        )
+                except Exception as mode_exc:
+                    try:
+                        self._worker_close_document(worker, handle_id)
+                        self._closed_pending_idle_handles.discard(handle_id)
+                        with pending.lock:
+                            pending.cleanup_outcome = "succeeded"
+                    except Exception as close_exc:
+                        describe_exception(close_exc, "Failed to close Part document after mode configuration failure")
+                        self._open_document_handles[handle_id] = doc_handle
+                        with pending.lock:
+                            pending.cleanup_outcome = "failed"
+
+                    if isinstance(mode_exc, CADDocumentError):
+                        raise
                     raise CADDocumentError(
-                        f"Failed to establish Ordered modeling mode on new Part document (expected 2, got {current_mode})"
-                    )
-            except Exception as mode_exc:
-                with contextlib.suppress(Exception):
-                    # If closure or DoIdle failed, retain tracking in registry / handles / pending-idle so teardown will retry
-                    self._worker_close_document(worker, handle_id)
-                    self._closed_pending_idle_handles.discard(handle_id)
-                    self._open_document_handles.pop(handle_id, None)
+                        describe_exception(mode_exc, "Failed to configure Ordered modeling mode on new Part document")
+                    ) from mode_exc
 
-                if isinstance(mode_exc, CADDocumentError):
-                    raise
-                raise CADDocumentError(
-                    describe_exception(mode_exc, "Failed to configure Ordered modeling mode on new Part document")
-                ) from mode_exc
+                with pending.lock:
+                    if pending.abandoned.is_set():
+                        should_clean = True
+                    else:
+                        pending.doc_handle = doc_handle
+                        should_clean = False
 
-            return doc_handle
+                if should_clean:
+                    try:
+                        self._worker_close_document(worker, handle_id)
+                        self._closed_pending_idle_handles.discard(handle_id)
+                        with pending.lock:
+                            pending.cleanup_outcome = "succeeded"
+                    except Exception as close_exc:
+                        describe_exception(close_exc, "Deferred close failed for abandoned Part document")
+                        self._open_document_handles[handle_id] = doc_handle
+                        with pending.lock:
+                            pending.cleanup_outcome = "failed"
+                    return None
+                else:
+                    with pending.lock:
+                        pending.cleanup_outcome = "succeeded"
+                    return doc_handle
+            finally:
+                pending.completed.set()
 
-        return worker.call(_create_task, timeout=10.0)
+        fut = worker.submit(_create_task)
+        try:
+            res = fut.result(timeout=DEFAULT_DOC_CREATE_TIMEOUT)
+            if res is not None:
+                self._open_document_handles[res.handle_id] = res
+                self._pending_creation = None
+                return res
+            raise CADDocumentError(
+                "Part document creation was abandoned",
+                error_code="DOCUMENT_ABANDONED",
+            )
+        except concurrent.futures.TimeoutError as exc:
+            with pending.lock:
+                if pending.doc_handle is not None:
+                    res = pending.doc_handle
+                    self._open_document_handles[res.handle_id] = res
+                    self._pending_creation = None
+                    return res
+                pending.abandoned.set()
+            raise CADDocumentError(
+                f"Part document creation timed out fail-closed after {DEFAULT_DOC_CREATE_TIMEOUT}s",
+                error_code="DOCUMENT_CREATE_TIMEOUT",
+            ) from exc
 
     def open_document(self, application: Any, path: Path) -> SolidEdgeDocumentHandle:
         """Open an existing CAD document by path with explicit ownership."""
@@ -685,8 +781,28 @@ class SolidEdgeRuntime(CADRuntimeABC):
             and not self._open_document_handles
             and not self._closed_pending_idle_handles
             and self._owned_process_identity is None
+            and self._pending_creation is None
         ):
             return True
+
+        # Stage 0: Bounded resolution for pending/abandoned document creation
+        pending_clean = True
+        pending = self._pending_creation
+        if pending is not None:
+            if pending.abandoned.is_set() or not pending.completed.is_set():
+                completed = pending.completed.wait(timeout=DEFAULT_DEFERRED_CREATE_TEARDOWN_TIMEOUT)
+                if not completed:
+                    describe_exception(
+                        CADDocumentError("Abandoned document creation did not complete within teardown bounds"),
+                        "Teardown pending creation timeout",
+                    )
+                    self._is_poisoned = True
+                    pending_clean = False
+                else:
+                    if pending.cleanup_outcome != "succeeded":
+                        self._is_poisoned = True
+                        pending_clean = False
+            self._pending_creation = None
 
         # Stage 1: Close remaining tracked open documents
         docs_clean = True
@@ -743,13 +859,14 @@ class SolidEdgeRuntime(CADRuntimeABC):
             if self._owned_process_identity is not None:
                 is_owned = True
             else:
-                clean_teardown = docs_clean and worker_clean
+                clean_teardown = docs_clean and worker_clean and pending_clean
                 if clean_teardown:
                     self._worker = None
                     self._application = None
                     self._open_document_handles.clear()
                     self._closed_pending_idle_handles.clear()
                     self._owned_process_identity = None
+                    self._pending_creation = None
                     self._is_poisoned = False
                 else:
                     if worker is not None and not worker.is_alive():
@@ -816,13 +933,14 @@ class SolidEdgeRuntime(CADRuntimeABC):
         if process_clean:
             self._owned_process_identity = None
 
-        clean_teardown = process_clean and worker_clean
+        clean_teardown = process_clean and worker_clean and pending_clean
         if clean_teardown:
             self._worker = None
             self._application = None
             self._open_document_handles.clear()
             self._closed_pending_idle_handles.clear()
             self._owned_process_identity = None
+            self._pending_creation = None
             self._is_poisoned = False
         else:
             if worker is not None and not worker.is_alive():

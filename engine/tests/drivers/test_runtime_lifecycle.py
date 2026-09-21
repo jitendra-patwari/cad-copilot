@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import os
 import threading
 import time
@@ -42,10 +43,14 @@ class MockDoc:
         self.ModelingMode = 0
         self.closed = False
         self.closed_save_arg: bool | None = None
+        self.close_count: int = 0
+        self.close_call_count: int = 0
 
     def Close(self, save_changes: bool = False) -> None:
         self.closed = True
         self.closed_save_arg = save_changes
+        self.close_count += 1
+        self.close_call_count += 1
 
 
 class MockDocuments:
@@ -54,6 +59,10 @@ class MockDocuments:
     def __init__(self) -> None:
         self.added_docs: list[MockDoc] = []
         self.opened_paths: list[str] = []
+
+    @property
+    def docs(self) -> list[MockDoc]:
+        return self.added_docs
 
     def Add(self, prog_id: str) -> MockDoc:
         doc = MockDoc(doc_type=prog_id)
@@ -1000,3 +1009,468 @@ def test_close_document_timeout_preserves_tracking_when_worker_completes_late() 
         runtime._closed_pending_idle_handles.clear()
         runtime._open_document_handles.clear()
         runtime.teardown()
+
+
+def test_create_part_document_timeout_modal_deferred_cleanup_sequence() -> None:
+    """Proves:
+    1. Timeout while Ordered-mode setter is blocked does NOT trigger premature close.
+    2. Dialog release is followed by exactly one Close(False) and successful DoIdle().
+    3. Borrowed application is never quit or terminated.
+    4. Raw COM objects are never read or released from caller thread.
+    """
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp()
+    dialog_unblock = threading.Event()
+    modal_started = threading.Event()
+
+    class ModalBlockingPartDoc(MockDoc):
+        def __init__(self) -> None:
+            self._mode = 0
+            super().__init__()
+
+        @property
+        def ModelingMode(self) -> int:
+            return self._mode
+
+        @ModelingMode.setter
+        def ModelingMode(self, val: int) -> None:
+            if val == 2:
+                modal_started.set()
+                dialog_unblock.wait(timeout=10.0)
+            self._mode = val
+
+    class ModalDocuments:
+        def __init__(self) -> None:
+            self.docs: list[ModalBlockingPartDoc] = []
+
+        def Add(self, prog_id: str) -> ModalBlockingPartDoc:
+            doc = ModalBlockingPartDoc()
+            self.docs.append(doc)
+            return doc
+
+    mock_app.Documents = ModalDocuments()  # type: ignore[assignment]
+
+    try:
+        with (
+            patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules,
+            patch("drivers.solidedge.runtime.DEFAULT_DOC_CREATE_TIMEOUT", 0.05),
+        ):
+            mock_win32_client = MagicMock()
+            mock_win32_client.GetActiveObject.return_value = mock_app
+            mock_modules.return_value = (None, mock_win32_client)
+
+            app_handle = runtime.connect_application()
+
+            # Caller timeout: 0.05s, while modal is held
+            with pytest.raises(CADDocumentError) as exc_info:
+                runtime.create_part_document(app_handle)
+
+            assert "timed out fail-closed" in str(exc_info.value)
+            assert modal_started.is_set() is True
+            created_doc = mock_app.Documents.docs[0]
+
+            # Invariant 1: No premature close while modal is still blocked
+            assert created_doc.closed is False
+            assert created_doc.close_call_count == 0
+            assert len(runtime._open_document_handles) == 0
+
+            # Invariant 2: No raw COM references leak across thread boundary
+            pending = runtime._pending_creation
+            assert pending is not None
+            assert pending.abandoned.is_set() is True
+            assert not hasattr(pending, "raw_doc")
+            assert not hasattr(pending, "_raw_app")
+
+            # Release the dialog
+            dialog_unblock.set()
+
+            # Invariant 3: Teardown waits on bounded deferred cleanup, closes doc exactly once, and runs DoIdle
+            clean = runtime.teardown()
+            assert clean is True
+            assert created_doc.closed is True
+            assert created_doc.closed_save_arg is False
+            assert created_doc.close_call_count == 1
+            assert mock_app.idle_called is True
+            assert mock_app.quit_called is False
+            assert len(runtime._open_document_handles) == 0
+            assert len(runtime._closed_pending_idle_handles) == 0
+    finally:
+        dialog_unblock.set()
+        runtime.teardown()
+
+
+def test_create_part_document_modal_never_released_fails_teardown_truthfully() -> None:
+    """Proves that if a vendor dialog remains blocked past the teardown recovery window:
+    1. Teardown returns False (incomplete cleanup).
+    2. Software truthfully does NOT claim the Part was closed.
+    3. Borrowed Solid Edge is NOT terminated.
+    """
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp()
+    dialog_unblock = threading.Event()
+
+    class PermanentlyBlockedPartDoc(MockDoc):
+        def __init__(self) -> None:
+            self._mode = 0
+            super().__init__()
+
+        @property
+        def ModelingMode(self) -> int:
+            return self._mode
+
+        @ModelingMode.setter
+        def ModelingMode(self, val: int) -> None:
+            if val == 2:
+                dialog_unblock.wait(timeout=10.0)
+            self._mode = val
+
+    class BlockingDocs:
+        def __init__(self) -> None:
+            self.docs: list[PermanentlyBlockedPartDoc] = []
+
+        def Add(self, prog_id: str) -> PermanentlyBlockedPartDoc:
+            doc = PermanentlyBlockedPartDoc()
+            self.docs.append(doc)
+            return doc
+
+    mock_app.Documents = BlockingDocs()  # type: ignore[assignment]
+
+    try:
+        with (
+            patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules,
+            patch("drivers.solidedge.runtime.DEFAULT_DOC_CREATE_TIMEOUT", 0.05),
+            patch("drivers.solidedge.runtime.DEFAULT_DEFERRED_CREATE_TEARDOWN_TIMEOUT", 0.05),
+        ):
+            mock_win32_client = MagicMock()
+            mock_win32_client.GetActiveObject.return_value = mock_app
+            mock_modules.return_value = (None, mock_win32_client)
+
+            app_handle = runtime.connect_application()
+
+            with pytest.raises(CADDocumentError):
+                runtime.create_part_document(app_handle)
+
+            created_doc = mock_app.Documents.docs[0]
+            assert created_doc.closed is False
+
+            # Teardown without unblocking dialog
+            clean = runtime.teardown()
+            assert clean is False
+            assert runtime._is_poisoned is True
+            assert created_doc.closed is False
+            assert mock_app.quit_called is False
+    finally:
+        dialog_unblock.set()
+        if runtime._worker is not None and runtime._worker.is_alive():
+            runtime._worker.shutdown(timeout=1.0)
+
+
+def test_create_part_document_timeout_before_handle_metadata_published() -> None:
+    """Proves that if caller times out before Add returns:
+    1. Worker observes abandonment immediately upon Add completion.
+    2. Mode configuration is skipped.
+    3. Document is closed immediately without waiting for dialog.
+    """
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp()
+    unblock_add = threading.Event()
+    add_started = threading.Event()
+
+    class SlowAddDocuments:
+        def __init__(self) -> None:
+            self.docs: list[MockDoc] = []
+
+        def Add(self, prog_id: str) -> MockDoc:
+            add_started.set()
+            unblock_add.wait(timeout=10.0)
+            doc = MockDoc()
+            self.docs.append(doc)
+            return doc
+
+    mock_app.Documents = SlowAddDocuments()  # type: ignore[assignment]
+
+    try:
+        with (
+            patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules,
+            patch("drivers.solidedge.runtime.DEFAULT_DOC_CREATE_TIMEOUT", 0.05),
+        ):
+            mock_win32_client = MagicMock()
+            mock_win32_client.GetActiveObject.return_value = mock_app
+            mock_modules.return_value = (None, mock_win32_client)
+
+            app_handle = runtime.connect_application()
+
+            with pytest.raises(CADDocumentError):
+                runtime.create_part_document(app_handle)
+
+            assert add_started.is_set() is True
+
+            # Unblock Add
+            unblock_add.set()
+
+            # Teardown resolves deferred cleanup
+            clean = runtime.teardown()
+            assert clean is True
+            created_doc = mock_app.Documents.docs[0]
+            assert created_doc.closed is True
+            assert created_doc.closed_save_arg is False
+    finally:
+        unblock_add.set()
+        runtime.teardown()
+
+
+def test_create_part_document_deferred_close_failure_makes_teardown_fail() -> None:
+    """Proves that if deferred Close(False) fails upon dialog release:
+    1. Tracking is retained truthful in open handles.
+    2. Teardown reports False.
+    3. Runtime is poisoned.
+    """
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp()
+    dialog_unblock = threading.Event()
+
+    class FailingClosePartDoc(MockDoc):
+        def __init__(self) -> None:
+            self._mode = 0
+            super().__init__()
+
+        @property
+        def ModelingMode(self) -> int:
+            return self._mode
+
+        @ModelingMode.setter
+        def ModelingMode(self, val: int) -> None:
+            if val == 2:
+                dialog_unblock.wait(timeout=10.0)
+            self._mode = val
+
+        def Close(self, save_changes: bool = False) -> None:
+            raise RuntimeError("Deferred Close(False) failed in COM")
+
+    class FailingCloseDocuments:
+        def __init__(self) -> None:
+            self.docs: list[FailingClosePartDoc] = []
+
+        def Add(self, prog_id: str) -> FailingClosePartDoc:
+            doc = FailingClosePartDoc()
+            self.docs.append(doc)
+            return doc
+
+    mock_app.Documents = FailingCloseDocuments()  # type: ignore[assignment]
+
+    try:
+        with (
+            patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules,
+            patch("drivers.solidedge.runtime.DEFAULT_DOC_CREATE_TIMEOUT", 0.05),
+        ):
+            mock_win32_client = MagicMock()
+            mock_win32_client.GetActiveObject.return_value = mock_app
+            mock_modules.return_value = (None, mock_win32_client)
+
+            app_handle = runtime.connect_application()
+
+            with pytest.raises(CADDocumentError):
+                runtime.create_part_document(app_handle)
+
+            dialog_unblock.set()
+
+            clean = runtime.teardown()
+            assert clean is False
+            assert runtime._is_poisoned is True
+            assert len(runtime._open_document_handles) == 1
+    finally:
+        dialog_unblock.set()
+        if runtime._worker is not None and runtime._worker.is_alive():
+            runtime._worker.shutdown(timeout=1.0)
+        runtime._open_document_handles.clear()
+
+
+def test_create_part_document_deferred_doidle_failure_makes_teardown_fail() -> None:
+    """Proves that if deferred DoIdle() fails upon dialog release:
+    1. Close(False) succeeds, but handle is retained in pending-idle.
+    2. Teardown reports False.
+    3. Runtime is poisoned.
+    """
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp()
+    dialog_unblock = threading.Event()
+
+    class DeferredDoc(MockDoc):
+        def __init__(self) -> None:
+            self._mode = 0
+            super().__init__()
+
+        @property
+        def ModelingMode(self) -> int:
+            return self._mode
+
+        @ModelingMode.setter
+        def ModelingMode(self, val: int) -> None:
+            if val == 2:
+                dialog_unblock.wait(timeout=10.0)
+            self._mode = val
+
+    class DeferredDocs:
+        def __init__(self) -> None:
+            self.docs: list[DeferredDoc] = []
+
+        def Add(self, prog_id: str) -> DeferredDoc:
+            doc = DeferredDoc()
+            self.docs.append(doc)
+            return doc
+
+    mock_app.Documents = DeferredDocs()  # type: ignore[assignment]
+
+    def _failing_idle() -> None:
+        raise RuntimeError("Deferred DoIdle failed in COM")
+
+    mock_app.DoIdle = _failing_idle  # type: ignore[method-assign]
+
+    try:
+        with (
+            patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules,
+            patch("drivers.solidedge.runtime.DEFAULT_DOC_CREATE_TIMEOUT", 0.05),
+        ):
+            mock_win32_client = MagicMock()
+            mock_win32_client.GetActiveObject.return_value = mock_app
+            mock_modules.return_value = (None, mock_win32_client)
+
+            app_handle = runtime.connect_application()
+
+            with pytest.raises(CADDocumentError):
+                runtime.create_part_document(app_handle)
+
+            dialog_unblock.set()
+
+            clean = runtime.teardown()
+            assert clean is False
+            assert runtime._is_poisoned is True
+            created_doc = mock_app.Documents.docs[0]
+            assert created_doc.closed is True
+            assert len(runtime._closed_pending_idle_handles) == 1
+    finally:
+        dialog_unblock.set()
+        if runtime._worker is not None and runtime._worker.is_alive():
+            runtime._worker.shutdown(timeout=1.0)
+        runtime._closed_pending_idle_handles.clear()
+
+
+def test_repeated_teardown_is_safe_and_idempotent_after_deferred_cleanup() -> None:
+    """Proves that repeated teardown calls after deferred cleanup do not attempt double close."""
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp()
+    dialog_unblock = threading.Event()
+
+    class CountingCloseDoc(MockDoc):
+        def __init__(self) -> None:
+            self._mode = 0
+            super().__init__()
+
+        @property
+        def ModelingMode(self) -> int:
+            return self._mode
+
+        @ModelingMode.setter
+        def ModelingMode(self, val: int) -> None:
+            if val == 2:
+                dialog_unblock.wait(timeout=10.0)
+            self._mode = val
+
+    class CountingDocs:
+        def __init__(self) -> None:
+            self.docs: list[CountingCloseDoc] = []
+
+        def Add(self, prog_id: str) -> CountingCloseDoc:
+            doc = CountingCloseDoc()
+            self.docs.append(doc)
+            return doc
+
+    mock_app.Documents = CountingDocs()  # type: ignore[assignment]
+
+    try:
+        with (
+            patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules,
+            patch("drivers.solidedge.runtime.DEFAULT_DOC_CREATE_TIMEOUT", 0.05),
+        ):
+            mock_win32_client = MagicMock()
+            mock_win32_client.GetActiveObject.return_value = mock_app
+            mock_modules.return_value = (None, mock_win32_client)
+
+            app_handle = runtime.connect_application()
+
+            with pytest.raises(CADDocumentError):
+                runtime.create_part_document(app_handle)
+
+            dialog_unblock.set()
+
+            # First teardown executes deferred cleanup
+            clean1 = runtime.teardown()
+            assert clean1 is True
+            created_doc = mock_app.Documents.docs[0]
+            assert created_doc.close_count == 1
+
+            # Second teardown is an idempotent no-op
+            clean2 = runtime.teardown()
+            assert clean2 is True
+            assert created_doc.close_count == 1  # No double close
+    finally:
+        dialog_unblock.set()
+        runtime.teardown()
+
+
+def test_create_part_document_future_publication_race_wins_ownership() -> None:
+    """Proves the exact race condition where caller's fut.result(timeout=...) times out
+    at the exact moment the worker task finished and published doc_handle under pending.lock:
+    1. Caller takes ownership via pending.doc_handle without calling fut.result(timeout=0).
+    2. Document is NOT abandoned.
+    3. Caller registers the document in _open_document_handles.
+    4. Teardown cleanly closes the document.
+    """
+    runtime = SolidEdgeRuntime()
+    mock_app = MockSolidEdgeApp()
+
+    with (
+        patch("drivers.solidedge.runtime._load_pywin32_modules") as mock_modules,
+        patch("drivers.solidedge.runtime.DEFAULT_DOC_CREATE_TIMEOUT", 0.001),
+    ):
+        mock_win32_client = MagicMock()
+        mock_win32_client.GetActiveObject.return_value = mock_app
+        mock_modules.return_value = (None, mock_win32_client)
+
+        app_handle = runtime.connect_application()
+        worker = runtime._worker
+        assert worker is not None
+
+        # Intercept worker.submit to simulate fut.result() raising TimeoutError
+        # even though pending.doc_handle is populated under pending.lock
+        orig_submit = worker.submit
+
+        def _racing_submit(fn: Any) -> Any:
+            fut = orig_submit(fn)
+
+            class RacingFuture:
+                def result(self, timeout: float | None = None) -> Any:
+                    # Wait until task completes and publishes doc_handle
+                    fut.result(timeout=5.0)
+                    # Simulate caller timing out at the boundary
+                    raise concurrent.futures.TimeoutError("Simulated race timeout")
+
+            return RacingFuture()
+
+        with patch.object(worker, "submit", side_effect=_racing_submit):
+            doc = runtime.create_part_document(app_handle)
+
+        # Proves caller claimed ownership through the pending.doc_handle handshake
+        assert doc is not None
+        assert doc.handle_id in runtime._open_document_handles
+        assert runtime._pending_creation is None
+
+        # Proves document was not abandoned or closed prematurely
+        created_doc = mock_app.Documents.docs[0]
+        assert created_doc.closed is False
+
+        # Proves normal teardown closes the owned document cleanly
+        clean = runtime.teardown()
+        assert clean is True
+        assert created_doc.closed is True
+        assert created_doc.close_count == 1

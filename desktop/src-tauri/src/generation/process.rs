@@ -1,4 +1,5 @@
 use std::io::{BufReader, Read, Write};
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
@@ -13,12 +14,14 @@ use super::protocol::{
 };
 use super::state::{is_valid_phase_transition, AppState, GenerationState};
 use super::types::{
-    CleanupState, CommandError, EngineStatus, GenerationInput, ResultAccess, RunPhase, RunState,
+    CleanupState, CommandError, EngineStatus, GenerationInput, GenerationSnapshot, ResultAccess,
+    RunPhase, RunState,
 };
 use crate::shared::windows;
 
 pub const RUN_DEADLINE_SECS: u64 = 180;
 pub const CANCELLATION_GRACE_SECS: u64 = 10;
+pub const POST_RESPONSE_EXIT_GRACE_SECS: u64 = 5;
 pub const POLL_INTERVAL_MS: u64 = 50;
 
 #[derive(Debug)]
@@ -172,7 +175,7 @@ pub fn map_curated_error(code: &str) -> String {
         "CAD_PLAN_REJECTED" => {
             "CAD_PLAN_REJECTED: CAD plan was rejected by safety or geometry rules.".to_string()
         }
-        "CAD_EXECUTION_FAILED" => "CAD_EXECUTION_FAILED: CAD engine execution failed.".to_string(),
+        "CAD_EXECUTION_FAILED" => "CAD_EXECUTION_FAILED: CAD engine execution failed. Check Solid Edge for a pending dialog, then retry.".to_string(),
         "ARTIFACT_EXPORT_FAILED" => {
             "ARTIFACT_EXPORT_FAILED: Failed to export generated artifacts.".to_string()
         }
@@ -193,21 +196,154 @@ pub fn map_curated_error(code: &str) -> String {
     }
 }
 
-fn with_state<F, R>(window: &Window, f: F) -> Option<R>
+pub fn calculate_effective_cleanup(
+    base: CleanupState,
+    workers_reaped: bool,
+    process_terminated_cleanly: bool,
+) -> CleanupState {
+    if !workers_reaped || !process_terminated_cleanly {
+        CleanupState::Incomplete
+    } else {
+        base
+    }
+}
+
+pub trait GenerationSupervisorHost: Send + Sync + 'static {
+    fn with_generation_state(&self, f: &mut dyn FnMut(&mut GenerationState));
+    fn emit_state(&self, snapshot: &GenerationSnapshot);
+    fn release_claim(&self, request_id: &str, incomplete: bool);
+    fn destroy_window(&self);
+    fn resource_dir(&self) -> Option<PathBuf> {
+        None
+    }
+}
+
+impl GenerationSupervisorHost for Window {
+    fn resource_dir(&self) -> Option<PathBuf> {
+        self.path().resource_dir().ok()
+    }
+
+    fn with_generation_state(&self, f: &mut dyn FnMut(&mut GenerationState)) {
+        if let Some(app_state) = self.try_state::<AppState>() {
+            if let Ok(mut guard) = app_state.lock() {
+                f(&mut guard);
+            }
+        }
+    }
+
+    fn emit_state(&self, snapshot: &GenerationSnapshot) {
+        let _ = self.emit("generation-state", snapshot);
+    }
+
+    fn release_claim(&self, request_id: &str, incomplete: bool) {
+        if let Some(coord) =
+            self.try_state::<std::sync::Mutex<crate::run_claim::RunClaimCoordinator>>()
+        {
+            if let Ok(mut claim_guard) = coord.lock() {
+                claim_guard.release(
+                    crate::run_claim::RunKind::Generation,
+                    request_id,
+                    incomplete,
+                );
+            }
+        }
+    }
+
+    fn destroy_window(&self) {
+        if let Err(_e) = self.destroy() {
+            let fallback_snap = with_state(self, |g| {
+                g.terminating = false;
+                if let Some(run) = &mut g.active_run {
+                    run.warnings
+                        .push("Application window closure failed during run cleanup.".to_string());
+                }
+                g.revision += 1;
+                g.to_snapshot()
+            });
+            if let Some(fs) = fallback_snap {
+                self.emit_state(&fs);
+            }
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Clone)]
+pub struct MockGenerationHost {
+    pub state: std::sync::Arc<AppState>,
+    pub coordinator: std::sync::Arc<std::sync::Mutex<crate::run_claim::RunClaimCoordinator>>,
+    pub events: std::sync::Arc<std::sync::Mutex<Vec<(String, GenerationSnapshot)>>>,
+    pub resource_dir: Option<PathBuf>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl MockGenerationHost {
+    pub fn new(
+        state: std::sync::Arc<AppState>,
+        coordinator: std::sync::Arc<std::sync::Mutex<crate::run_claim::RunClaimCoordinator>>,
+    ) -> Self {
+        Self {
+            state,
+            coordinator,
+            events: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            resource_dir: None,
+        }
+    }
+
+    pub fn with_resource_dir(mut self, resource_dir: PathBuf) -> Self {
+        self.resource_dir = Some(resource_dir);
+        self
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl GenerationSupervisorHost for MockGenerationHost {
+    fn resource_dir(&self) -> Option<PathBuf> {
+        self.resource_dir.clone()
+    }
+
+    fn with_generation_state(&self, f: &mut dyn FnMut(&mut GenerationState)) {
+        if let Ok(mut guard) = self.state.lock() {
+            f(&mut guard);
+        }
+    }
+
+    fn emit_state(&self, snapshot: &GenerationSnapshot) {
+        if let Ok(mut events) = self.events.lock() {
+            events.push(("generation-state".to_string(), snapshot.clone()));
+        }
+    }
+
+    fn release_claim(&self, request_id: &str, incomplete: bool) {
+        if let Ok(mut claim_guard) = self.coordinator.lock() {
+            claim_guard.release(
+                crate::run_claim::RunKind::Generation,
+                request_id,
+                incomplete,
+            );
+        }
+    }
+
+    fn destroy_window(&self) {}
+}
+
+fn with_state<H: GenerationSupervisorHost + ?Sized, F, R>(host: &H, f: F) -> Option<R>
 where
     F: FnOnce(&mut GenerationState) -> R,
 {
-    let app_state = window.state::<AppState>();
-    let res = match app_state.lock() {
-        Ok(mut guard) => Some(f(&mut guard)),
-        Err(_) => None,
-    };
-    res
+    let mut result = None;
+    let mut opt_f = Some(f);
+    host.with_generation_state(&mut |state| {
+        if let Some(f) = opt_f.take() {
+            result = Some(f(state));
+        }
+    });
+    result
 }
 
 #[allow(clippy::too_many_arguments)]
 fn finalize_terminal(
-    window: &Window,
+    host: &dyn GenerationSupervisorHost,
     request_id: &str,
     state: RunState,
     engine_status: Option<EngineStatus>,
@@ -217,7 +353,7 @@ fn finalize_terminal(
     response_data: Option<WireResponseData>,
     warnings: Vec<String>,
 ) {
-    let result = with_state(window, |guard| {
+    let result = with_state(host, |guard| {
         let mut destroy = false;
         if let Some(run) = &mut guard.active_run {
             if run.request_id == request_id {
@@ -243,41 +379,19 @@ fn finalize_terminal(
         None => return,
     };
 
-    if let Some(coord) =
-        window.try_state::<std::sync::Mutex<crate::run_claim::RunClaimCoordinator>>()
-    {
-        if let Ok(mut claim_guard) = coord.lock() {
-            claim_guard.release(
-                crate::run_claim::RunKind::Generation,
-                request_id,
-                cleanup == CleanupState::Incomplete,
-            );
-        }
-    }
+    host.release_claim(request_id, cleanup == CleanupState::Incomplete);
 
     if should_destroy {
-        if let Err(_e) = window.destroy() {
-            let fallback_snap = with_state(window, |g| {
-                g.terminating = false;
-                if let Some(run) = &mut g.active_run {
-                    run.warnings
-                        .push("Application window closure failed during run cleanup.".to_string());
-                }
-                g.revision += 1;
-                g.to_snapshot()
-            });
-            if let Some(fs) = fallback_snap {
-                let _ = window.emit("generation-state", &fs);
-            }
-        }
+        host.destroy_window();
         return;
     }
 
-    let _ = window.emit("generation-state", &snap);
+    host.emit_state(&snap);
 }
 
 /// Spawns the background supervisor thread for an active generation run.
 pub fn spawn_generation_supervisor(window: Window, request_id: String) {
+    let host = std::sync::Arc::new(window);
     let thread_name = format!(
         "gen-sup-{}",
         &request_id[..std::cmp::min(12, request_id.len())]
@@ -285,7 +399,33 @@ pub fn spawn_generation_supervisor(window: Window, request_id: String) {
     let _ = std::thread::Builder::new()
         .name(thread_name)
         .spawn(move || {
-            run_supervisor(window, request_id);
+            run_supervisor(host, request_id, None, None, None);
+        });
+}
+
+/// Test-only launcher accepting command, console, and grace period overrides.
+#[cfg(any(test, feature = "test-support"))]
+pub fn spawn_generation_supervisor_custom(
+    host: std::sync::Arc<dyn GenerationSupervisorHost>,
+    request_id: String,
+    cmd_override: Option<(PathBuf, Vec<String>)>,
+    force_private_console: Option<bool>,
+    post_response_grace_override: Option<Duration>,
+) {
+    let thread_name = format!(
+        "gen-sup-{}",
+        &request_id[..std::cmp::min(12, request_id.len())]
+    );
+    let _ = std::thread::Builder::new()
+        .name(thread_name)
+        .spawn(move || {
+            run_supervisor(
+                host,
+                request_id,
+                cmd_override,
+                force_private_console,
+                post_response_grace_override,
+            );
         });
 }
 
@@ -312,9 +452,15 @@ fn reap_workers_bounded(
     ok_in && ok_out && ok_err
 }
 
-fn run_supervisor(window: Window, request_id: String) {
+fn run_supervisor(
+    host: std::sync::Arc<dyn GenerationSupervisorHost>,
+    request_id: String,
+    cmd_override: Option<(PathBuf, Vec<String>)>,
+    force_private_console: Option<bool>,
+    post_response_grace_override: Option<Duration>,
+) {
     let overall_start = Instant::now();
-    let init_result = with_state(&window, |guard| {
+    let init_result = with_state(host.as_ref(), |guard| {
         let run = match &guard.active_run {
             Some(r) if r.request_id == request_id => r,
             _ => return Err("The requested run was not found or is no longer active.".to_string()),
@@ -337,7 +483,7 @@ fn run_supervisor(window: Window, request_id: String) {
         Some(Ok(data)) => data,
         Some(Err(msg)) => {
             finalize_terminal(
-                &window,
+                host.as_ref(),
                 &request_id,
                 RunState::Failed,
                 None,
@@ -351,7 +497,7 @@ fn run_supervisor(window: Window, request_id: String) {
         }
         None => {
             finalize_terminal(
-                &window,
+                host.as_ref(),
                 &request_id,
                 RunState::Failed,
                 None,
@@ -370,7 +516,7 @@ fn run_supervisor(window: Window, request_id: String) {
     // Step 1: Pre-launch cancellation check
     if cancel_token.load(Ordering::SeqCst) {
         finalize_terminal(
-            &window,
+            host.as_ref(),
             &request_id,
             RunState::Cancelled,
             None,
@@ -384,29 +530,67 @@ fn run_supervisor(window: Window, request_id: String) {
     }
 
     // Step 2: Resolve engine launch configuration
-    let res_dir = window.path().resource_dir().ok();
-    let engine_launch = match resolve_engine_launch(res_dir.as_deref(), EngineWorkflow::Generate) {
-        Ok(l) => l,
-        Err(e) => {
-            finalize_terminal(
-                &window,
-                &request_id,
-                RunState::Failed,
-                None,
-                Some(e.message),
-                ResultAccess::None,
-                CleanupState::NotStarted,
-                None,
-                vec![],
+    let (engine_launch, child_env) = match &cmd_override {
+        Some((prog, args)) => {
+            let layout_res = crate::shared::engine::resolve_source_layout();
+            let cwd = layout_res
+                .as_ref()
+                .map(|l| l.engine_dir.clone())
+                .unwrap_or_else(|_| {
+                    prog.parent()
+                        .and_then(|p| p.parent())
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
+                });
+            let launch = super::launcher::EngineLaunch {
+                program: prog.clone(),
+                args: args.clone(),
+                cwd,
+                is_packaged: false,
+            };
+            let is_prompt = matches!(input, GenerationInput::PromptToCad { .. });
+            let env = prepare_child_env_for_launch(
+                &launch,
+                &output_path,
+                session_key.as_deref(),
+                is_prompt,
             );
-            return;
+            (launch, env)
+        }
+        None => {
+            let res_dir = host.resource_dir();
+            let launch = match resolve_engine_launch(res_dir.as_deref(), EngineWorkflow::Generate) {
+                Ok(l) => l,
+                Err(e) => {
+                    finalize_terminal(
+                        host.as_ref(),
+                        &request_id,
+                        RunState::Failed,
+                        None,
+                        Some(e.message),
+                        ResultAccess::None,
+                        CleanupState::NotStarted,
+                        None,
+                        vec![],
+                    );
+                    return;
+                }
+            };
+            let is_prompt = matches!(input, GenerationInput::PromptToCad { .. });
+            let env = prepare_child_env_for_launch(
+                &launch,
+                &output_path,
+                session_key.as_deref(),
+                is_prompt,
+            );
+            (launch, env)
         }
     };
 
     // Step 3: Cancellation check before engine launch
     if cancel_token.load(Ordering::SeqCst) {
         finalize_terminal(
-            &window,
+            host.as_ref(),
             &request_id,
             RunState::Cancelled,
             None,
@@ -424,7 +608,7 @@ fn run_supervisor(window: Window, request_id: String) {
         Ok(p) => p,
         Err(e) => {
             finalize_terminal(
-                &window,
+                host.as_ref(),
                 &request_id,
                 RunState::Failed,
                 None,
@@ -438,26 +622,20 @@ fn run_supervisor(window: Window, request_id: String) {
         }
     };
 
-    let is_prompt = matches!(input, GenerationInput::PromptToCad { .. });
-    let child_env = prepare_child_env_for_launch(
-        &engine_launch,
-        &output_path,
-        session_key.as_deref(),
-        is_prompt,
-    );
     let args_slices: Vec<&str> = engine_launch.args.iter().map(|s| s.as_str()).collect();
 
     // Step 6: Spawn engine child process
-    let mut child = match windows::spawn_engine_process(
+    let mut child = match windows::spawn_engine_process_explicit(
         &engine_launch.program,
         &args_slices,
         &engine_launch.cwd,
         &child_env,
+        force_private_console,
     ) {
         Ok(c) => c,
         Err(e) => {
             finalize_terminal(
-                &window,
+                host.as_ref(),
                 &request_id,
                 RunState::Failed,
                 None,
@@ -472,7 +650,7 @@ fn run_supervisor(window: Window, request_id: String) {
     };
 
     // Step 7: Transition to Running state
-    let run_snap = with_state(&window, |guard| {
+    let run_snap = with_state(host.as_ref(), |guard| {
         if let Some(run) = &mut guard.active_run {
             if run.request_id == request_id && run.state == RunState::Starting {
                 run.state = RunState::Running;
@@ -485,7 +663,7 @@ fn run_supervisor(window: Window, request_id: String) {
     .flatten();
 
     if let Some(s) = run_snap {
-        let _ = window.emit("generation-state", &s);
+        host.emit_state(&s);
     }
 
     // Step 8: Spawn concurrent reader threads for stdout and stderr before writing stdin
@@ -737,7 +915,7 @@ fn run_supervisor(window: Window, request_id: String) {
             let _ = windows::force_terminate_process(child.process_handle, 1);
             let _ = windows::wait_process_timeout(child.process_handle, 2000);
             finalize_terminal(
-                &window,
+                host.as_ref(),
                 &request_id,
                 RunState::Failed,
                 None,
@@ -764,8 +942,11 @@ fn run_supervisor(window: Window, request_id: String) {
     // Step 10: Supervisor polling loop
     let deadline = Duration::from_secs(RUN_DEADLINE_SECS);
     let grace_period = Duration::from_secs(CANCELLATION_GRACE_SECS);
+    let post_response_grace = post_response_grace_override
+        .unwrap_or_else(|| Duration::from_secs(POST_RESPONSE_EXIT_GRACE_SECS));
     let mut cancel_sent_time: Option<Instant> = None;
     let mut cancel_by_deadline = false;
+    let mut response_ready_time: Option<Instant> = None;
     let mut child_exit_code: Option<u32> = None;
     let mut force_terminated = false;
     let mut stderr_finished = false;
@@ -778,7 +959,10 @@ fn run_supervisor(window: Window, request_id: String) {
             match stderr_rx.try_recv() {
                 Ok(event) => match event {
                     StderrEvent::Progress(phase) => {
-                        let snap = with_state(&window, |guard| {
+                        if phase == RunPhase::ResponseReady && response_ready_time.is_none() {
+                            response_ready_time = Some(Instant::now());
+                        }
+                        let snap = with_state(host.as_ref(), |guard| {
                             if let Some(run) = &mut guard.active_run {
                                 if run.request_id == request_id && run.state == RunState::Running {
                                     run.phase = Some(phase);
@@ -790,7 +974,7 @@ fn run_supervisor(window: Window, request_id: String) {
                         })
                         .flatten();
                         if let Some(s) = snap {
-                            let _ = window.emit("generation-state", &s);
+                            host.emit_state(&s);
                         }
                     }
                     StderrEvent::FatalDiagnostic => {
@@ -829,6 +1013,8 @@ fn run_supervisor(window: Window, request_id: String) {
                         if protocol_err.is_none() {
                             protocol_err = Some(e.message.clone());
                         }
+                    } else if response_ready_time.is_none() {
+                        response_ready_time = Some(Instant::now());
                     }
                     stdout_result = Some(res);
                 }
@@ -876,7 +1062,7 @@ fn run_supervisor(window: Window, request_id: String) {
                 "Cancellation requested by user.".to_string()
             };
 
-            let cancel_snap = with_state(&window, |guard| {
+            let cancel_snap = with_state(host.as_ref(), |guard| {
                 if let Some(run) = &mut guard.active_run {
                     if run.request_id == request_id && run.state != RunState::Cancelling {
                         run.state = RunState::Cancelling;
@@ -891,16 +1077,23 @@ fn run_supervisor(window: Window, request_id: String) {
             .flatten();
 
             if let Some(s) = cancel_snap {
-                let _ = window.emit("generation-state", &s);
+                host.emit_state(&s);
             }
 
             // Attempt cooperative cancellation before force-killing
             let _ = windows::send_cancellation_signal(child.pid, child.child_has_private_console);
         }
 
-        // F. Check grace period
+        // F. Check cancellation or post-response grace period
         if let Some(c_time) = cancel_sent_time {
             if c_time.elapsed() >= grace_period {
+                let _ = windows::force_terminate_process(child.process_handle, 1);
+                let _ = windows::wait_process_timeout(child.process_handle, 2000);
+                force_terminated = true;
+                break;
+            }
+        } else if let Some(r_time) = response_ready_time {
+            if r_time.elapsed() >= post_response_grace {
                 let _ = windows::force_terminate_process(child.process_handle, 1);
                 let _ = windows::wait_process_timeout(child.process_handle, 2000);
                 force_terminated = true;
@@ -910,7 +1103,7 @@ fn run_supervisor(window: Window, request_id: String) {
     }
 
     // Step 11: Bounded reader completion and Terminal Reconciliation
-    let mut process_terminated_cleanly = child_exit_code.is_some();
+    let mut process_terminated_cleanly = child_exit_code.is_some() && !force_terminated;
     if force_terminated || child_exit_code.is_none() {
         let term_res = windows::wait_process_timeout(child.process_handle, 2000);
         match term_res {
@@ -918,7 +1111,7 @@ fn run_supervisor(window: Window, request_id: String) {
                 if child_exit_code.is_none() {
                     child_exit_code = Some(code);
                 }
-                process_terminated_cleanly = true;
+                process_terminated_cleanly = !force_terminated;
             }
             _ => {
                 process_terminated_cleanly = false;
@@ -940,7 +1133,7 @@ fn run_supervisor(window: Window, request_id: String) {
                 Duration::from_millis(500),
             );
             finalize_terminal(
-                &window,
+                host.as_ref(),
                 &request_id,
                 RunState::Failed,
                 None,
@@ -966,7 +1159,7 @@ fn run_supervisor(window: Window, request_id: String) {
                     Duration::from_millis(500),
                 );
                 finalize_terminal(
-                    &window,
+                    host.as_ref(),
                     &request_id,
                     RunState::Failed,
                     None,
@@ -995,7 +1188,7 @@ fn run_supervisor(window: Window, request_id: String) {
                     "Timed out waiting for engine stdout stream to close."
                 };
                 finalize_terminal(
-                    &window,
+                    host.as_ref(),
                     &request_id,
                     RunState::Failed,
                     None,
@@ -1018,7 +1211,7 @@ fn run_supervisor(window: Window, request_id: String) {
         while !stderr_finished && start_drain.elapsed() < drain_timeout {
             match stderr_rx.recv_timeout(Duration::from_millis(50)) {
                 Ok(StderrEvent::Progress(phase)) => {
-                    let snap = with_state(&window, |guard| {
+                    let snap = with_state(host.as_ref(), |guard| {
                         if let Some(run) = &mut guard.active_run {
                             if run.request_id == request_id && run.state == RunState::Running {
                                 run.phase = Some(phase);
@@ -1030,7 +1223,7 @@ fn run_supervisor(window: Window, request_id: String) {
                     })
                     .flatten();
                     if let Some(s) = snap {
-                        let _ = window.emit("generation-state", &s);
+                        host.emit_state(&s);
                     }
                 }
                 Ok(StderrEvent::FatalDiagnostic) => {
@@ -1073,7 +1266,7 @@ fn run_supervisor(window: Window, request_id: String) {
 
     if !workers_reaped {
         finalize_terminal(
-            &window,
+            host.as_ref(),
             &request_id,
             RunState::Failed,
             None,
@@ -1090,15 +1283,17 @@ fn run_supervisor(window: Window, request_id: String) {
     }
 
     if force_terminated || !process_terminated_cleanly {
-        let reason = if !process_terminated_cleanly {
-            "Engine process or its descendants failed to terminate within bounded timeout."
-        } else if cancel_sent_time.is_some() {
+        let reason = if cancel_sent_time.is_some() {
             "Cancellation grace period (10s) expired; engine was forcibly terminated."
-        } else {
+        } else if response_ready_time.is_some() {
+            "Post-response exit grace period (5s) expired; engine was forcibly terminated."
+        } else if force_terminated {
             "Overall generation run deadline (180s) expired; engine was forcibly terminated."
+        } else {
+            "Engine process or its descendants failed to terminate within bounded timeout."
         };
         finalize_terminal(
-            &window,
+            host.as_ref(),
             &request_id,
             RunState::Failed,
             None,
@@ -1113,7 +1308,7 @@ fn run_supervisor(window: Window, request_id: String) {
 
     if let Some(msg) = stderr_terminal_err {
         finalize_terminal(
-            &window,
+            host.as_ref(),
             &request_id,
             RunState::Failed,
             None,
@@ -1127,11 +1322,7 @@ fn run_supervisor(window: Window, request_id: String) {
     }
 
     let effective_cleanup = |base: CleanupState| -> CleanupState {
-        if !workers_reaped || !process_terminated_cleanly {
-            CleanupState::Incomplete
-        } else {
-            base
-        }
+        calculate_effective_cleanup(base, workers_reaped, process_terminated_cleanly)
     };
 
     // Settle terminal response based on exit code and cancellation status
@@ -1140,7 +1331,7 @@ fn run_supervisor(window: Window, request_id: String) {
             if stdout_bytes.is_empty() {
                 if cancel_by_deadline {
                     finalize_terminal(
-                        &window,
+                        host.as_ref(),
                         &request_id,
                         RunState::Failed,
                         None,
@@ -1155,7 +1346,7 @@ fn run_supervisor(window: Window, request_id: String) {
                     );
                 } else {
                     finalize_terminal(
-                        &window,
+                        host.as_ref(),
                         &request_id,
                         RunState::Cancelled,
                         None,
@@ -1168,7 +1359,7 @@ fn run_supervisor(window: Window, request_id: String) {
                 }
             } else {
                 finalize_terminal(
-                    &window,
+                    host.as_ref(),
                     &request_id,
                     RunState::Failed,
                     None,
@@ -1182,7 +1373,7 @@ fn run_supervisor(window: Window, request_id: String) {
                     vec![],
                 );
             }
-        } else if child_exit_code == Some(0) {
+        } else if !force_terminated && child_exit_code == Some(0) {
             // Valid completed response wins a late cancellation request (Section 12.3)
             match WireResponse::parse_stdout(&stdout_bytes, &request_id) {
                 Ok(resp) => {
@@ -1211,7 +1402,7 @@ fn run_supervisor(window: Window, request_id: String) {
                         ),
                         EngineStatus::Failed => (
                             RunState::Failed,
-                            CleanupState::Incomplete,
+                            effective_cleanup(CleanupState::NoFailureObserved),
                             ResultAccess::None,
                             resp.errors().first().map(|e| map_curated_error(&e.code)),
                         ),
@@ -1223,7 +1414,7 @@ fn run_supervisor(window: Window, request_id: String) {
                         .filter(|w| !w.is_empty())
                         .collect();
                     finalize_terminal(
-                        &window,
+                        host.as_ref(),
                         &request_id,
                         run_state,
                         Some(eng_status),
@@ -1236,7 +1427,7 @@ fn run_supervisor(window: Window, request_id: String) {
                 }
                 Err(e) => {
                     finalize_terminal(
-                        &window,
+                        host.as_ref(),
                         &request_id,
                         RunState::Failed,
                         None,
@@ -1253,7 +1444,7 @@ fn run_supervisor(window: Window, request_id: String) {
             }
         } else {
             finalize_terminal(
-                &window,
+                host.as_ref(),
                 &request_id,
                 RunState::Failed,
                 None,
@@ -1269,7 +1460,7 @@ fn run_supervisor(window: Window, request_id: String) {
         }
     } else {
         // Cancellation was not active
-        if child_exit_code == Some(0) {
+        if !force_terminated && child_exit_code == Some(0) {
             match WireResponse::parse_stdout(&stdout_bytes, &request_id) {
                 Ok(resp) => {
                     let eng_status = resp.engine_status();
@@ -1286,7 +1477,7 @@ fn run_supervisor(window: Window, request_id: String) {
                         ),
                         EngineStatus::Failed => (
                             RunState::Failed,
-                            CleanupState::Incomplete,
+                            effective_cleanup(CleanupState::NoFailureObserved),
                             ResultAccess::None,
                         ),
                     };
@@ -1298,7 +1489,7 @@ fn run_supervisor(window: Window, request_id: String) {
                         .filter(|w| !w.is_empty())
                         .collect();
                     finalize_terminal(
-                        &window,
+                        host.as_ref(),
                         &request_id,
                         run_state,
                         Some(eng_status),
@@ -1311,7 +1502,7 @@ fn run_supervisor(window: Window, request_id: String) {
                 }
                 Err(e) => {
                     finalize_terminal(
-                        &window,
+                        host.as_ref(),
                         &request_id,
                         RunState::Failed,
                         None,
@@ -1326,10 +1517,10 @@ fn run_supervisor(window: Window, request_id: String) {
                     );
                 }
             }
-        } else if child_exit_code == Some(130) {
+        } else if !force_terminated && child_exit_code == Some(130) {
             // Unexpected exit 130 without cancellation
             finalize_terminal(
-                &window,
+                host.as_ref(),
                 &request_id,
                 RunState::Failed,
                 None,
@@ -1340,14 +1531,19 @@ fn run_supervisor(window: Window, request_id: String) {
                 vec![],
             );
         } else {
-            let reason = match child_exit_code {
-                Some(code) => format!(
-                    "Engine process failed during startup or prerequisite verification (exit code {code})."
-                ),
-                None => "Engine process terminated unexpectedly before completing execution.".to_string(),
+            let reason = if force_terminated {
+                "Engine process exceeded post-response exit grace period and was terminated."
+                    .to_string()
+            } else {
+                match child_exit_code {
+                    Some(code) => format!(
+                        "Engine process failed during startup or prerequisite verification (exit code {code})."
+                    ),
+                    None => "Engine process terminated unexpectedly before completing execution.".to_string(),
+                }
             };
             finalize_terminal(
-                &window,
+                host.as_ref(),
                 &request_id,
                 RunState::Failed,
                 None,
@@ -1449,5 +1645,56 @@ mod tests {
             std::thread::sleep(Duration::from_millis(500));
         });
         assert!(!join_worker_bounded(hang_handle, Duration::from_millis(50)));
+    }
+
+    #[test]
+    fn test_calculate_effective_cleanup_derivation() {
+        // Both workers reaped and process cleanly exited: retain NoFailureObserved
+        assert_eq!(
+            calculate_effective_cleanup(CleanupState::NoFailureObserved, true, true),
+            CleanupState::NoFailureObserved
+        );
+
+        // Worker un-reaped: forced Incomplete
+        assert_eq!(
+            calculate_effective_cleanup(CleanupState::NoFailureObserved, false, true),
+            CleanupState::Incomplete
+        );
+
+        // Process not terminated cleanly: forced Incomplete
+        assert_eq!(
+            calculate_effective_cleanup(CleanupState::NoFailureObserved, true, false),
+            CleanupState::Incomplete
+        );
+
+        // Both un-reaped and unclean exit: forced Incomplete
+        assert_eq!(
+            calculate_effective_cleanup(CleanupState::NoFailureObserved, false, false),
+            CleanupState::Incomplete
+        );
+
+        // Base Incomplete remains Incomplete even when workers/process clean
+        assert_eq!(
+            calculate_effective_cleanup(CleanupState::Incomplete, true, true),
+            CleanupState::Incomplete
+        );
+    }
+
+    #[test]
+    fn test_map_curated_error_cad_execution_failed_actionable_message() {
+        let msg = map_curated_error("CAD_EXECUTION_FAILED");
+        assert_eq!(
+            msg,
+            "CAD_EXECUTION_FAILED: CAD engine execution failed. Check Solid Edge for a pending dialog, then retry."
+        );
+
+        assert_eq!(
+            map_curated_error("INVALID_SCHEMA"),
+            "INVALID_SCHEMA: Request failed schema validation."
+        );
+        assert_eq!(
+            map_curated_error("PROMPT_INTERPRETATION_FAILED"),
+            "PROMPT_INTERPRETATION_FAILED: Prompt interpretation failed to produce a CAD plan."
+        );
     }
 }

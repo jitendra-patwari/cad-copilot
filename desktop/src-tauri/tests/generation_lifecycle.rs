@@ -616,3 +616,259 @@ fn test_generation_child_prerequisite_failure_before_cad_activation() {
         "Expected INVALID_SCHEMA error code for invalid example catalog item, got: {wire_stdout_str}"
     );
 }
+
+#[test]
+fn test_generation_child_fatal_teardown_failure_produces_exit_1_and_empty_stdout() {
+    let _console_lock = CONSOLE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let layout = resolve_source_layout().expect("Repo layout should resolve in tests");
+    let mut env = HashMap::new();
+    for (k, v) in std::env::vars() {
+        let k_up = k.to_uppercase();
+        if k_up == "SYSTEMROOT"
+            || k_up == "WINDIR"
+            || k_up == "PATH"
+            || k_up == "TEMP"
+            || k_up == "TMP"
+        {
+            env.insert(k, v);
+        }
+    }
+    env.insert("PYTHONUNBUFFERED".to_string(), "1".to_string());
+
+    // Python command simulating _run_stdio where composition handler raises TeardownIncompleteError
+    let teardown_fail_cmd = r#"
+import sys
+from interfaces.exceptions import TeardownIncompleteError
+from ipc.stdio import _run_stdio
+from application.models import GenerationRequest
+
+def failing_handler(req: GenerationRequest):
+    raise TeardownIncompleteError("Teardown failed completely")
+
+sys.exit(_run_stdio(argv=[], _composition_handler=failing_handler))
+"#;
+
+    let mut child = spawn_engine_process(
+        &layout.python_exe,
+        &["-c", teardown_fail_cmd],
+        &layout.repo_root,
+        &env,
+    )
+    .expect("Failed to spawn fatal teardown simulation child");
+    let _guard = ProcessGuard(child.process_handle);
+
+    // Provide valid request so it reaches composition handler
+    let mut stdin = child.stdin_write.take().unwrap();
+    let req_payload = br#"{"contract_version":"1.0","request_id":"req-fatal-teardown","kind":"example_plan","example_id":"spur_gear","unit":"mm"}"#;
+    stdin.write_all(req_payload).expect("Write request failed");
+    drop(stdin);
+
+    let exit_code = wait_process_timeout(child.process_handle, 10000).expect("Wait child failed");
+    assert_eq!(
+        exit_code,
+        Some(1),
+        "Incomplete teardown error must result in fatal process exit 1"
+    );
+
+    // Stdout must be completely empty
+    let mut stdout = child.stdout_read.take().unwrap();
+    let mut stdout_bytes = Vec::new();
+    stdout
+        .read_to_end(&mut stdout_bytes)
+        .expect("Read stdout failed");
+    assert!(
+        stdout_bytes.is_empty(),
+        "Stdout must be empty when teardown fails with fatal exit 1"
+    );
+
+    // Stderr must contain fatal diagnostic and must NOT contain response_ready
+    let mut stderr = child.stderr_read.take().unwrap();
+    let mut stderr_bytes = Vec::new();
+    stderr
+        .read_to_end(&mut stderr_bytes)
+        .expect("Read stderr failed");
+    let stderr_str = String::from_utf8_lossy(&stderr_bytes);
+    assert!(
+        stderr_str.contains(r#""phase":"fatal""#) || stderr_str.contains(r#""phase": "fatal""#),
+        "Stderr must contain fatal diagnostic, got: {stderr_str}"
+    );
+    assert!(
+        !stderr_str.contains("response_ready"),
+        "Stderr must NOT contain response_ready event when teardown fails"
+    );
+}
+
+#[test]
+fn test_generation_supervisor_terminates_child_hanging_after_response_ready() {
+    let _console_lock = CONSOLE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let layout = resolve_source_layout().expect("Repo layout should resolve in tests");
+
+    let test_run_id = format!(
+        "cad_gen_hang_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let temp_output_root = std::env::temp_dir().join(&test_run_id);
+    std::fs::create_dir_all(&temp_output_root).expect("Failed to create temp output dir");
+    struct Cleaner<'a>(&'a std::path::Path);
+    impl<'a> Drop for Cleaner<'a> {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(self.0);
+        }
+    }
+    let _cleaner = Cleaner(&temp_output_root);
+
+    let state = std::sync::Arc::new(std::sync::Mutex::new(
+        cad_copilot_desktop_lib::generation::GenerationState::new(),
+    ));
+    let coord = std::sync::Arc::new(std::sync::Mutex::new(
+        cad_copilot_desktop_lib::run_claim::RunClaimCoordinator::new(),
+    ));
+    let host = std::sync::Arc::new(
+        cad_copilot_desktop_lib::generation::process::MockGenerationHost::new(
+            state.clone(),
+            coord.clone(),
+        ),
+    );
+
+    let selection_id = "sel-hang".to_string();
+
+    // 1. Reserve run in GenerationState
+    let request_id = {
+        let mut guard = state.lock().unwrap();
+        guard
+            .set_output(
+                cad_copilot_desktop_lib::generation::types::GenerationOutputSelection {
+                    selection_id: selection_id.clone(),
+                    display_path: temp_output_root.to_string_lossy().to_string(),
+                },
+                temp_output_root.clone(),
+            )
+            .expect("set_output should succeed");
+        let snap = guard
+            .reserve_run(
+                &selection_id,
+                cad_copilot_desktop_lib::generation::types::GenerationInput::ExamplePlan {
+                    example_id: "spur_gear".to_string(),
+                },
+            )
+            .expect("reserve_run should succeed");
+        snap.run.expect("Active run snapshot must exist").request_id
+    };
+
+    // 2. Claim coordinator slot
+    {
+        let mut guard = coord.lock().unwrap();
+        guard
+            .claim(
+                cad_copilot_desktop_lib::run_claim::RunKind::Generation,
+                &request_id,
+            )
+            .expect("Coordinator claim should succeed");
+    }
+
+    // 3. Child script simulating:
+    //    1. Child emits valid progress through response_ready
+    //    2. Child writes a valid terminal response
+    //    3. Child deliberately remains alive without closing stdout
+    let hanging_script = r#"
+import json, sys, time
+
+# Read stdin request payload
+raw_req = sys.stdin.readline()
+req_data = json.loads(raw_req)
+req_id = req_data.get("request_id", "")
+
+# 1. Child emits valid progress through response_ready
+for phase in ["request_received", "request_validated", "generation_started", "response_ready"]:
+    sys.stderr.write(json.dumps({"type": "progress", "phase": phase, "message": f"Phase {phase}"}) + "\n")
+    sys.stderr.flush()
+
+# 2. Child writes a valid terminal response
+resp = {
+    "contract_version": "1.0",
+    "request_id": req_id,
+    "status": "failed",
+    "errors": [{"code": "CAD_EXECUTION_FAILED", "message": "Simulated CAD failure"}],
+    "warnings": []
+}
+sys.stdout.write(json.dumps(resp) + "\n")
+sys.stdout.flush()
+
+# 3. Child deliberately remains alive
+while True:
+    time.sleep(0.05)
+"#;
+
+    // 4. Supervisor launches with 1000ms post-response grace override
+    let grace_override = std::time::Duration::from_millis(1000);
+    cad_copilot_desktop_lib::generation::process::spawn_generation_supervisor_custom(
+        host.clone(),
+        request_id.clone(),
+        Some((
+            layout.python_exe.clone(),
+            vec!["-c".to_string(), hanging_script.to_string()],
+        )),
+        Some(true),
+        Some(grace_override),
+    );
+
+    // 4 & 5. Supervisor terminates it within the configured bound; cleanup becomes Incomplete
+    let start_time = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(6);
+    let mut reached_terminal = false;
+
+    while start_time.elapsed() < timeout {
+        {
+            let guard = state.lock().unwrap();
+            if let Some(run) = &guard.active_run {
+                if run.state == cad_copilot_desktop_lib::generation::types::RunState::Failed {
+                    reached_terminal = true;
+                    assert_eq!(
+                        run.cleanup,
+                        cad_copilot_desktop_lib::generation::types::CleanupState::Incomplete,
+                        "Hanging child must result in CleanupState::Incomplete"
+                    );
+                    assert!(
+                        run.reason
+                            .as_deref()
+                            .unwrap_or("")
+                            .to_ascii_lowercase()
+                            .contains("post-response exit grace period"),
+                        "Reason must identify post-response grace period termination: {:?}",
+                        run.reason
+                    );
+                    break;
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    assert!(
+        reached_terminal,
+        "Supervisor should terminate hanging child within configured bound and transition to Failed"
+    );
+
+    // 6. A subsequent run remains blocked
+    {
+        let mut guard = state.lock().unwrap();
+        let rerun_res = guard.reserve_run(
+            &selection_id,
+            cad_copilot_desktop_lib::generation::types::GenerationInput::ExamplePlan {
+                example_id: "spur_gear".to_string(),
+            },
+        );
+        assert!(
+            rerun_res.is_err(),
+            "Subsequent run must be blocked when cleanup is Incomplete"
+        );
+        assert_eq!(
+            rerun_res.unwrap_err().code,
+            "INCOMPLETE_CLEANUP",
+            "Error code must be INCOMPLETE_CLEANUP"
+        );
+    }
+}

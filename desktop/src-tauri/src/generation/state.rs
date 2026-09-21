@@ -700,4 +700,109 @@ mod tests {
             RunPhase::RequestReceived
         ));
     }
+
+    #[test]
+    fn test_reserve_run_allowed_after_clean_failed_run_and_blocked_on_incomplete_cleanup() {
+        let mut state = GenerationState::new();
+        let test_dir = create_test_output_dir("rerun_after_failure");
+        state
+            .set_output(
+                GenerationOutputSelection {
+                    selection_id: "sel_1".to_string(),
+                    display_path: test_dir.to_string_lossy().to_string(),
+                },
+                test_dir,
+            )
+            .unwrap();
+
+        // 1. First run reserves and transitions to Failed with NoFailureObserved cleanup
+        let snap1 = state
+            .reserve_run(
+                "sel_1",
+                GenerationInput::ExamplePlan {
+                    example_id: "spur_gear".to_string(),
+                },
+            )
+            .unwrap();
+        let req_id1 = snap1.run.unwrap().request_id;
+
+        // Simulate terminal completion of handled failure (e.g. prompt or CAD execution failure)
+        let run = state.active_run.as_mut().unwrap();
+        assert_eq!(run.request_id, req_id1);
+        run.state = RunState::Failed;
+        run.cleanup = CleanupState::NoFailureObserved;
+
+        // Second reserve run MUST be allowed because cleanup had NoFailureObserved
+        let snap2 = state
+            .reserve_run(
+                "sel_1",
+                GenerationInput::ExamplePlan {
+                    example_id: "spur_gear".to_string(),
+                },
+            )
+            .unwrap();
+        let req_id2 = snap2.run.unwrap().request_id;
+        assert_ne!(req_id1, req_id2);
+
+        // 2. Now simulate terminal completion with Incomplete cleanup (e.g. fatal exit 1 or un-reaped worker)
+        let run2 = state.active_run.as_mut().unwrap();
+        assert_eq!(run2.request_id, req_id2);
+        run2.state = RunState::Failed;
+        run2.cleanup = CleanupState::Incomplete;
+
+        // Third reserve run MUST be blocked with INCOMPLETE_CLEANUP
+        let err3 = state
+            .reserve_run(
+                "sel_1",
+                GenerationInput::ExamplePlan {
+                    example_id: "spur_gear".to_string(),
+                },
+            )
+            .unwrap_err();
+        assert_eq!(err3.code, "INCOMPLETE_CLEANUP");
+    }
+
+    #[test]
+    fn test_reserve_run_allowed_after_clean_rejected_run() {
+        let mut state = GenerationState::new();
+        let test_dir = create_test_output_dir("rerun_after_rejected");
+        state
+            .set_output(
+                GenerationOutputSelection {
+                    selection_id: "sel_1".to_string(),
+                    display_path: test_dir.to_string_lossy().to_string(),
+                },
+                test_dir,
+            )
+            .unwrap();
+
+        // 1. First run reserves and transitions to Rejected with NoFailureObserved cleanup
+        let snap1 = state
+            .reserve_run(
+                "sel_1",
+                GenerationInput::ExamplePlan {
+                    example_id: "spur_gear".to_string(),
+                },
+            )
+            .unwrap();
+        let req_id1 = snap1.run.unwrap().request_id;
+
+        // Simulate terminal completion of prompt or schema rejection
+        let run = state.active_run.as_mut().unwrap();
+        assert_eq!(run.request_id, req_id1);
+        run.state = RunState::Rejected;
+        run.cleanup = CleanupState::NoFailureObserved;
+
+        // Second reserve run MUST be allowed
+        let snap2 = state
+            .reserve_run(
+                "sel_1",
+                GenerationInput::ExamplePlan {
+                    example_id: "spur_gear".to_string(),
+                },
+            )
+            .unwrap();
+        let req_id2 = snap2.run.unwrap().request_id;
+        assert_ne!(req_id1, req_id2);
+    }
 }

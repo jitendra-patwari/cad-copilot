@@ -113,6 +113,7 @@ def _run_stdio(
 
         with _scoped_generation_cancellation():
             # Production modules are strictly imported AFTER descriptor redirection is active
+            from interfaces.exceptions import TeardownIncompleteError
             from ipc.contracts import (
                 InvalidRequestError,
                 PayloadTooLargeError,
@@ -206,6 +207,8 @@ def _run_stdio(
 
                     service_result = run_generation(typed_req)
             except KeyboardInterrupt:
+                raise
+            except TeardownIncompleteError:
                 raise
             except Exception:
                 # Unhandled service failure: build sanitized fallback internal error

@@ -55,6 +55,7 @@ from interfaces.exceptions import (
     CADDocumentError,
     CADExecutionError,
     CADExportError,
+    TeardownIncompleteError,
 )
 from interfaces.models import ExecutionFailure, ExecutionSuccess
 from interfaces.runtime_abc import CADRuntimeABC
@@ -386,8 +387,14 @@ class GenerationService:
         finally:
             # Phase E: Guaranteed Teardown
             if runtime is not None:
-                with contextlib.suppress(Exception):
-                    runtime.teardown(force_kill_on_failure=False)
+                clean_teardown = False
+                try:
+                    clean_teardown = runtime.teardown(force_kill_on_failure=False) is True
+                except Exception as exc:
+                    raise TeardownIncompleteError("CAD runtime teardown failed with an error") from exc
+
+                if not clean_teardown:
+                    raise TeardownIncompleteError("CAD runtime teardown completed incompletely")
 
 
 __all__ = ["GenerationService"]

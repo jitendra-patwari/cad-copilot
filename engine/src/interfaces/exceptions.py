@@ -70,6 +70,10 @@ class CADContainmentError(CADError):
     error_code: str = "CONTAINMENT_VIOLATION"
 
 
+class TeardownIncompleteError(Exception):
+    """Raised internally when CAD runtime teardown is incomplete or fails."""
+
+
 __all__ = [
     "CADContainmentError",
     "CADDocumentError",
@@ -79,4 +83,5 @@ __all__ = [
     "CADRuntimeBusyError",
     "CADRuntimeError",
     "CADRuntimeUnavailableError",
+    "TeardownIncompleteError",
 ]

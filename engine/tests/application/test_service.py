@@ -39,6 +39,7 @@ from interfaces.exceptions import (
     CADDocumentError,
     CADExecutionError,
     CADExportError,
+    TeardownIncompleteError,
 )
 from interfaces.models import (
     ArtifactRecord,
@@ -114,6 +115,8 @@ class FakeRuntime(CADRuntimeABC):
         self.fail_create_doc = False
         self.fail_close_doc = False
         self.fail_teardown = False
+        self.raise_teardown = False
+        self.teardown_return_override: Any = None
 
     def connect_application(self) -> Any:
         self.connect_count += 1
@@ -149,6 +152,10 @@ class FakeRuntime(CADRuntimeABC):
     def teardown(self, force_kill_on_failure: bool = False) -> bool:
         self.teardown_count += 1
         self.teardown_args.append(force_kill_on_failure)
+        if self.raise_teardown:
+            raise RuntimeError("Fake teardown exception")
+        if self.teardown_return_override is not None:
+            return self.teardown_return_override  # type: ignore[no-any-return]
         return not self.fail_teardown
 
     def is_healthy(self) -> bool:
@@ -1512,8 +1519,8 @@ def test_generation_service_with_production_example_resolver_publishes_manifest_
     assert runtime.close_doc_count == 1
 
 
-def test_generation_service_retains_outcome_when_teardown_returns_false(tmp_path: Path) -> None:
-    """Proves that GenerationService retains its existing outcome and lifecycle behavior while ignoring teardown result."""
+def test_generation_service_raises_teardown_incomplete_when_teardown_returns_false(tmp_path: Path) -> None:
+    """Proves that GenerationService raises TeardownIncompleteError when runtime teardown returns False."""
     runtime = FakeRuntime(version_build="Solid Edge 2026 (226.00.00.106)")
     runtime.fail_teardown = True
 
@@ -1524,7 +1531,82 @@ def test_generation_service_retains_outcome_when_teardown_returns_false(tmp_path
         artifact_finalizer=finalize_request_artifacts,
     )
     req = ExampleGenerationRequest(
-        request_id="req-ignore-teardown-res",
+        request_id="req-teardown-false",
+        contract_version="1.0",
+        kind="example_plan",
+        unit="mm",
+        example_id="spur_gear",
+    )
+    with pytest.raises(TeardownIncompleteError, match="teardown completed incompletely"):
+        service.generate(req, output_root=tmp_path)
+
+    assert runtime.teardown_count == 1
+    assert runtime.teardown_args == [False]
+
+
+def test_generation_service_raises_teardown_incomplete_when_teardown_raises(tmp_path: Path) -> None:
+    """Proves that GenerationService raises TeardownIncompleteError when runtime teardown throws an exception."""
+    runtime = FakeRuntime(version_build="Solid Edge 2026 (226.00.00.106)")
+    runtime.raise_teardown = True
+
+    service = GenerationService(
+        example_resolver=resolve_example_plan,
+        runtime_factory=lambda: runtime,
+        executor_factory=lambda rt, dh: FakeProductionExecutor(rt, dh),
+        artifact_finalizer=finalize_request_artifacts,
+    )
+    req = ExampleGenerationRequest(
+        request_id="req-teardown-exc",
+        contract_version="1.0",
+        kind="example_plan",
+        unit="mm",
+        example_id="spur_gear",
+    )
+    with pytest.raises(TeardownIncompleteError, match="teardown failed with an error"):
+        service.generate(req, output_root=tmp_path)
+
+    assert runtime.teardown_count == 1
+    assert runtime.teardown_args == [False]
+
+
+def test_generation_service_raises_teardown_incomplete_on_early_return_path(tmp_path: Path) -> None:
+    """Proves that every service early-return path that creates a runtime observes teardown failure."""
+    runtime = FakeRuntime()
+    runtime.fail_connect = True  # Triggers early return of CAD_EXECUTION_FAILED
+    runtime.fail_teardown = True
+
+    service = GenerationService(
+        example_resolver=resolve_example_plan,
+        runtime_factory=lambda: runtime,
+    )
+    req = ExampleGenerationRequest(
+        contract_version="1.0",
+        request_id="req-early-fail-teardown",
+        kind="example_plan",
+        unit="mm",
+        example_id="spur_gear",
+    )
+    with pytest.raises(TeardownIncompleteError):
+        service.generate(req, output_root=tmp_path)
+
+    assert runtime.connect_count == 1
+    assert runtime.teardown_count == 1
+    assert runtime.teardown_args == [False]
+
+
+def test_generation_service_retains_accepted_outcome_when_teardown_succeeds(tmp_path: Path) -> None:
+    """Proves that an accepted outcome is returned when teardown succeeds."""
+    runtime = FakeRuntime(version_build="Solid Edge 2026 (226.00.00.106)")
+    runtime.fail_teardown = False
+
+    service = GenerationService(
+        example_resolver=resolve_example_plan,
+        runtime_factory=lambda: runtime,
+        executor_factory=lambda rt, dh: FakeProductionExecutor(rt, dh),
+        artifact_finalizer=finalize_request_artifacts,
+    )
+    req = ExampleGenerationRequest(
+        request_id="req-teardown-clean",
         contract_version="1.0",
         kind="example_plan",
         unit="mm",
@@ -1532,5 +1614,32 @@ def test_generation_service_retains_outcome_when_teardown_returns_false(tmp_path
     )
     resp = service.generate(req, output_root=tmp_path)
     assert resp["status"] == "accepted"
+    assert runtime.teardown_count == 1
+    assert runtime.teardown_args == [False]
+
+
+def test_generation_service_raises_teardown_incomplete_when_teardown_returns_non_boolean_truthy(
+    tmp_path: Path,
+) -> None:
+    """Proves that teardown check fails closed if runtime.teardown returns a non-boolean truthy value."""
+    runtime = FakeRuntime(version_build="Solid Edge 2026 (226.00.00.106)")
+    runtime.teardown_return_override = 1  # Truthy integer, but not literal True
+
+    service = GenerationService(
+        example_resolver=resolve_example_plan,
+        runtime_factory=lambda: runtime,
+        executor_factory=lambda rt, dh: FakeProductionExecutor(rt, dh),
+        artifact_finalizer=finalize_request_artifacts,
+    )
+    req = ExampleGenerationRequest(
+        request_id="req-teardown-truthy-nonbool",
+        contract_version="1.0",
+        kind="example_plan",
+        unit="mm",
+        example_id="spur_gear",
+    )
+    with pytest.raises(TeardownIncompleteError, match="teardown completed incompletely"):
+        service.generate(req, output_root=tmp_path)
+
     assert runtime.teardown_count == 1
     assert runtime.teardown_args == [False]
