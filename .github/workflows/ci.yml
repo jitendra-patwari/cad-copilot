@@ -165,6 +165,11 @@ jobs:
       run:
         shell: powershell
     steps:
+      - name: Configure Git to preserve LF line endings
+        run: |
+          git config --global core.autocrlf false
+          git config --system core.autocrlf false
+
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -261,5 +266,10 @@ jobs:
           git diff --exit-code
           $dirty = (git status --porcelain --untracked-files=no)
           if ($dirty) {
+            Write-Host "Dirty files detected: $dirty"
+            Write-Host "Diff with ignored space at EOL:"
+            git diff --ignore-space-at-eol
+            Write-Host "Full diff:"
+            git diff
             throw "Tracked files modified during run: $dirty"
           }
