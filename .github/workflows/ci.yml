@@ -1,0 +1,275 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python Engine Quality Gates
+    runs-on: windows-2025
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.14.3
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14.3"
+          architecture: x64
+          check-latest: false
+
+      - name: Verify Python version
+        run: |
+          $pyVer = (python --version 2>&1).Trim()
+          Write-Host "Installed: $pyVer"
+          if ($pyVer -ne "Python 3.14.3") {
+            throw "Expected 'Python 3.14.3', got '$pyVer'"
+          }
+
+      - name: Create virtual environment and install dependencies
+        run: |
+          # Wheel-isolation tests create child venvs with system site packages.
+          # Make their constrained runtime dependency available in the base interpreter.
+          python -m pip install --constraint engine\packaging\constraints.txt jsonschema
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --constraint engine\packaging\constraints.txt --constraint engine\ci-constraints.txt pip setuptools wheel
+          .\.venv\Scripts\python.exe -m pip install --no-build-isolation --constraint engine\packaging\constraints.txt --constraint engine\ci-constraints.txt --editable "engine[dev,gemini]"
+
+      - name: Report direct tool versions
+        run: |
+          .\.venv\Scripts\python.exe --version
+          .\.venv\Scripts\python.exe -m pip --version
+          .\.venv\Scripts\python.exe -m pytest --version
+          .\.venv\Scripts\python.exe -m ruff --version
+          .\.venv\Scripts\python.exe -m mypy --version
+
+      - name: Run offline Python tests
+        working-directory: engine
+        run: |
+          ..\.venv\Scripts\python.exe -m pytest -c pytest.ini -m "not com and not live_ai"
+
+      - name: Run Ruff linter and format check
+        working-directory: engine
+        run: |
+          ..\.venv\Scripts\python.exe -m ruff check src tests
+          ..\.venv\Scripts\python.exe -m ruff format --check src tests
+
+      - name: Run strict Mypy typecheck
+        working-directory: engine
+        run: |
+          ..\.venv\Scripts\python.exe -m mypy --config-file mypy.ini --strict src tests\batch tests\ipc tests\drivers
+
+      - name: Verify clean working copy
+        run: |
+          git diff --check
+          git diff --exit-code
+          $dirty = (git status --porcelain --untracked-files=no)
+          if ($dirty) {
+            throw "Tracked files modified during run: $dirty"
+          }
+
+  frontend:
+    name: Frontend Quality Gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24.15.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.15.0"
+          check-latest: false
+          package-manager-cache: false
+
+      - name: Verify Node.js version
+        run: |
+          nodeVer="$(node --version)"
+          echo "Installed Node: $nodeVer"
+          if [ "$nodeVer" != "v24.15.0" ]; then
+            echo "Expected Node v24.15.0, got $nodeVer"
+            exit 1
+          fi
+
+      - name: Install and verify pnpm 12.4.1
+        run: |
+          npm install --global pnpm@12.4.1
+          pnpmVer="$(pnpm --version)"
+          echo "Installed pnpm: $pnpmVer"
+          if [ "$pnpmVer" != "12.4.1" ]; then
+            echo "Expected pnpm 12.4.1, got $pnpmVer"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: |
+          pnpm install --frozen-lockfile
+
+      - name: Run Vitest suites
+        run: |
+          pnpm test:desktop
+
+      - name: Run ESLint
+        run: |
+          pnpm lint:desktop
+
+      - name: Run TypeScript typecheck
+        run: |
+          pnpm typecheck:desktop
+
+      - name: Run Prettier format check
+        run: |
+          pnpm format:check:desktop
+
+      - name: Run Vite production build
+        run: |
+          pnpm build:desktop
+
+      - name: Verify clean working copy
+        run: |
+          git diff --check
+          git diff --exit-code
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+            echo "Tracked files modified during run:"
+            git status --porcelain --untracked-files=no
+            exit 1
+          fi
+
+  rust-windows:
+    name: Rust & Tauri Windows Gates
+    runs-on: windows-2025
+    timeout-minutes: 55
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Configure Git to preserve LF line endings
+        run: |
+          git config --global core.autocrlf false
+          git config --system core.autocrlf false
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.14.3
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14.3"
+          architecture: x64
+          check-latest: false
+
+      - name: Verify Python version
+        run: |
+          $pyVer = (python --version 2>&1).Trim()
+          Write-Host "Installed Python: $pyVer"
+          if ($pyVer -ne "Python 3.14.3") {
+            throw "Expected 'Python 3.14.3', got '$pyVer'"
+          }
+
+      - name: Create virtual environment for source layout tests
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --constraint engine\packaging\constraints.txt --constraint engine\ci-constraints.txt pip setuptools wheel
+          .\.venv\Scripts\python.exe -m pip install --no-build-isolation --constraint engine\packaging\constraints.txt --constraint engine\ci-constraints.txt --editable "engine[dev,gemini]"
+
+      - name: Set up Node.js 24.15.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.15.0"
+          check-latest: false
+          package-manager-cache: false
+
+      - name: Verify Node.js version
+        run: |
+          $nodeVer = (node --version).Trim()
+          Write-Host "Installed Node: $nodeVer"
+          if ($nodeVer -ne "v24.15.0") {
+            throw "Expected Node v24.15.0, got '$nodeVer'"
+          }
+
+      - name: Install and verify pnpm 12.4.1
+        run: |
+          npm install --global pnpm@12.4.1
+          $pnpmVer = (pnpm --version).Trim()
+          Write-Host "Installed pnpm: $pnpmVer"
+          if ($pnpmVer -ne "12.4.1") {
+            throw "Expected pnpm 12.4.1, got '$pnpmVer'"
+          }
+          pnpm install --frozen-lockfile
+
+      - name: Install Rust 1.95.0 toolchain
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
+          rustup default 1.95.0
+          $rustcVer = (rustc --version).Trim()
+          Write-Host "Installed rustc: $rustcVer"
+          if ($rustcVer -notmatch "^rustc 1\.95\.0\b") {
+            throw "Expected rustc 1.95.0, got '$rustcVer'"
+          }
+          $cargoVer = (cargo --version).Trim()
+          Write-Host "Installed cargo: $cargoVer"
+          if ($cargoVer -notmatch "^cargo 1\.95\.0\b") {
+            throw "Expected cargo 1.95.0, got '$cargoVer'"
+          }
+
+      - name: Rust format check
+        run: |
+          cargo fmt --manifest-path desktop\src-tauri\Cargo.toml --all -- --check
+
+      - name: Rust default tests
+        run: |
+          cargo test --manifest-path desktop\src-tauri\Cargo.toml --locked
+
+      - name: Rust default Clippy
+        run: |
+          cargo clippy --manifest-path desktop\src-tauri\Cargo.toml --locked --all-targets -- -D warnings
+
+      - name: Rust packaged-engine feature tests
+        run: |
+          cargo test --manifest-path desktop\src-tauri\Cargo.toml --locked --features packaged-engine
+
+      - name: Rust packaged-engine feature Clippy
+        run: |
+          cargo clippy --manifest-path desktop\src-tauri\Cargo.toml --locked --all-targets --features packaged-engine -- -D warnings
+
+      - name: Tauri production build (no bundle)
+        run: |
+          pnpm --filter @cad-copilot/desktop tauri build --no-bundle
+
+      - name: Verify clean working copy
+        run: |
+          git diff --check
+          git diff --exit-code
+          $dirty = (git status --porcelain --untracked-files=no)
+          if ($dirty) {
+            Write-Host "Dirty files detected: $dirty"
+            Write-Host "Diff with ignored space at EOL:"
+            git diff --ignore-space-at-eol
+            Write-Host "Full diff:"
+            git diff
+            throw "Tracked files modified during run: $dirty"
+          }

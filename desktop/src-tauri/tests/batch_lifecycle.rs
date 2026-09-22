@@ -340,6 +340,9 @@ fn qualify_production_supervisor(private_console: bool, test_cancellation: bool)
     );
     let temp_output_root = std::env::temp_dir().join(&test_run_id);
     std::fs::create_dir_all(&temp_output_root).expect("Failed to create temp output dir");
+    let temp_output_root = cad_copilot_desktop_lib::shared::path::simplify_windows_path(
+        &std::fs::canonicalize(&temp_output_root).expect("Failed to resolve temp output dir"),
+    );
 
     struct OutputCleaner<'a>(&'a std::path::Path);
     impl<'a> Drop for OutputCleaner<'a> {

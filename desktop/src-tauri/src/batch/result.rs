@@ -685,8 +685,8 @@ mod tests {
     #[test]
     fn test_validate_batch_result_completed_with_manifest() {
         let temp = TestDir::new("completed");
-        let root = temp.path();
-        let root_id = get_path_filesystem_identity(root).unwrap();
+        let root = simplify_windows_path(&fs::canonicalize(temp.path()).unwrap());
+        let root_id = get_path_filesystem_identity(&root).unwrap();
 
         // Create dummy artifact files
         let art1 = root.join("part1.step");
@@ -747,7 +747,7 @@ mod tests {
             "parasolid".to_string(),
         ];
         let result_res = validate_batch_result(
-            root,
+            &root,
             root_id,
             "batch-001",
             "export_3d",
@@ -967,8 +967,8 @@ mod tests {
     #[test]
     fn test_validate_batch_result_hostile_manifest_outside_root() {
         let temp = TestDir::new("hostile_manifest");
-        let root = temp.path();
-        let root_id = get_path_filesystem_identity(root).unwrap();
+        let root = simplify_windows_path(&fs::canonicalize(temp.path()).unwrap());
+        let root_id = get_path_filesystem_identity(&root).unwrap();
 
         // Write hostile manifest containing path traversal "../evil.step"
         let manifest_content = include_str!(concat!(
@@ -984,7 +984,11 @@ mod tests {
         let response_content = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../contracts/schemas/batch/fixtures/completed.response.json"
-        ));
+        ))
+        .replace(
+            "C:/my_cad_parts/output",
+            &root.to_string_lossy().replace('\\', "/"),
+        );
         let requested_files = vec!["part1.par".to_string(), "subfolder/part2.par".to_string()];
         let resp = protocol::parse_terminal_response(
             response_content.as_bytes(),
@@ -998,8 +1002,23 @@ mod tests {
             "stl".to_string(),
             "parasolid".to_string(),
         ];
+        let manifest_error = validate_and_read_manifest(
+            &manifest_file,
+            &root,
+            root_id,
+            "batch-001",
+            "export_3d",
+            &op_formats,
+            &resp,
+        )
+        .unwrap_err();
+        assert_eq!(manifest_error.code, "INVALID_ENGINE_OUTPUT");
+        assert!(manifest_error
+            .message
+            .starts_with("Manifest failed canonical schema validation"));
+
         let result_res = validate_batch_result(
-            root,
+            &root,
             root_id,
             "batch-001",
             "export_3d",

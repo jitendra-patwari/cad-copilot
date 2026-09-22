@@ -171,13 +171,11 @@ sys.exit(0)
 }
 
 fn qualify_live_ipc_cancellation(private_console: bool) {
-    if std::env::var("CAD_COPILOT_LIVE_TESTS")
-        .map(|v| v != "1")
-        .unwrap_or(true)
-    {
-        eprintln!("Skipping live IPC cancellation test (set CAD_COPILOT_LIVE_TESTS=1 to run)");
-        return;
-    }
+    assert_eq!(
+        std::env::var("CAD_COPILOT_LIVE_TESTS").as_deref(),
+        Ok("1"),
+        "Explicit live qualification requires CAD_COPILOT_LIVE_TESTS=1"
+    );
 
     let _console_lock = CONSOLE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let layout = resolve_source_layout().expect("Repo layout should resolve");
@@ -304,11 +302,13 @@ fn qualify_live_ipc_cancellation(private_console: bool) {
 }
 
 #[test]
+#[ignore = "Requires live Solid Edge runtime and CAD_COPILOT_LIVE_TESTS=1"]
 fn test_live_ipc_cancellation_shared_console() {
     qualify_live_ipc_cancellation(false);
 }
 
 #[test]
+#[ignore = "Requires live Solid Edge runtime and CAD_COPILOT_LIVE_TESTS=1"]
 fn test_live_ipc_cancellation_private_console() {
     qualify_live_ipc_cancellation(true);
 }

@@ -18,7 +18,7 @@ We are committed to providing a welcoming, inclusive, and harassment-free enviro
 - **Rust**: Verified workstation baseline `rustc 1.95.0` / `cargo 1.95.0` (required for desktop Tauri host compilation).
 - **Operating System**: Windows 10/11 x64 with licensed Siemens Solid Edge® for live COM automation. Pure geometry and contract checks do not require COM; some offline driver tests use Windows process APIs. Exclude live tests explicitly with `-m "not com and not live_ai"`.
 
-As of 22 September 2026: M3.1–M3.3, M4.1 generation service orchestration, M4.2 Gemini plan proposal adapter, M4.3 deterministic example catalog, M4.4 canonical run manifest publication, and M4.5 strict generation stdio IPC are implemented and verified; Milestone 4 is complete. Milestone 5.1 batch contracts/models/schemas, Milestone 5.2 sequential batch execution infrastructure (FR-15), Milestone 5.3 batch filesystem & source-integrity safety boundary (FR-16), Milestone 5.4 genuine batch format handlers and native export operations (FR-17), Milestone 5.5 conditional Parasolid export gate (FR-18), and Milestone 5.6 summary manifest publication, strict batch stdio transport, cooperative signal cancellation, launchers, and packaging (FR-19) are implemented and verified; Milestone 5 is complete. Milestones 6.1, 6.2, and 6.3 are implemented and verified. M6.4 packaging architecture, NSIS configuration, offline verification, per-user installation, installed Generate and Gemini success paths, and installed Generate cancellation are verified. The remaining installed failure, Batch, path, and uninstall acceptance gates remain pending. See [engine status](engine/README.md).
+As of 22 September 2026: M3.1–M3.3, M4.1 generation service orchestration, M4.2 Gemini plan proposal adapter, M4.3 deterministic example catalog, M4.4 canonical run manifest publication, and M4.5 strict generation stdio IPC are implemented and verified; Milestone 4 is complete. Milestone 5.1 batch contracts/models/schemas, Milestone 5.2 sequential batch execution infrastructure (FR-15), Milestone 5.3 batch filesystem & source-integrity safety boundary (FR-16), Milestone 5.4 genuine batch format handlers and native export operations (FR-17), Milestone 5.5 conditional Parasolid export gate (FR-18), and Milestone 5.6 summary manifest publication, strict batch stdio transport, cooperative signal cancellation, launchers, and packaging (FR-19) are implemented and verified; Milestone 5 is complete. Milestones 6.1, 6.2, and 6.3 are implemented and verified. M6.4 packaging architecture, NSIS configuration, offline verification, per-user installation, installed Generate and Gemini success paths, and installed Generate cancellation are verified; the remaining installed failure, Batch, path, and uninstall acceptance gates remain pending. Milestone 6.5 (Automated Portable Quality Gates & CI Configuration, QA-08, RUN-10) is fully implemented, verified, and passing across all three hosted GitHub Actions jobs. Milestone 6.6 publication has not started. See [engine status](engine/README.md).
 
 ### Initializing the Workspace
 ```powershell
@@ -86,8 +86,8 @@ Scopes include planned domains; listing a scope does not mean its package or run
 * `batch`: Sequential local native-file export and drawing publication
 * `contracts`: Public JSON-Schema contracts and golden fixtures
 
-### Requirements Traceability (`<FR-ID>`)
-Every commit must cite the corresponding **Functional Requirement ID** from [`docs/requirements.md`](docs/requirements.md) (e.g. `[FR-1]`, `[FR-2]`, `[FR-3]`, `[FR-9]`, `[FR-10]`, `[FR-19]`, `[FR-20]`). For infrastructure or root maintenance, use `[FR-1]` or `[INFRA]`.
+### Requirements Traceability (`<TAG>`)
+Every commit must cite the corresponding **Requirement or Authority ID** from [`docs/requirements.md`](docs/requirements.md) or roadmap governance (e.g. `[FR-1]`, `[FR-2]`, `[FR-19]`, `[FR-20]`, `[FR-21/22]`, `[RUN-10]`, `[QA-08]`). For general infrastructure or maintenance, use `[INFRA]` or the applicable `[RUN-*]` / `[QA-*]` tag.
 
 ### Examples
 * `chore(root): [FR-1] initialize root workspace configuration, pnpm toolchains and dev tooling`
@@ -97,6 +97,8 @@ Every commit must cite the corresponding **Functional Requirement ID** from [`do
 * `fix(geometry): [FR-4] resolve floating point precision boundary in FaceContext UV projection`
 * `feat(application): [FR-10] implement generation application orchestration`
 * `docs(desktop): [FR-20] define clean desktop foundation`
+* `ci(root): [RUN-10] add portable quality workflow`
+* `docs(ci): [QA-08] record portable verification boundaries`
 
 ---
 
@@ -105,14 +107,18 @@ Every commit must cite the corresponding **Functional Requirement ID** from [`do
 All submitted code must pass strict static analysis and testing before review:
 
 ```powershell
-# Python Linting & Type Checking (from repo root)
-ruff check engine/src engine/tests
-pnpm typecheck:engine  # Or from engine/: mypy --config-file mypy.ini --strict src
+# Python Linting, Formatting & Type Checking (from engine/ using root .venv)
+cd engine
+..\.venv\Scripts\python.exe -m ruff check src tests
+..\.venv\Scripts\python.exe -m ruff format --check src tests
+..\.venv\Scripts\python.exe -m mypy --config-file mypy.ini --strict src tests\batch tests\ipc tests\drivers
 
 # Python Unit & Contract Tests (offline, non-COM and non-live-AI)
-pytest engine/tests -m "not com and not live_ai"
+..\.venv\Scripts\python.exe -m pytest -c pytest.ini -m "not com and not live_ai"
+cd ..
 
 # Desktop Frontend Verification (from repo root)
+pnpm install --frozen-lockfile
 pnpm test:desktop
 pnpm lint:desktop
 pnpm typecheck:desktop
@@ -120,13 +126,26 @@ pnpm format:check:desktop
 pnpm build:desktop
 
 # Rust Tauri Host Checks & Native Build (from repo root)
-cargo test --manifest-path desktop/src-tauri/Cargo.toml
-cargo fmt --check --manifest-path desktop/src-tauri/Cargo.toml
-cargo clippy --manifest-path desktop/src-tauri/Cargo.toml -- -D warnings
+cargo fmt --manifest-path desktop\src-tauri\Cargo.toml --all -- --check
+cargo test --manifest-path desktop\src-tauri\Cargo.toml --locked
+cargo clippy --manifest-path desktop\src-tauri\Cargo.toml --locked --all-targets -- -D warnings
+cargo test --manifest-path desktop\src-tauri\Cargo.toml --locked --features packaged-engine
+cargo clippy --manifest-path desktop\src-tauri\Cargo.toml --locked --all-targets --features packaged-engine -- -D warnings
 pnpm --filter @cad-copilot/desktop tauri build --no-bundle
 ```
 
-Offline checks are not live COM or AI provider evidence. Run `com`-marked and `live_ai`-marked tests only with explicit authorization, valid credentials, and a suitable Windows/Solid Edge session; markers alone do not exclude them from a default pytest invocation without explicit `-m` selection.
+Offline checks are not live COM or AI provider evidence. Default Cargo test runs report live Solid Edge tests and staged packaged-engine lifecycle tests as ignored. Run `com`-marked and `live_ai`-marked tests only with explicit authorization, valid credentials, and a suitable Windows/Solid Edge session:
+
+```powershell
+# Explicit local native qualification gates (outside automated CI):
+$env:CAD_COPILOT_LIVE_TESTS = "1"
+cargo test --manifest-path desktop\src-tauri\Cargo.toml --locked --test generation_lifecycle -- --ignored --test-threads=1
+Remove-Item Env:CAD_COPILOT_LIVE_TESTS
+
+# Staged engine lifecycle qualification (requires packaged engine payload):
+pnpm --filter @cad-copilot/engine package:desktop
+cargo test --manifest-path desktop\src-tauri\Cargo.toml --locked --test packaged_engine_lifecycle -- --ignored --test-threads=1
+```
 
 ---
 
