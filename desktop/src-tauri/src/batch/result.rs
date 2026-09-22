@@ -685,8 +685,8 @@ mod tests {
     #[test]
     fn test_validate_batch_result_completed_with_manifest() {
         let temp = TestDir::new("completed");
-        let root = temp.path();
-        let root_id = get_path_filesystem_identity(root).unwrap();
+        let root = simplify_windows_path(&fs::canonicalize(temp.path()).unwrap());
+        let root_id = get_path_filesystem_identity(&root).unwrap();
 
         // Create dummy artifact files
         let art1 = root.join("part1.step");
@@ -747,7 +747,7 @@ mod tests {
             "parasolid".to_string(),
         ];
         let result_res = validate_batch_result(
-            root,
+            &root,
             root_id,
             "batch-001",
             "export_3d",

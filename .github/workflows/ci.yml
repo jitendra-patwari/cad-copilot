@@ -44,6 +44,9 @@ jobs:
 
       - name: Create virtual environment and install dependencies
         run: |
+          # Wheel-isolation tests create child venvs with system site packages.
+          # Make their constrained runtime dependency available in the base interpreter.
+          python -m pip install --constraint engine\packaging\constraints.txt jsonschema
           python -m venv .venv
           .\.venv\Scripts\python.exe -m pip install --constraint engine\packaging\constraints.txt --constraint engine\ci-constraints.txt pip setuptools wheel
           .\.venv\Scripts\python.exe -m pip install --no-build-isolation --constraint engine\packaging\constraints.txt --constraint engine\ci-constraints.txt --editable "engine[dev,gemini]"

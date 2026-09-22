@@ -771,7 +771,8 @@ mod tests {
         );
 
         // 4. to_canonical_relative_path with extended prefix
-        let extended_path = PathBuf::from(format!(r"\\?\{}", f.to_string_lossy()));
+        let canonical_file = simplify_windows_path(&fs::canonicalize(&f).unwrap());
+        let extended_path = PathBuf::from(format!(r"\\?\{}", canonical_file.to_string_lossy()));
         let rel = to_canonical_relative_path(&extended_path, &picked.canonical_root).unwrap();
         assert_eq!(rel, "part.par");
     }
