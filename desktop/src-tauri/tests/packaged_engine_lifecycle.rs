@@ -146,14 +146,11 @@ fn build_isolated_env(engine_dir: &Path) -> HashMap<String, String> {
 }
 
 #[test]
+#[ignore = "Requires staged engine payload at engine/dist/cad-copilot-engine/cad-copilot-engine.exe"]
 fn test_packaged_engine_usage_when_no_subcommand() {
-    let isolated = match deploy_engine_outside_checkout() {
-        Some(i) => i,
-        None => {
-            println!("Skipping: engine/dist/cad-copilot-engine/cad-copilot-engine.exe not found");
-            return;
-        }
-    };
+    let isolated = deploy_engine_outside_checkout().expect(
+        "Staged engine not found at engine/dist/cad-copilot-engine/cad-copilot-engine.exe; run 'pnpm --filter @cad-copilot/engine package:desktop' first",
+    );
     let env = build_isolated_env(&isolated.engine_dir);
 
     let mut child = spawn_engine_process_explicit(
@@ -183,15 +180,12 @@ fn test_packaged_engine_usage_when_no_subcommand() {
 }
 
 #[test]
+#[ignore = "Requires staged engine payload at engine/dist/cad-copilot-engine/cad-copilot-engine.exe"]
 fn test_packaged_engine_generate_isolated_rejection() {
     let _lock = CONSOLE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let isolated = match deploy_engine_outside_checkout() {
-        Some(i) => i,
-        None => {
-            println!("Skipping: engine/dist/cad-copilot-engine/cad-copilot-engine.exe not found");
-            return;
-        }
-    };
+    let isolated = deploy_engine_outside_checkout().expect(
+        "Staged engine not found at engine/dist/cad-copilot-engine/cad-copilot-engine.exe; run 'pnpm --filter @cad-copilot/engine package:desktop' first",
+    );
     let env = build_isolated_env(&isolated.engine_dir);
 
     let mut child = spawn_engine_process_explicit(
@@ -252,15 +246,12 @@ fn test_packaged_engine_generate_isolated_rejection() {
 }
 
 #[test]
+#[ignore = "Requires staged engine payload at engine/dist/cad-copilot-engine/cad-copilot-engine.exe"]
 fn test_packaged_engine_batch_isolated_rejection() {
     let _lock = CONSOLE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let isolated = match deploy_engine_outside_checkout() {
-        Some(i) => i,
-        None => {
-            println!("Skipping: engine/dist/cad-copilot-engine/cad-copilot-engine.exe not found");
-            return;
-        }
-    };
+    let isolated = deploy_engine_outside_checkout().expect(
+        "Staged engine not found at engine/dist/cad-copilot-engine/cad-copilot-engine.exe; run 'pnpm --filter @cad-copilot/engine package:desktop' first",
+    );
     let env = build_isolated_env(&isolated.engine_dir);
 
     let nonexistent_source = std::env::temp_dir().join(format!(
@@ -349,14 +340,11 @@ fn test_packaged_engine_batch_isolated_rejection() {
 }
 
 #[test]
+#[ignore = "Requires staged engine payload at engine/dist/cad-copilot-engine/cad-copilot-engine.exe"]
 fn test_packaged_engine_unexpected_args_fatal_diagnostic() {
-    let isolated = match deploy_engine_outside_checkout() {
-        Some(i) => i,
-        None => {
-            println!("Skipping: engine/dist/cad-copilot-engine/cad-copilot-engine.exe not found");
-            return;
-        }
-    };
+    let isolated = deploy_engine_outside_checkout().expect(
+        "Staged engine not found at engine/dist/cad-copilot-engine/cad-copilot-engine.exe; run 'pnpm --filter @cad-copilot/engine package:desktop' first",
+    );
     let env = build_isolated_env(&isolated.engine_dir);
 
     let mut child = spawn_engine_process_explicit(
@@ -390,15 +378,12 @@ fn test_packaged_engine_unexpected_args_fatal_diagnostic() {
 }
 
 #[test]
+#[ignore = "Requires staged engine payload at engine/dist/cad-copilot-engine/cad-copilot-engine.exe"]
 fn test_packaged_engine_generate_cancellation_unwinds_exit_130() {
     let _lock = CONSOLE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let isolated = match deploy_engine_outside_checkout() {
-        Some(i) => i,
-        None => {
-            println!("Skipping: engine/dist/cad-copilot-engine/cad-copilot-engine.exe not found");
-            return;
-        }
-    };
+    let isolated = deploy_engine_outside_checkout().expect(
+        "Staged engine not found at engine/dist/cad-copilot-engine/cad-copilot-engine.exe; run 'pnpm --filter @cad-copilot/engine package:desktop' first",
+    );
     let env = build_isolated_env(&isolated.engine_dir);
 
     // Test harmless non-COM signal cancellation while waiting for input under both topologies:
@@ -482,15 +467,12 @@ fn test_packaged_engine_generate_cancellation_unwinds_exit_130() {
 }
 
 #[test]
+#[ignore = "Requires staged engine payload at engine/dist/cad-copilot-engine/cad-copilot-engine.exe"]
 fn test_packaged_engine_gemini_bootstrap_offline_smoke() {
     let _lock = CONSOLE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let isolated = match deploy_engine_outside_checkout() {
-        Some(i) => i,
-        None => {
-            println!("Skipping: engine/dist/cad-copilot-engine/cad-copilot-engine.exe not found");
-            return;
-        }
-    };
+    let isolated = deploy_engine_outside_checkout().expect(
+        "Staged engine not found at engine/dist/cad-copilot-engine/cad-copilot-engine.exe; run 'pnpm --filter @cad-copilot/engine package:desktop' first",
+    );
     let env = build_isolated_env(&isolated.engine_dir);
 
     let mut child = spawn_engine_process_explicit(
