@@ -40,7 +40,7 @@ def test_main_frozen_ai_bootstrap_failure_returns_one(capfd: pytest.CaptureFixtu
     def mock_import(name: str, *args: object, **kwargs: object) -> object:
         if name.startswith("google.genai") or name == "google":
             raise ImportError("mocked import failure")
-        return orig_import(name, *args, **kwargs)
+        return orig_import(name, *args, **kwargs)  # type: ignore[arg-type]
 
     with patch("sys.frozen", True, create=True), patch("builtins.__import__", side_effect=mock_import):
         code = main(["generate"])
