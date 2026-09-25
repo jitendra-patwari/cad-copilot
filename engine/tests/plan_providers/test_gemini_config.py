@@ -205,6 +205,16 @@ def test_constructor_valid_defaults() -> None:
     assert resolver.timeout_ms == DEFAULT_TIMEOUT_MS
 
 
+def test_system_instruction_preserves_explicit_dimensions_and_feature_counts() -> None:
+    assert "Preserve every explicit numeric value" in SYSTEM_INSTRUCTION
+    assert "Match requested feature quantities exactly" in SYSTEM_INSTRUCTION
+    assert "exactly one circular_through_hole with diameter_mm 25" in SYSTEM_INSTRUCTION
+    assert "Do not attach profile, revolve, path, or cross_sections" in SYSTEM_INSTRUCTION
+    assert "width_mm 70, height_mm 50" in SYSTEM_INSTRUCTION
+    assert "distance_mm 10" in SYSTEM_INSTRUCTION
+    assert "every feature targets body.main" in SYSTEM_INSTRUCTION
+
+
 def test_constructor_valid_custom_model_and_timeout() -> None:
     resolver = GeminiPlanResolver(
         api_key="valid-test-key",

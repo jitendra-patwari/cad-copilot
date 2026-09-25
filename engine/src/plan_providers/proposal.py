@@ -1,4 +1,4 @@
-"""Strict JSON decoding, proposal-schema validation, and envelope binding for AI plan providers."""
+"""Bounded provider-text recovery, canonical proposal validation, and envelope binding."""
 
 from __future__ import annotations
 
@@ -7,24 +7,70 @@ import functools
 import importlib.resources
 import json
 import math
+import re
 from typing import Any
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
 from application.models import PlanProposal, PromptGenerationRequest
-from geometry.plan_models import CANONICAL_PLAN_VERSION
+from geometry.plan_models import CANONICAL_PLAN_VERSION, FeaturePlanValidationError
+from geometry.plan_parser import feature_plan_from_dict
+from geometry.validators.feature_profiles import _validate_pad_through_hole_interactions
+from plan_providers.proposal_recovery import recover_provider_payload
 
 SCHEMA_RESOURCE_NAME: str = "feature-plan-proposal-v1.schema.json"
 MAX_PROVIDER_RESPONSE_CHARS: int = 1_000_000
-
-_ENVELOPE_FIELDS: tuple[str, ...] = (
-    "plan_version",
-    "request_id",
-    "units",
-    "part",
-    "design_intent",
+_JSON_FENCE_PATTERN: re.Pattern[str] = re.compile(
+    r"```[ \t]*json\b[ \t\r\n]*(.*?)[ \t\r\n]*```",
+    flags=re.IGNORECASE | re.DOTALL,
 )
+_NAMED_FACE_PATTERN: re.Pattern[str] = re.compile(r"\b(top|bottom|front|back|left|right)\s+face\b", re.IGNORECASE)
+_FEATURE_FACE_PATTERN: re.Pattern[str] = re.compile(
+    r"\b(hole|cutout|slot|pad)\s+on\s+(?:the\s+)?(top|bottom|front|back|left|right)\s+face\b",
+    re.IGNORECASE,
+)
+_NAMED_FACES: dict[str, str] = {
+    "top": "+Z",
+    "bottom": "-Z",
+    "front": "-Y",
+    "back": "+Y",
+    "left": "-X",
+    "right": "+X",
+}
+
+
+def _assert_named_faces_preserved(payload: dict[str, Any], prompt: str) -> None:
+    """Reject an obvious face mismatch without inventing or moving feature geometry."""
+    requested = [_NAMED_FACES[match.group(1).lower()] for match in _NAMED_FACE_PATTERN.finditer(prompt)]
+    if not requested:
+        return
+
+    actual: list[str | None] = []
+    for feature in payload.get("features", []):
+        target = feature.get("target", {})
+        face = target.get("face", {})
+        value = face.get("resolved_face") if isinstance(face, dict) else None
+        actual.append(_NAMED_FACES.get(value.lower(), value.upper()) if isinstance(value, str) else None)
+
+    associations = list(_FEATURE_FACE_PATTERN.finditer(prompt))
+    if len(associations) == len(requested):
+        expected_by_index: dict[int, str] = {}
+        features = payload.get("features", [])
+        for association in associations:
+            kind = association.group(1).lower()
+            candidates = [index for index, feature in enumerate(features) if kind in feature.get("family", "")]
+            if len(candidates) != 1 or candidates[0] in expected_by_index:
+                break
+            expected_by_index[candidates[0]] = _NAMED_FACES[association.group(2).lower()]
+        else:
+            if any(actual[index] != face for index, face in expected_by_index.items()):
+                raise ProposalError("response_invalid", "Provider proposal did not preserve requested feature faces")
+            return
+
+    matches = requested == actual if len(requested) == len(actual) else set(requested).issubset(actual)
+    if not matches:
+        raise ProposalError("response_invalid", "Provider proposal did not preserve requested feature faces")
 
 
 class ProposalError(Exception):
@@ -63,6 +109,47 @@ def _assert_all_numbers_finite(data: Any) -> None:
     elif isinstance(data, list):
         for item in data:
             _assert_all_numbers_finite(item)
+
+
+def _recover_single_json_value(response_text: str, decoder: json.JSONDecoder) -> Any:
+    """Recover exactly one JSON object, ignoring only non-JSON surrounding text."""
+    fenced_matches = list(_JSON_FENCE_PATTERN.finditer(response_text))
+    if len(fenced_matches) > 1:
+        raise ValueError("Ambiguous multiple JSON fences")
+    if fenced_matches:
+        match = fenced_matches[0]
+        candidate = match.group(1)
+        surrounding = response_text[: match.start()] + response_text[match.end() :]
+        for index, char in enumerate(surrounding):
+            if char != "{":
+                continue
+            try:
+                decoder.raw_decode(surrounding, index)
+            except json.JSONDecodeError:
+                continue
+            raise ValueError("Ambiguous JSON object outside fence")
+    else:
+        candidate = response_text
+
+    recovered: Any | None = None
+    cursor = 0
+    while True:
+        object_start = candidate.find("{", cursor)
+        if object_start < 0:
+            break
+        try:
+            value, end = decoder.raw_decode(candidate, object_start)
+        except json.JSONDecodeError:
+            cursor = object_start + 1
+            continue
+        if recovered is not None:
+            raise ValueError("Ambiguous multiple JSON objects")
+        recovered = value
+        cursor = end
+
+    if recovered is None:
+        raise ValueError("No JSON object found")
+    return recovered
 
 
 @functools.cache
@@ -114,7 +201,7 @@ def decode_and_bind_proposal(
     request: PromptGenerationRequest,
     model_id: str,
 ) -> PlanProposal:
-    """Strictly decode untrusted model text, validate against proposal schema, and bind request envelope.
+    """Recover one untrusted model plan, validate it, and bind the trusted request envelope.
 
     Args:
         response_text: Raw string returned by the provider.
@@ -125,8 +212,8 @@ def decode_and_bind_proposal(
         PlanProposal with provenance="ai_proposal", source_id=model_id, and bound envelope.
 
     Raises:
-        ProposalError: If the response is empty, oversized, malformed, schema-invalid,
-                       or contains envelope fields.
+        ProposalError: If the response is empty, oversized, ambiguous, or cannot form
+                       a schema-valid supported plan.
     """
     if not isinstance(response_text, str) or not response_text.strip():
         raise ProposalError("response_empty", "Provider returned an empty or whitespace-only response")
@@ -137,12 +224,20 @@ def decode_and_bind_proposal(
             f"Provider response length {len(response_text)} exceeds maximum allowed limit of {MAX_PROVIDER_RESPONSE_CHARS}",
         )
 
+    decoder = json.JSONDecoder(object_pairs_hook=_reject_duplicate_keys, parse_constant=_reject_constant)
+    recovered_text = False
     try:
-        raw_payload: Any = json.loads(
-            response_text,
-            object_pairs_hook=_reject_duplicate_keys,
-            parse_constant=_reject_constant,
-        )
+        raw_payload: Any = decoder.decode(response_text)
+    except json.JSONDecodeError:
+        try:
+            raw_payload = _recover_single_json_value(response_text, decoder)
+            recovered_text = True
+        except Exception:
+            raise ProposalError("response_invalid", "Provider response is not valid JSON") from None
+    except ValueError:
+        raise ProposalError("response_invalid", "Provider response is not valid JSON") from None
+
+    try:
         _assert_all_numbers_finite(raw_payload)
     except Exception:
         raise ProposalError("response_invalid", "Provider response is not valid JSON") from None
@@ -150,20 +245,23 @@ def decode_and_bind_proposal(
     if not isinstance(raw_payload, dict):
         raise ProposalError("response_invalid", "Proposal payload root must be a JSON object")
 
+    try:
+        normalized_payload, applied_defaults, normalized = recover_provider_payload(
+            raw_payload,
+            allow_base_defaults=not any(char.isdigit() for char in request.prompt),
+        )
+    except ValueError:
+        raise ProposalError("response_invalid", "Proposal payload could not be normalized") from None
+
     validator = get_proposal_validator()
     try:
-        validator.validate(raw_payload)
+        validator.validate(normalized_payload)
     except ValidationError:
         raise ProposalError("response_invalid", "Proposal payload failed schema validation") from None
 
-    for env_field in _ENVELOPE_FIELDS:
-        if env_field in raw_payload:
-            raise ProposalError(
-                "response_invalid",
-                f"Provider output must not include envelope field '{env_field}'",
-            )
+    _assert_named_faces_preserved(normalized_payload, request.prompt)
 
-    payload = copy.deepcopy(raw_payload)
+    payload = copy.deepcopy(normalized_payload)
     payload["plan_version"] = CANONICAL_PLAN_VERSION
     payload["request_id"] = request.request_id
     payload["units"] = request.unit
@@ -173,11 +271,23 @@ def decode_and_bind_proposal(
         "scope": "single_part",
     }
 
+    try:
+        _validate_pad_through_hole_interactions(feature_plan_from_dict(payload).features)
+    except FeaturePlanValidationError:
+        raise ProposalError("response_invalid", "Proposal feature interactions are unsupported") from None
+
+    warnings: list[dict[str, str]] = []
+    if recovered_text or normalized:
+        warnings.append({"code": "AI_PROPOSAL_NORMALIZED"})
+    if applied_defaults:
+        warnings.append({"code": "AI_DIMENSIONS_ASSUMED"})
+
     return PlanProposal(
         plan_payload=payload,
         provenance="ai_proposal",
         source_id=model_id,
-        warnings=(),
+        warnings=warnings,
+        applied_defaults=applied_defaults,
     )
 
 

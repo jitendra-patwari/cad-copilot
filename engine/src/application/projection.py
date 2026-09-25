@@ -73,6 +73,14 @@ PUBLIC_WARNING_MESSAGES: Mapping[str, str] = {
     "UNKNOWN_SWEEP_PATH_TYPE": "Unrecognized sweep path type fell back to default.",
     "UNKNOWN_SWEEP_SECTION_TYPE": "Unrecognized sweep section type fell back to default.",
     "UNKNOWN_SWEEP_SECTION_POSITION": "Unrecognized sweep section position fell back to default.",
+    "AI_PROPOSAL_NORMALIZED": (
+        "The AI proposal included extra formatting or envelope metadata; supported plan content was normalized."
+    ),
+    "AI_DIMENSIONS_ASSUMED": ("The AI proposal omitted base dimensions; illustrative millimeter defaults were used."),
+    "PROMPT_PROVIDER_UNAVAILABLE": "The AI provider request did not complete. Check connectivity, access, and retry later.",
+    "PROMPT_CONFIGURATION_INVALID": "The AI provider is not configured or its runtime dependency is unavailable.",
+    "PROMPT_RESPONSE_EMPTY": "The AI provider returned no usable text for a CAD plan.",
+    "PROMPT_RESPONSE_INVALID": "The AI provider response could not form a supported CAD plan.",
 }
 
 GENERIC_WARNING_MESSAGE: str = "A non-fatal diagnostic warning was recorded."

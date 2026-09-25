@@ -909,7 +909,7 @@ def test_executor_executes_sequential_part_preserving_order(
             CircularThroughHoleFeature(id="hole_1", diameter_mm=10.0, target_face="+Z"),
             SlotThroughCutoutFeature(id="slot_1", length_mm=30.0, width_mm=10.0, target_face="+Z"),
             RectangularExtrudedPadFeature(
-                id="pad_1", width_mm=20.0, height_mm=20.0, distance_mm=10.0, target_face="+Z"
+                id="pad_1", width_mm=20.0, height_mm=20.0, distance_mm=10.0, center_x_mm=30.0, target_face="+Z"
             ),
         ),
     )

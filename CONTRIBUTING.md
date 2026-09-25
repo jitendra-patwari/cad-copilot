@@ -18,7 +18,7 @@ We are committed to providing a welcoming, inclusive, and harassment-free enviro
 - **Rust**: Verified workstation baseline `rustc 1.95.0` / `cargo 1.95.0` (required for desktop Tauri host compilation).
 - **Operating System**: Windows 10/11 x64 with licensed Siemens Solid Edge® for live COM automation. Pure geometry and contract checks do not require COM; some offline driver tests use Windows process APIs. Exclude live tests explicitly with `-m "not com and not live_ai"`.
 
-As of 22 September 2026: M3.1–M3.3, M4.1 generation service orchestration, M4.2 Gemini plan proposal adapter, M4.3 deterministic example catalog, M4.4 canonical run manifest publication, and M4.5 strict generation stdio IPC are implemented and verified; Milestone 4 is complete. Milestone 5.1 batch contracts/models/schemas, Milestone 5.2 sequential batch execution infrastructure (FR-15), Milestone 5.3 batch filesystem & source-integrity safety boundary (FR-16), Milestone 5.4 genuine batch format handlers and native export operations (FR-17), Milestone 5.5 conditional Parasolid export gate (FR-18), and Milestone 5.6 summary manifest publication, strict batch stdio transport, cooperative signal cancellation, launchers, and packaging (FR-19) are implemented and verified; Milestone 5 is complete. Milestones 6.1, 6.2, and 6.3 are implemented and verified. M6.4 packaging architecture, NSIS configuration, offline verification, per-user installation, installed Generate and Gemini success paths, and installed Generate cancellation are verified; the remaining installed failure, Batch, path, and uninstall acceptance gates remain pending. Milestone 6.5 (Automated Portable Quality Gates & CI Configuration, QA-08, RUN-10) is fully implemented, verified, and passing across all three hosted GitHub Actions jobs. Milestone 6.6 publication has not started. See [engine status](engine/README.md).
+As of 25 September 2026: Milestones 1 through 6.5 are implemented. The earlier M6.4 installer completed its historical acceptance, but the Gemini-fixed source candidate needs a new installer and installed acceptance before distribution. GitHub records portable CI results for each pull request commit. Milestone 6.6 public documentation is in progress. See [engine status](engine/README.md).
 
 ### Initializing the Workspace
 ```powershell
@@ -42,8 +42,6 @@ pip install -e "engine[dev,gemini]"
 # Launch the desktop application in development mode
 pnpm --filter @cad-copilot/desktop tauri dev
 
-# Build the standalone engine and production Windows NSIS installer
-pnpm package:desktop
 ```
 
 ---

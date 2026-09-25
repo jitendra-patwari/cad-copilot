@@ -100,6 +100,7 @@ class PlanProposal:
     provenance: Literal["example_plan", "ai_proposal"]
     source_id: str
     warnings: Sequence[Mapping[str, str]] = ()
+    applied_defaults: Sequence[DefaultApplied] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.plan_payload, Mapping):
@@ -127,6 +128,11 @@ class PlanProposal:
                 raise ValueError(f"Warning item must be a structured string mapping, got {type(item).__name__}")
 
         object.__setattr__(self, "warnings", tuple(validated_warnings))
+        if isinstance(self.applied_defaults, (str, bytes)) or not isinstance(self.applied_defaults, Sequence):
+            raise ValueError("applied_defaults must be a sequence of DefaultApplied records")
+        if not all(isinstance(item, DefaultApplied) for item in self.applied_defaults):
+            raise ValueError("applied_defaults must contain only DefaultApplied records")
+        object.__setattr__(self, "applied_defaults", tuple(self.applied_defaults))
 
 
 @dataclass(frozen=True)

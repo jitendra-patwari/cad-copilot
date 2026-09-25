@@ -185,7 +185,7 @@ export const GenerateForm: React.FC<GenerateFormProps> = ({
                 clearActionError();
               }}
               disabled={isRunActive}
-              placeholder="e.g., Create an aluminum mounting bracket with 4 mounting holes and a central clearance slot..."
+              placeholder="e.g., Create a 50 x 40 x 10 mm rectangular block."
               className="w-full rounded-lg border border-slate-300 p-3 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600 disabled:bg-slate-100 disabled:text-slate-500"
             />
           </div>

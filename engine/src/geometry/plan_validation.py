@@ -54,6 +54,7 @@ from geometry.validators import (
     _validate_slot_cutout_fit,
     _validate_swept_protrusion,
 )
+from geometry.validators.feature_profiles import _validate_pad_through_hole_interactions
 
 
 def validate_feature_plan(
@@ -361,6 +362,7 @@ def validate_feature_plan(
             )
         normalized_features.append(normalized_feature)
 
+    _validate_pad_through_hole_interactions(normalized_features)
     _validate_hole_separation(
         hole_specs,
         edge_margin_mm=active_edge_margin_mm,

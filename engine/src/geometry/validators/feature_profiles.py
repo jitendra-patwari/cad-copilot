@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 
 from geometry.face_context import resolve_face_context
 from geometry.gate_policy import GatePolicyMode
@@ -448,11 +449,41 @@ def _validate_hole_separation(
                 )
 
 
+def _validate_pad_through_hole_interactions(features: Sequence[FeaturePlanFeature]) -> None:
+    """Reject a nominal through-hole that leaves a top pad sealing its opening."""
+    for pad_index, pad in enumerate(features):
+        if not isinstance(pad, RectangularExtrudedPadFeature) or pad.target_face not in {None, "+Z"}:
+            continue
+        for hole_index, hole in enumerate(features):
+            if (
+                not isinstance(hole, CircularThroughHoleFeature)
+                or hole.target_body_id != pad.target_body_id
+                or hole.extent_type != "through_all"
+                or hole.target_face not in {None, "+Z", "-Z"}
+            ):
+                continue
+
+            # The -Z face reverses its local V axis relative to the +Z pad face.
+            hole_y = -hole.center_y_mm if hole.target_face == "-Z" else hole.center_y_mm
+            dx = max(abs(hole.center_x_mm - pad.center_x_mm) - pad.width_mm / 2.0, 0.0)
+            dy = max(abs(hole_y - pad.center_y_mm) - pad.height_mm / 2.0, 0.0)
+            if dx * dx + dy * dy >= (hole.diameter_mm / 2.0) ** 2:
+                continue
+
+            if hole.target_face in {None, "+Z"} or hole_index < pad_index:
+                _reject(
+                    "THROUGH_HOLE_OBSTRUCTED_BY_PAD",
+                    "A through-hole overlapping a top pad must cut inward from the bottom face after the pad.",
+                    path=f"features[{max(pad_index, hole_index)}]",
+                )
+
+
 __all__ = [
     "_normalize_slot_orientation",
     "_validate_feature_supported_on_base_body",
     "_validate_hole_fit",
     "_validate_hole_separation",
+    "_validate_pad_through_hole_interactions",
     "_validate_polygon_profile_sanity",
     "_validate_profile_cutout_fit",
     "_validate_rectangular_cutout_fit",

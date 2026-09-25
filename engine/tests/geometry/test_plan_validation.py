@@ -22,6 +22,7 @@ from geometry import (
     PartMetadata,
     ProfilePoint2D,
     RectangularBaseBody,
+    RectangularExtrudedPadFeature,
     RevolvedShaftBaseBody,
     SlotThroughCutoutFeature,
     feature_plan_from_dict,
@@ -161,6 +162,26 @@ class TestFeatureValidationAndRejections:
         with pytest.raises(FeaturePlanValidationError) as exc:
             validate_feature_plan(bad_plan)
         assert exc.value.code == "DUPLICATE_FEATURE_ID"
+
+    def test_through_hole_overlapping_top_pad_requires_bottom_cut_after_pad(self) -> None:
+        body = RectangularBaseBody(id="body.main", length_mm=150, width_mm=100, thickness_mm=12)
+        pad = RectangularExtrudedPadFeature(id="pad", width_mm=70, height_mm=50, distance_mm=10, target_face="+Z")
+        hole = CircularThroughHoleFeature(id="hole", diameter_mm=16, target_face="+Z")
+        plan = FeaturePlan(request_id="pad-hole", part=PartMetadata(), base_body=body, features=(pad, hole))
+
+        with pytest.raises(FeaturePlanValidationError) as exc:
+            validate_feature_plan(plan, mode="capability_first")
+        assert exc.value.code == "THROUGH_HOLE_OBSTRUCTED_BY_PAD"
+
+        valid = validate_feature_plan(replace(plan, features=(pad, replace(hole, target_face="-Z"))))
+        assert [feature.target_face for feature in valid.features] == ["+Z", "-Z"]
+
+        with pytest.raises(FeaturePlanValidationError) as reversed_exc:
+            validate_feature_plan(replace(plan, features=(replace(hole, target_face="-Z"), pad)))
+        assert reversed_exc.value.code == "THROUGH_HOLE_OBSTRUCTED_BY_PAD"
+
+        outside_pad = replace(hole, center_x_mm=50)
+        validate_feature_plan(replace(plan, features=(pad, outside_pad)))
 
     def test_unknown_target_body_id(self) -> None:
         plan = _load_example_fixture("accepted_example.json")

@@ -464,6 +464,38 @@ def test_live_m32_03_six_face_circular_through_cut_characterization(live_runtime
     print("[M32-LIVE-03] All 6 principal faces characterized with exact volume loss in isolated documents.", flush=True)
 
 
+def test_live_front_face_rectangular_through_cut_direction(live_runtime: SolidEdgeRuntime) -> None:
+    """Verify that a front-face rectangular cut removes 30 x 15 mm through the 80 mm width."""
+    app_handle = live_runtime.connect_application()
+    doc_handle = live_runtime.create_part_document(app_handle)
+    try:
+
+        def _task(raw_doc: Any, worker: Any) -> tuple[bool, float]:
+            model = create_primitive_cuboid(raw_doc, worker, length_mm=100.0, width_mm=80.0, height_mm=40.0)
+            _, before_mm3 = _recompute_and_inspect_live_model(raw_doc, worker)
+            front_plane = resolve_or_create_reference_plane(raw_doc, worker, "XZ", offset_mm=-40.0)
+            profile = create_profile_on_plane(raw_doc, worker, front_plane)
+            draw_polygon_profile(
+                profile,
+                worker,
+                [
+                    {"x_mm": -15.0, "y_mm": 12.5},
+                    {"x_mm": 15.0, "y_mm": 12.5},
+                    {"x_mm": 15.0, "y_mm": 27.5},
+                    {"x_mm": -15.0, "y_mm": 27.5},
+                ],
+            )
+            create_cutout_through_all(model, worker, profile, face="-Y", profile_family="polygon")
+            is_solid, after_mm3 = _recompute_and_inspect_live_model(raw_doc, worker)
+            return is_solid, before_mm3 - after_mm3
+
+        is_solid, removed_mm3 = live_runtime.run_document_task(doc_handle, _task)
+        assert is_solid is True
+        assert math.isclose(removed_mm3, 30.0 * 15.0 * 80.0, rel_tol=0.01)
+    finally:
+        live_runtime.close_document(doc_handle)
+
+
 def test_live_m32_04_z_pad_protrusion_volume_increase(live_runtime: SolidEdgeRuntime) -> None:
     """M32-LIVE-04: Verify +Z rectangular pad at z=20 mm adds expected volume and merges into exactly one solid."""
     app_handle = live_runtime.connect_application()

@@ -72,6 +72,30 @@ pub const KNOWN_WARNING_PRESENTATIONS: &[(&str, &str)] = &[
         "Feature validation evaluated under shadow gate policy.",
     ),
     (
+        "AI_PROPOSAL_NORMALIZED",
+        "The AI proposal included extra formatting or envelope metadata; supported plan content was normalized.",
+    ),
+    (
+        "AI_DIMENSIONS_ASSUMED",
+        "The AI proposal omitted base dimensions; illustrative millimeter defaults were used.",
+    ),
+    (
+        "PROMPT_PROVIDER_UNAVAILABLE",
+        "The AI provider request did not complete. Check connectivity, access, and retry later.",
+    ),
+    (
+        "PROMPT_CONFIGURATION_INVALID",
+        "The AI provider is not configured or its runtime dependency is unavailable.",
+    ),
+    (
+        "PROMPT_RESPONSE_EMPTY",
+        "The AI provider returned no usable text for a CAD plan.",
+    ),
+    (
+        "PROMPT_RESPONSE_INVALID",
+        "The AI provider response could not form a supported CAD plan.",
+    ),
+    (
         "CANONICAL_MULTI_HOLE_FAMILY",
         "Multiple circular through-holes accepted by canonical validation.",
     ),
@@ -1573,6 +1597,15 @@ mod tests {
         assert_eq!(
             out_lower,
             "Preview image generation was skipped or unavailable; CAD geometry exported successfully."
+        );
+
+        assert_eq!(
+            sanitize_warning("PROMPT_RESPONSE_INVALID"),
+            "The AI provider response could not form a supported CAD plan."
+        );
+        assert_eq!(
+            sanitize_warning("AI_DIMENSIONS_ASSUMED"),
+            "The AI proposal omitted base dimensions; illustrative millimeter defaults were used."
         );
 
         // Safe DefaultApplied presentation: "Default applied to <path>: applied <val>."
