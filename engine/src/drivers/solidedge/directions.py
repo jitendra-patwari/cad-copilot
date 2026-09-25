@@ -61,6 +61,10 @@ PROMOTED_CUT_CAPABILITY_ROWS: dict[tuple[str, str, str], DirectionPair] = {
     ("circle", "through_all", "-Y"): DirectionPair(
         profile_side=PROFILE_SIDE_LEFT, profile_plane_side=PROFILE_SIDE_LEFT
     ),
+    # Rectangular through-cut on the front plane uses the same inward direction.
+    ("polygon", "through_all", "-Y"): DirectionPair(
+        profile_side=PROFILE_SIDE_LEFT, profile_plane_side=PROFILE_SIDE_LEFT
+    ),
 }
 
 PROMOTED_PAD_CAPABILITY_ROWS: dict[tuple[str, str, str], DirectionPair] = {

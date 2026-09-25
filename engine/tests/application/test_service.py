@@ -487,6 +487,38 @@ def test_failing_prompt_resolver_returns_failed_prompt_interpretation(tmp_path: 
     assert "API key" not in str(response)
 
 
+@pytest.mark.parametrize(
+    ("resolver_code", "expected_warning"),
+    [
+        ("provider_request_failed", "AI provider request did not complete"),
+        ("response_empty", "AI provider returned no usable text"),
+        ("response_invalid", "AI provider response could not form"),
+        ("configuration_invalid", "AI provider is not configured"),
+    ],
+)
+def test_prompt_failure_reports_only_safe_category(tmp_path: Path, resolver_code: str, expected_warning: str) -> None:
+    class ResolverFailure(Exception):
+        code = resolver_code
+
+    def failing_resolver(req: PromptGenerationRequest) -> PlanProposal:
+        raise ResolverFailure("private prompt and credential details must not leak")
+
+    service = GenerationService(prompt_resolver=failing_resolver)
+    req = PromptGenerationRequest(
+        contract_version="1.0",
+        request_id="req_safe_failure",
+        kind="prompt_to_cad",
+        unit="mm",
+        prompt="Make a cube",
+    )
+    response = service.generate(req, output_root=tmp_path)
+    assert response["errors"][0]["code"] == "PROMPT_INTERPRETATION_FAILED"
+    assert len(response["warnings"]) == 1
+    assert expected_warning in response["warnings"][0]
+    assert "private prompt" not in str(response)
+    assert "credential" not in str(response)
+
+
 def test_preparation_failure_occurs_before_runtime_construction(tmp_path: Path) -> None:
     """Proves that invalid proposals, wrong provenance, or parse failures do NOT construct runtime."""
     runtime_constructed = False

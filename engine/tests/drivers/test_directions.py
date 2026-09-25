@@ -53,6 +53,7 @@ def test_promoted_cut_capability_rows_literal_values() -> None:
     assert resolve_cut_direction("circle", "through_all", "-X") == DirectionPair(profile_side=1, profile_plane_side=2)
     assert resolve_cut_direction("circle", "through_all", "+Y") == DirectionPair(profile_side=1, profile_plane_side=2)
     assert resolve_cut_direction("circle", "through_all", "-Y") == DirectionPair(profile_side=1, profile_plane_side=1)
+    assert resolve_cut_direction("polygon", "through_all", "-Y") == DirectionPair(profile_side=1, profile_plane_side=1)
 
 
 def test_promoted_pad_capability_rows_literal_values() -> None:
@@ -72,7 +73,7 @@ def test_resolve_directions_reject_unpromoted_capability_rows() -> None:
     with pytest.raises(CADExecutionError, match="Unsupported cut capability row"):
         resolve_cut_direction("slot", "finite", "+Y")
 
-    # 2. Side-face polygon or slot through-cuts are unpromoted without live characterization
+    # 2. Other side-face polygon or slot through-cuts are unpromoted without live characterization
     with pytest.raises(CADExecutionError, match="Unsupported cut capability row"):
         resolve_cut_direction("polygon", "through_all", "+X")
 

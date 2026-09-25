@@ -17,6 +17,7 @@ import contextlib
 import logging
 import re
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -70,6 +71,13 @@ from manifests import (
 )
 
 REQUEST_ID_PATTERN: re.Pattern[str] = re.compile(r"^[A-Za-z0-9._-]+$")
+_SAFE_PROMPT_FAILURE_WARNINGS: Mapping[str, str] = {
+    "provider_request_failed": "PROMPT_PROVIDER_UNAVAILABLE",
+    "sdk_unavailable": "PROMPT_CONFIGURATION_INVALID",
+    "configuration_invalid": "PROMPT_CONFIGURATION_INVALID",
+    "response_empty": "PROMPT_RESPONSE_EMPTY",
+    "response_invalid": "PROMPT_RESPONSE_INVALID",
+}
 logger = logging.getLogger(__name__)
 
 
@@ -128,6 +136,11 @@ def _prepare_canonical_plan(
         raise ValueError("Proposal plan payload must be a mapping")
 
     parsed_plan = feature_plan_from_dict(dict(proposal.plan_payload))
+    if proposal.applied_defaults:
+        parsed_plan = replace(
+            parsed_plan,
+            defaults_applied=(*parsed_plan.defaults_applied, *proposal.applied_defaults),
+        )
 
     if parsed_plan.request_id != request.request_id:
         raise ValueError(f"Plan request_id '{parsed_plan.request_id}' does not match request '{request.request_id}'")
@@ -232,8 +245,16 @@ class GenerationService:
                 return build_failed_response(valid_req_id, "PROMPT_INTERPRETATION_FAILED")
             try:
                 proposal = self._prompt_resolver(request)
-            except Exception:
-                return build_failed_response(valid_req_id, "PROMPT_INTERPRETATION_FAILED")
+            except Exception as exc:
+                try:
+                    resolver_code = getattr(exc, "code", None)
+                except Exception:
+                    resolver_code = None
+                warning_code = (
+                    _SAFE_PROMPT_FAILURE_WARNINGS.get(resolver_code) if isinstance(resolver_code, str) else None
+                )
+                warnings = ({"code": warning_code},) if warning_code else ()
+                return build_failed_response(valid_req_id, "PROMPT_INTERPRETATION_FAILED", warnings=warnings)
         else:
             return build_rejected_response(valid_req_id, "UNSUPPORTED_REQUEST")
 

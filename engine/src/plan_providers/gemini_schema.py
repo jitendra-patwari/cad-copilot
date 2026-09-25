@@ -29,12 +29,31 @@ def _scalar_property(source: dict[str, Any], name: str, path: str) -> dict[str, 
     return projected
 
 
-def _open_object() -> dict[str, Any]:
-    return {"type": "object", "additionalProperties": True}
-
-
 def _numeric_object() -> dict[str, Any]:
     return {"type": "object", "additionalProperties": {"type": "number"}}
+
+
+def _compact_nested_schema(source: dict[str, Any], definitions: dict[str, Any]) -> dict[str, Any]:
+    """Inline one canonical nested schema without provider-hostile references or unions."""
+    reference = source.get("$ref")
+    if isinstance(reference, str) and reference.startswith("#/$defs/"):
+        source = _schema_object(definitions.get(reference.removeprefix("#/$defs/")), reference)
+
+    projected: dict[str, Any] = {}
+    for key in ("type", "enum", "const", "required", "additionalProperties", "minProperties"):
+        if key in source:
+            projected[key] = copy.deepcopy(source[key])
+
+    properties = source.get("properties")
+    if isinstance(properties, dict):
+        projected["properties"] = {
+            name: _compact_nested_schema(_schema_object(value, name), definitions) for name, value in properties.items()
+        }
+
+    items = source.get("items")
+    if isinstance(items, dict):
+        projected["items"] = _compact_nested_schema(items, definitions)
+    return projected
 
 
 def _compact_base_body(base_body: dict[str, Any]) -> dict[str, Any]:
@@ -67,25 +86,145 @@ def _compact_boolean_operation(boolean_operation: dict[str, Any]) -> dict[str, A
     }
 
 
-def _compact_feature(feature: dict[str, Any]) -> dict[str, Any]:
-    props = _schema_properties(feature, "$defs.feature")
+def _required_dimensions(names: tuple[str, ...], description: str) -> dict[str, Any]:
     return {
         "type": "object",
+        "description": description,
         "additionalProperties": False,
-        "required": ["family"],
+        "required": list(names),
         "properties": {
-            "id": _scalar_property(props, "id", "$defs.feature.properties"),
-            "family": _scalar_property(props, "family", "$defs.feature.properties"),
-            "target": _open_object(),
-            "placement": _open_object(),
-            "orientation": _open_object(),
-            "extent": _open_object(),
-            "dimensions_mm": _numeric_object(),
-            "profile": _open_object(),
-            "revolve": _open_object(),
-            "path": _open_object(),
-            "cross_sections": {"type": "array", "items": _open_object()},
+            name: {
+                "type": "number",
+                "description": f"Required {name.removesuffix('_mm').replace('_', ' ')} in millimeters.",
+            }
+            for name in names
         },
+    }
+
+
+def _compact_feature(feature: dict[str, Any], definitions: dict[str, Any]) -> dict[str, Any]:
+    props = _schema_properties(feature, "$defs.feature")
+    nested = {
+        name: _compact_nested_schema(_schema_object(props.get(name), name), definitions)
+        for name in (
+            "target",
+            "placement",
+            "orientation",
+            "extent",
+            "profile",
+            "revolve",
+            "path",
+            "cross_sections",
+        )
+    }
+    target = nested["target"]
+    target["required"] = ["face"]
+    face = _schema_properties(target, "$defs.featureTarget")["face"]
+    face["required"] = ["resolved_face"]
+    _schema_properties(face, "$defs.targetFaceObject")["resolved_face"]["enum"] = ["+Z", "-Z", "+X", "-X", "+Y", "-Y"]
+    shared = {
+        "id": _scalar_property(props, "id", "$defs.feature.properties"),
+        "target": nested["target"],
+        "placement": nested["placement"],
+        "orientation": nested["orientation"],
+        "extent": nested["extent"],
+    }
+
+    def variant(
+        family: str,
+        *,
+        required: tuple[str, ...],
+        specific: dict[str, Any],
+        description: str,
+    ) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "description": description,
+            "additionalProperties": False,
+            "required": ["family", "target", *required],
+            "properties": {
+                **copy.deepcopy(shared),
+                "family": {
+                    "type": "string",
+                    "enum": [family],
+                    "description": description,
+                },
+                **specific,
+            },
+        }
+
+    return {
+        "anyOf": [
+            variant(
+                "circular_through_hole",
+                required=("dimensions_mm",),
+                specific={
+                    "dimensions_mm": _required_dimensions(
+                        ("diameter_mm",),
+                        "Circular through-hole size. Preserve the requested diameter exactly.",
+                    )
+                },
+                description="One circular hole cut through the target body.",
+            ),
+            variant(
+                "rectangular_through_cutout",
+                required=("dimensions_mm",),
+                specific={
+                    "dimensions_mm": _required_dimensions(
+                        ("width_mm", "height_mm"),
+                        "Two rectangular face dimensions for the through-cutout.",
+                    )
+                },
+                description="One rectangular cutout passing through the target body.",
+            ),
+            variant(
+                "slot_through_cutout",
+                required=("dimensions_mm",),
+                specific={
+                    "dimensions_mm": _required_dimensions(
+                        ("length_mm", "width_mm"),
+                        "Overall slot length and slot width.",
+                    )
+                },
+                description="One stadium-shaped slot passing through the target body.",
+            ),
+            variant(
+                "rectangular_extruded_pad",
+                required=("dimensions_mm",),
+                specific={
+                    "dimensions_mm": _required_dimensions(
+                        ("width_mm", "height_mm", "distance_mm"),
+                        "Pad face dimensions and extrusion height. For a 70 by 50 pad 10 high, use "
+                        "width_mm 70, height_mm 50, and distance_mm 10.",
+                    )
+                },
+                description="One additive rectangular pad extruded from the target face.",
+            ),
+            variant(
+                "profile_cutout",
+                required=("profile",),
+                specific={"profile": nested["profile"]},
+                description="One cutout defined by a closed two-dimensional profile.",
+            ),
+            variant(
+                "revolved_profile",
+                required=("revolve",),
+                specific={
+                    "profile": nested["profile"],
+                    "revolve": nested["revolve"],
+                },
+                description="One feature formed by revolving a profile around an axis.",
+            ),
+            variant(
+                "swept_protrusion",
+                required=("cross_sections",),
+                specific={
+                    "path": nested["path"],
+                    "cross_sections": nested["cross_sections"],
+                },
+                description="One additive feature swept along a path through cross-sections.",
+            ),
+        ]
     }
 
 
@@ -99,7 +238,10 @@ def _load_cached_gemini_response_schema() -> dict[str, Any]:
     boolean_operation = _compact_boolean_operation(
         _schema_object(definitions.get("booleanOperation"), "$defs.booleanOperation")
     )
-    feature = _compact_feature(_schema_object(definitions.get("feature"), "$defs.feature"))
+    feature = _compact_feature(
+        _schema_object(definitions.get("feature"), "$defs.feature"),
+        definitions,
+    )
 
     if set(root_props) != {"base_body", "primitive_bodies", "boolean_operations", "features"}:
         raise ProposalError("configuration_invalid", "Proposal schema root properties changed unexpectedly")

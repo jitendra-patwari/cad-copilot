@@ -448,6 +448,118 @@
           },
           "required": ["cross_sections"]
         }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "family": { "const": "circular_through_hole" }
+            }
+          },
+          "then": {
+            "required": ["dimensions_mm"],
+            "properties": {
+              "dimensions_mm": {
+                "anyOf": [
+                  { "required": ["diameter"] },
+                  { "required": ["diameter_mm"] }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "family": { "const": "rectangular_through_cutout" }
+            }
+          },
+          "then": {
+            "required": ["dimensions_mm"],
+            "properties": {
+              "dimensions_mm": {
+                "allOf": [
+                  {
+                    "anyOf": [
+                      { "required": ["width"] },
+                      { "required": ["width_mm"] }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      { "required": ["height"] },
+                      { "required": ["height_mm"] },
+                      { "required": ["length"] },
+                      { "required": ["length_mm"] }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "family": { "const": "slot_through_cutout" }
+            }
+          },
+          "then": {
+            "required": ["dimensions_mm"],
+            "properties": {
+              "dimensions_mm": {
+                "allOf": [
+                  {
+                    "anyOf": [
+                      { "required": ["length"] },
+                      { "required": ["length_mm"] }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      { "required": ["width"] },
+                      { "required": ["width_mm"] }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "family": { "const": "rectangular_extruded_pad" }
+            }
+          },
+          "then": {
+            "required": ["dimensions_mm"],
+            "properties": {
+              "dimensions_mm": {
+                "allOf": [
+                  {
+                    "anyOf": [
+                      { "required": ["width"] },
+                      { "required": ["width_mm"] }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      { "required": ["height"] },
+                      { "required": ["height_mm"] }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      { "required": ["distance"] },
+                      { "required": ["distance_mm"] }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
       ]
     }
   }
