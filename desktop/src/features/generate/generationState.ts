@@ -80,13 +80,13 @@ export const GENERATION_PHASES: PhaseStep[] = [
   },
   {
     phase: 'request_validated',
-    label: 'Plan Validated',
-    description: 'Geometric specifications verified against engine rules',
+    label: 'Request Validated',
+    description: 'Input schema and workspace permissions verified',
   },
   {
     phase: 'generation_started',
     label: 'Generating Model',
-    description: 'Executing feature operations in Siemens Solid Edge',
+    description: 'Formulating CAD geometry and executing in Siemens Solid Edge',
   },
   {
     phase: 'response_ready',

@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { AppShell } from './AppShell';
 import type { ViewMode } from './navigation';
 import { GeneratePage } from '../features/generate/GeneratePage';
 import { BatchPage } from '../features/batch/BatchPage';
-import { DiagnosticsPanel } from '../features/diagnostics/DiagnosticsPanel';
+import { HelpPanel } from '../features/help/HelpPanel';
 import { useGeneration } from '../features/generate/useGeneration';
 import { useBatch } from '../features/batch/useBatch';
 import { isRunActive } from '../features/generate/generationState';
@@ -12,8 +12,8 @@ import { isBatchRunActive } from '../features/batch/batchState';
 
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewMode>('generate');
-  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
-  const diagnosticsTriggerRef = useRef<HTMLButtonElement>(null);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const helpTriggerRef = useRef<HTMLButtonElement>(null);
 
   // Long-lived generation & batch controllers hoisted above view navigation
   const generation = useGeneration();
@@ -30,11 +30,23 @@ export const App: React.FC = () => {
   const modalRef = useRef<HTMLDivElement>(null);
   const prevActiveElementRef = useRef<Element | null>(null);
 
+  const isGenActive = isRunActive(generation.snapshot.run?.state);
+  const isGenCleanupIncomplete = generation.snapshot.run?.cleanup === 'incomplete';
   const isGenClose =
-    !!generation.snapshot.run?.closeRequested && isRunActive(generation.snapshot.run?.state);
+    !!generation.snapshot.run?.closeRequested && (isGenActive || isGenCleanupIncomplete);
+
+  const isBatchActive = isBatchRunActive(batch.snapshot.run?.state);
+  const isBatchCleanupIncomplete = batch.snapshot.run?.cleanup === 'incomplete';
   const isBatchClose =
-    !!batch.snapshot.run?.closeRequested && isBatchRunActive(batch.snapshot.run?.state);
+    !!batch.snapshot.run?.closeRequested && (isBatchActive || isBatchCleanupIncomplete);
+
   const closeRequested = isGenClose || isBatchClose;
+  const isIncompleteCleanupClose = isBatchClose
+    ? isBatchCleanupIncomplete && !isBatchActive
+    : isGenCleanupIncomplete && !isGenActive;
+
+  const isGenBusy = isGenActive || generation.isSubmitting;
+  const isBatchBusy = isBatchActive || batch.isSubmitting;
 
   const resolveCloseRef = useRef<(decision: 'stay' | 'cancel_and_close') => void>(() => {});
 
@@ -51,7 +63,7 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!closeRequested) return;
 
-    setIsDiagnosticsOpen(false);
+    setIsHelpOpen(false);
     prevActiveElementRef.current = document.activeElement;
     const timer = setTimeout(() => {
       stayButtonRef.current?.focus();
@@ -94,53 +106,24 @@ export const App: React.FC = () => {
     };
   }, [closeRequested]);
 
+  const handleOpenHelp = useCallback(() => setIsHelpOpen(true), []);
+  const handleCloseHelp = useCallback(() => setIsHelpOpen(false), []);
+
   return (
     <>
       <AppShell
         currentView={currentView}
         onViewChange={handleViewChange}
-        onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
-        diagnosticsTriggerRef={diagnosticsTriggerRef}
+        onOpenHelp={handleOpenHelp}
+        helpTriggerRef={helpTriggerRef}
       >
-        {currentView === 'generate' && <GeneratePage generation={generation} />}
-        {currentView === 'batch' && <BatchPage batch={batch} />}
+        {currentView === 'generate' && (
+          <GeneratePage generation={generation} isOtherBusy={isBatchBusy} />
+        )}
+        {currentView === 'batch' && <BatchPage batch={batch} isOtherBusy={isGenBusy} />}
       </AppShell>
 
-      <DiagnosticsPanel
-        isOpen={isDiagnosticsOpen}
-        onClose={() => setIsDiagnosticsOpen(false)}
-        triggerRef={diagnosticsTriggerRef}
-        outputDisplayPath={
-          currentView === 'batch'
-            ? batch.snapshot.output?.displayPath
-            : generation.snapshot.output?.displayPath
-        }
-        keyConfigured={generation.snapshot.keyConfigured}
-        lastRunCadBuild={
-          currentView === 'batch'
-            ? batch.activeResult?.cadRuntimeVersion
-            : generation.activeResult?.manifestSummary?.cadRuntimeVersion
-        }
-        engineBuild={
-          currentView === 'batch' ? batch.snapshot.engineBuild : generation.snapshot.engineBuild
-        }
-        lastRunEngineVersion={
-          currentView === 'batch'
-            ? batch.activeResult?.engineVersion
-            : generation.activeResult?.manifestSummary?.engineVersion
-        }
-        pythonEngineConnected={
-          currentView === 'batch'
-            ? batch.activeResult !== null ||
-              (batch.snapshot.run !== null &&
-                (batch.snapshot.run.phase !== null ||
-                  batch.snapshot.run.manifestState === 'validated'))
-            : generation.activeResult !== null ||
-              (generation.snapshot.run !== null &&
-                (generation.snapshot.run.phase !== null ||
-                  generation.snapshot.run.engineStatus !== null))
-        }
-      />
+      <HelpPanel isOpen={isHelpOpen} onClose={handleCloseHelp} triggerRef={helpTriggerRef} />
 
       {/* Accessible Close Confirmation Modal */}
       {closeRequested && (
@@ -158,20 +141,30 @@ export const App: React.FC = () => {
               </div>
               <div>
                 <h2 id="close-modal-title" className="text-sm font-bold text-slate-900">
-                  {isBatchClose ? 'Batch Operation In Progress' : 'Generation In Progress'}
+                  {isIncompleteCleanupClose
+                    ? 'CAD Session Cleanup Incomplete'
+                    : isBatchClose
+                      ? 'Batch Operation In Progress'
+                      : 'Generation In Progress'}
                 </h2>
                 <p className="text-xs text-slate-500">
-                  {isBatchClose
-                    ? 'A batch CAD conversion operation is currently running in Siemens Solid Edge.'
-                    : 'A CAD model is currently being generated in Siemens Solid Edge.'}
+                  {isIncompleteCleanupClose
+                    ? isBatchClose
+                      ? 'The prior batch operation finished, but background Solid Edge cleanup could not be confirmed.'
+                      : 'The prior generation finished, but background Solid Edge cleanup could not be confirmed.'
+                    : isBatchClose
+                      ? 'A batch CAD conversion operation is currently running in Siemens Solid Edge.'
+                      : 'A CAD model is currently being generated in Siemens Solid Edge.'}
                 </p>
               </div>
             </div>
 
             <p className="text-xs leading-relaxed text-slate-600">
-              {isBatchClose
-                ? 'Closing CAD Copilot now will deliver a cancellation signal to the batch process and cleanly release CAD session locks. Do you want to cancel the batch operation and close, or keep running?'
-                : 'Closing CAD Copilot now will deliver a cancellation signal to the engine process and cleanly release CAD session locks. Do you want to cancel the generation and close, or keep running?'}
+              {isIncompleteCleanupClose
+                ? 'A background CAD process may still be terminating or releasing file locks. Closing CAD Copilot now may leave temporary resources or background processes active. Do you want to keep the application open, or force close now?'
+                : isBatchClose
+                  ? 'Closing CAD Copilot now will deliver a cancellation signal to the batch process and cleanly release CAD session locks. Do you want to cancel the batch operation and close, or keep running?'
+                  : 'Closing CAD Copilot now will deliver a cancellation signal to the engine process and cleanly release CAD session locks. Do you want to cancel the generation and close, or keep running?'}
             </p>
 
             <div className="flex justify-end gap-2 pt-2">
@@ -181,14 +174,14 @@ export const App: React.FC = () => {
                 onClick={() => resolveCloseRef.current('stay')}
                 className="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
-                Keep Running
+                {isIncompleteCleanupClose ? 'Keep Open' : 'Keep Running'}
               </button>
               <button
                 type="button"
                 onClick={() => resolveCloseRef.current('cancel_and_close')}
                 className="rounded-lg bg-rose-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-rose-700"
               >
-                Cancel & Close
+                {isIncompleteCleanupClose ? 'Force Close' : 'Cancel & Close'}
               </button>
             </div>
           </div>

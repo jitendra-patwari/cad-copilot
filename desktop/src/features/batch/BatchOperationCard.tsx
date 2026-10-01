@@ -14,6 +14,7 @@ interface BatchOperationCardProps {
   maxFiles: number;
   onSetMaxFiles: (val: number) => void;
   disabled: boolean;
+  embedded?: boolean;
 }
 
 export const BatchOperationCard: React.FC<BatchOperationCardProps> = ({
@@ -27,6 +28,7 @@ export const BatchOperationCard: React.FC<BatchOperationCardProps> = ({
   maxFiles,
   onSetMaxFiles,
   disabled,
+  embedded = false,
 }) => {
   const currentOpGroup = CANONICAL_OPERATIONS.find((op) => op.id === selectedOperation)!;
   const eligibleCount = getEligibleCount(source, selectedOperation);
@@ -40,11 +42,15 @@ export const BatchOperationCard: React.FC<BatchOperationCardProps> = ({
     <div
       role="region"
       aria-label="Supported Format Targets"
-      className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-5"
+      className={
+        embedded
+          ? 'p-5 space-y-3.5'
+          : 'rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm space-y-3.5'
+      }
     >
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2.5">
         <FileOutput className="h-4 w-4 text-blue-600" aria-hidden="true" />
-        <h2 className="text-sm font-semibold text-slate-900">2. Operation & Format Targets</h2>
+        <h2 className="text-sm font-semibold text-slate-900">Operation & Format Targets</h2>
       </div>
 
       {/* Operation Selection */}
@@ -61,37 +67,22 @@ export const BatchOperationCard: React.FC<BatchOperationCardProps> = ({
                 aria-pressed={isSelected}
                 disabled={disabled}
                 onClick={() => onSelectOperation(op.id)}
-                className={`flex flex-col items-start rounded-lg border p-3 text-left transition-all ${
+                className={`flex items-center justify-between rounded-lg border p-3 text-left transition-all ${
                   isSelected
                     ? 'border-blue-600 bg-blue-50/50 shadow-sm'
                     : 'border-slate-200 bg-white hover:border-slate-300'
                 } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
-                <div className="flex w-full items-center justify-between">
-                  <span
-                    className={`text-xs font-bold ${
-                      isSelected ? 'text-blue-900' : 'text-slate-800'
-                    }`}
-                  >
-                    {op.operation}
+                <span
+                  className={`text-xs font-bold ${isSelected ? 'text-blue-900' : 'text-slate-800'}`}
+                >
+                  {op.operation}
+                </span>
+                {isSelected && (
+                  <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                    Selected
                   </span>
-                  {isSelected && (
-                    <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                      Selected
-                    </span>
-                  )}
-                </div>
-                <p className="mt-1 text-[11px] text-slate-500 leading-normal">{op.description}</p>
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {op.formats.map((f) => (
-                    <span
-                      key={f.id}
-                      className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600 border border-slate-200/80"
-                    >
-                      {f.ext}
-                    </span>
-                  ))}
-                </div>
+                )}
               </button>
             );
           })}
@@ -99,7 +90,7 @@ export const BatchOperationCard: React.FC<BatchOperationCardProps> = ({
       </div>
 
       {/* Format Checkboxes for Active Operation */}
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         <div className="flex flex-wrap items-center justify-between gap-1">
           <label className="text-xs font-semibold text-slate-700">Export Formats</label>
           <div className="flex items-center gap-2 text-[11px] text-slate-500">
@@ -116,7 +107,7 @@ export const BatchOperationCard: React.FC<BatchOperationCardProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
           {currentOpGroup.formats.map((fmt) => {
             const isChecked = selectedFormats.includes(fmt.id);
             return (
@@ -127,7 +118,7 @@ export const BatchOperationCard: React.FC<BatchOperationCardProps> = ({
                 aria-pressed={isChecked}
                 disabled={disabled}
                 onClick={() => onToggleFormat(fmt.id)}
-                className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition-all ${
+                className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-all ${
                   isChecked
                     ? 'border-blue-500 bg-blue-50/40 text-blue-900'
                     : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
@@ -139,6 +130,7 @@ export const BatchOperationCard: React.FC<BatchOperationCardProps> = ({
                   <Square className="h-4 w-4 shrink-0 text-slate-400" />
                 )}
                 <span className="text-xs font-semibold">{fmt.name}</span>
+                <span className="font-mono text-[10px] text-slate-400 font-normal">{fmt.ext}</span>
               </button>
             );
           })}

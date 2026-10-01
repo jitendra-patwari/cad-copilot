@@ -336,10 +336,22 @@ export function useGeneration(): UseGenerationReturn {
 
     try {
       const newSnap = await startGeneration(snapshot.output.selectionId, input);
-      clearBlobUrl();
-      setActiveResult(null);
-      inFlightRequestIdRef.current = null;
-      fetchedRequestIdRef.current = null;
+      const newRequestId = newSnap.run?.requestId;
+      // Clear prior results only if the active result does not already belong to this new run
+      // (a fast terminal event and result fetch may have already completed while startGeneration was in flight)
+      setActiveResult((prev) => {
+        if (prev && prev.requestId === newRequestId) {
+          return prev;
+        }
+        clearBlobUrl();
+        return null;
+      });
+      if (fetchedRequestIdRef.current !== newRequestId) {
+        fetchedRequestIdRef.current = null;
+      }
+      if (inFlightRequestIdRef.current !== newRequestId) {
+        inFlightRequestIdRef.current = null;
+      }
       applySnapshot(newSnap);
     } catch (e) {
       setActionError(e as CommandError);

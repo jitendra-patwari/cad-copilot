@@ -41,7 +41,9 @@ describe('Batch Workspace Formats and Operations', () => {
     expect(screen.getByText('.stl')).toBeInTheDocument();
     expect(screen.getByText('.x_t')).toBeInTheDocument();
 
-    // Verify drawing formats
+    // Verify drawing formats when switched to Drawing Publication
+    const drawingBtn = screen.getByText('Drawing Publication');
+    fireEvent.click(drawingBtn);
     expect(screen.getByText('.pdf')).toBeInTheDocument();
     expect(screen.getByText('.dxf')).toBeInTheDocument();
 
@@ -116,7 +118,7 @@ describe('BatchSourceCard', () => {
     expect(screen.getByRole('button', { name: /select files/i })).toBeInTheDocument();
   });
 
-  it('renders source selection details and expandable file list with filtering', () => {
+  it('renders source selection details and expandable file list', () => {
     const source: BatchSourceSelection = {
       selectionId: 'src-123',
       displayRoot: 'C:/cad/models',
@@ -148,14 +150,9 @@ describe('BatchSourceCard', () => {
     fireEvent.click(expandBtn);
 
     expect(screen.getByText('part1.par')).toBeInTheDocument();
-    expect(screen.getByText('draft.dft')).toBeInTheDocument();
-
-    // Filter files
-    const filterInput = screen.getByPlaceholderText(/filter files/i);
-    fireEvent.change(filterInput, { target: { value: 'sheet' } });
-
+    expect(screen.getByText('part2.par')).toBeInTheDocument();
     expect(screen.getByText('sheet.psm')).toBeInTheDocument();
-    expect(screen.queryByText('part1.par')).not.toBeInTheDocument();
+    expect(screen.getByText('draft.dft')).toBeInTheDocument();
   });
 });
 
@@ -199,7 +196,7 @@ describe('BatchOperationCard', () => {
 });
 
 describe('BatchOutputCard', () => {
-  it('renders output selection and immutability notice', () => {
+  it('renders output selection and destination path', () => {
     const output: BatchOutputSelection = {
       selectionId: 'out-456',
       displayPath: 'C:/cad/exports',
@@ -208,7 +205,8 @@ describe('BatchOutputCard', () => {
     render(<BatchOutputCard output={output} disabled={false} onSelectOutput={vi.fn()} />);
 
     expect(screen.getByText('C:/cad/exports')).toBeInTheDocument();
-    expect(screen.getByText(/source immutability & collision safety/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /change directory/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /select output folder/i })).toBeInTheDocument();
   });
 });
 
@@ -293,11 +291,11 @@ describe('BatchResultCard', () => {
 
     expect(screen.getByText('Completed')).toBeInTheDocument();
     expect(screen.getByText('batch-req-001')).toBeInTheDocument();
-    expect(screen.getByText(/batch manifest validated/i)).toBeInTheDocument();
+    expect(screen.queryByText(/batch manifest validated/i)).not.toBeInTheDocument();
     expect(screen.getByText('part1.par')).toBeInTheDocument();
-    expect(screen.getByText('part2.par')).toBeInTheDocument();
-    expect(screen.getAllByText('Succeeded')).toHaveLength(2);
-    expect(screen.getAllByText('Partial')).toHaveLength(2);
+    expect(screen.getAllByText('Succeeded')).toHaveLength(3);
+    expect(screen.getAllByText('Needs Attention')).toHaveLength(2);
+    expect(screen.getByText('Partial')).toBeInTheDocument();
     expect(screen.getByText('ARTIFACT_EXPORT_FAILED')).toBeInTheDocument();
 
     // Table accessibility
@@ -357,14 +355,14 @@ describe('BatchResultCard', () => {
     expect(screen.getByText('plate.par')).toBeInTheDocument();
     expect(screen.getByText('gear.par')).toBeInTheDocument();
 
-    // Filter by 'failed' category button
-    const failedFilterBtn = screen.getByRole('button', { name: /^failed$/i });
-    expect(failedFilterBtn).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(failedFilterBtn);
-    expect(failedFilterBtn).toHaveAttribute('aria-pressed', 'true');
+    // Filter by 'needs_attention' category button
+    const attentionFilterBtn = screen.getByRole('button', { name: /needs attention/i });
+    expect(attentionFilterBtn).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(attentionFilterBtn);
+    expect(attentionFilterBtn).toHaveAttribute('aria-pressed', 'true');
 
     expect(screen.queryByText('bracket.par')).not.toBeInTheDocument();
-    expect(screen.queryByText('plate.par')).not.toBeInTheDocument();
+    expect(screen.getByText('plate.par')).toBeInTheDocument();
     expect(screen.getByText('gear.par')).toBeInTheDocument();
 
     // Switch back to 'all'
@@ -437,6 +435,7 @@ describe('BatchPage integration states', () => {
     actionError: null,
     clearActionError: vi.fn(),
     isSubmitting: false,
+    isSelectionPending: false,
     isSubscribed: true,
     retrySubscription: vi.fn(),
     selectSource: vi.fn(),
@@ -841,6 +840,74 @@ describe('useBatch controller lifecycle & error resilience', () => {
     expect(result.current.snapshot.run?.state).toBe('running');
   });
 
+  it('tracks isSelectionPending during folder picking and disables start in BatchPage', async () => {
+    let resolvePicker: (value: unknown) => void = () => {};
+    invokeSpy.mockImplementation(async (cmd: string) => {
+      if (cmd === 'plugin:event|listen' || cmd === 'plugin:event|unlisten') return 1;
+      if (cmd === 'batch_snapshot') {
+        return {
+          revision: 1,
+          nativeAvailable: true,
+          source: {
+            selectionId: 'src-1',
+            displayRoot: 'C:/cad/models',
+            parCount: 2,
+            psmCount: 0,
+            asmCount: 0,
+            dftCount: 0,
+            skippedCount: 0,
+            previewFiles: ['m1.par'],
+          },
+          output: {
+            selectionId: 'out-1',
+            displayPath: 'C:/cad/exports',
+          },
+          run: null,
+        };
+      }
+      if (cmd === 'batch_select_output') {
+        return new Promise((resolve) => {
+          resolvePicker = resolve;
+        });
+      }
+      return;
+    });
+
+    const { result } = renderHook(() => useBatch());
+
+    await waitFor(() => {
+      expect(result.current.snapshot.output?.displayPath).toBe('C:/cad/exports');
+    });
+
+    expect(result.current.isSelectionPending).toBe(false);
+
+    // Trigger selectOutput (in flight)
+    let selectPromise: Promise<void>;
+    act(() => {
+      selectPromise = result.current.selectOutput();
+    });
+
+    expect(result.current.isSelectionPending).toBe(true);
+
+    // Render BatchPage while selection is pending
+    const { rerender } = render(<BatchPage batch={result.current} />);
+    const startBtn = screen.getByRole('button', { name: /start batch run/i });
+    expect(startBtn).toBeDisabled();
+
+    // Resolve the picker
+    await act(async () => {
+      resolvePicker({
+        selectionId: 'out-2',
+        displayPath: 'C:/cad/exports2',
+      });
+      await selectPromise!;
+    });
+
+    expect(result.current.isSelectionPending).toBe(false);
+    rerender(<BatchPage batch={result.current} />);
+    expect(screen.getByRole('button', { name: /start batch run/i })).not.toBeDisabled();
+  });
+
   it('blocks startRun with TOO_MANY_FILES when eligibleCount exceeds maxFiles', async () => {
     const { result } = renderHook(() => useBatch());
 
@@ -1174,6 +1241,184 @@ describe('useBatch controller lifecycle & error resilience', () => {
     expect(result.current.activeResult?.summary.accepted).toBe(1);
   });
 
+  it('preserves pending result fetch when startBatch resolves while result fetch is in flight', async () => {
+    let resolveGetResult!: (res: BatchResultResponse) => void;
+    const getResultPromise = new Promise<BatchResultResponse>((resolve) => {
+      resolveGetResult = resolve;
+    });
+
+    const fastResult: BatchResultResponse = {
+      requestId: 'run-pending-001',
+      engineStatus: 'completed',
+      operation: 'export_3d',
+      summary: { total: 1, accepted: 1, partial: 0, failed: 0, cancelled: 0, unprocessed: 0 },
+      rows: [
+        {
+          file: 'pending.par',
+          category: 'succeeded',
+          attemptedFormats: ['step'],
+          successfulArtifacts: [{ format: 'step', relativePath: 'pending.step', sizeBytes: 1024 }],
+          diagnosticCodes: [],
+        },
+      ],
+      manifestState: 'validated',
+      manifestPath: 'C:/exports/manifest.json',
+      reason: null,
+    };
+
+    let resolveStartBatch!: (snap: BatchSnapshot) => void;
+    const startBatchPromise = new Promise<BatchSnapshot>((resolve) => {
+      resolveStartBatch = resolve;
+    });
+
+    invokeSpy.mockImplementation(async (cmd: string, payload?: unknown) => {
+      const p = payload as Record<string, unknown> | undefined;
+      if (cmd === 'plugin:event|listen') {
+        const event = p?.event as string;
+        const handlerId = p?.handler as number;
+        if (!eventListenerIds[event]) {
+          eventListenerIds[event] = [];
+        }
+        eventListenerIds[event].push(handlerId);
+        return Math.floor(Math.random() * 1000);
+      }
+      if (cmd === 'plugin:event|unlisten') {
+        return;
+      }
+      if (cmd === 'batch_snapshot') {
+        return {
+          revision: 1,
+          nativeAvailable: true,
+          source: {
+            selectionId: 'src-fast',
+            displayRoot: 'C:/models',
+            parCount: 1,
+            psmCount: 0,
+            asmCount: 0,
+            dftCount: 0,
+            skippedCount: 0,
+            previewFiles: ['pending.par'],
+          },
+          output: {
+            selectionId: 'out-fast',
+            displayPath: 'C:/exports',
+          },
+          run: null,
+        };
+      }
+      if (cmd === 'batch_start') {
+        return startBatchPromise;
+      }
+      if (cmd === 'batch_result') {
+        return getResultPromise;
+      }
+      return;
+    });
+
+    const { result } = renderHook(() => useBatch());
+
+    await waitFor(() => {
+      expect(result.current.snapshot.revision).toBe(1);
+    });
+
+    // 1. Initiate startRun (in flight)
+    const runPromise = result.current.startRun();
+
+    // 2. While startBatch is in flight, terminal event arrives
+    await act(async () => {
+      emitEvent({
+        revision: 3,
+        nativeAvailable: true,
+        source: {
+          selectionId: 'src-fast',
+          displayRoot: 'C:/models',
+          parCount: 1,
+          psmCount: 0,
+          asmCount: 0,
+          dftCount: 0,
+          skippedCount: 0,
+          previewFiles: ['pending.par'],
+        },
+        output: {
+          selectionId: 'out-fast',
+          displayPath: 'C:/exports',
+        },
+        run: {
+          requestId: 'run-pending-001',
+          state: 'terminal',
+          engineStatus: 'completed',
+          phase: 'batch_finished',
+          totalFiles: 1,
+          completedFiles: 1,
+          currentFile: null,
+          currentFormat: null,
+          lastFileStatus: null,
+          cleanup: 'no_failure_observed',
+          closeRequested: false,
+          manifestState: 'validated',
+          reason: null,
+        },
+      });
+    });
+
+    // Verify batch_result fetch was initiated and is now in flight
+    await waitFor(() => {
+      expect(invokeSpy).toHaveBeenCalledWith('batch_result', {
+        request: { requestId: 'run-pending-001' },
+      });
+    });
+    expect(result.current.activeResult).toBeNull();
+
+    // 3. Now resolve startBatch while batch_result fetch is still pending
+    await act(async () => {
+      resolveStartBatch({
+        revision: 2,
+        nativeAvailable: true,
+        source: {
+          selectionId: 'src-fast',
+          displayRoot: 'C:/models',
+          parCount: 1,
+          psmCount: 0,
+          asmCount: 0,
+          dftCount: 0,
+          skippedCount: 0,
+          previewFiles: ['pending.par'],
+        },
+        output: {
+          selectionId: 'out-fast',
+          displayPath: 'C:/exports',
+        },
+        run: {
+          requestId: 'run-pending-001',
+          state: 'running',
+          engineStatus: null,
+          phase: 'batch_started',
+          totalFiles: 1,
+          completedFiles: 0,
+          currentFile: 'pending.par',
+          currentFormat: 'step',
+          lastFileStatus: null,
+          cleanup: 'no_failure_observed',
+          closeRequested: false,
+          manifestState: 'not_applicable',
+          reason: null,
+        },
+      });
+      await runPromise;
+    });
+
+    // 4. Finally resolve the pending batch_result fetch
+    await act(async () => {
+      resolveGetResult(fastResult);
+    });
+
+    // 5. CRITICAL: The pending fetch completion must NOT be ignored!
+    await waitFor(() => {
+      expect(result.current.activeResult?.requestId).toBe('run-pending-001');
+      expect(result.current.activeResult?.summary.accepted).toBe(1);
+    });
+  });
+
   it('disables start when event subscription fails and recovers via retrySubscription', async () => {
     let shouldFailListen = true;
     invokeSpy.mockImplementation(async (cmd: string, payload?: unknown) => {
@@ -1431,6 +1676,169 @@ describe('useBatch controller lifecycle & error resilience', () => {
     expect(invokeSpy).not.toHaveBeenCalledWith('batch_reveal', expect.anything());
   });
 
+  it('preserves pending result fetch when same-run snapshot update arrives while batch_result fetch is in flight', async () => {
+    let resolveGetResult!: (res: BatchResultResponse) => void;
+    const getResultPromise = new Promise<BatchResultResponse>((resolve) => {
+      resolveGetResult = resolve;
+    });
+
+    let emitEvent: (payload: unknown) => void = () => {};
+
+    invokeSpy.mockImplementation(async (cmd: string, payload?: unknown) => {
+      const p = payload as Record<string, unknown> | undefined;
+      if (cmd === 'plugin:event|listen') {
+        const handlerId = p?.handler as number;
+        emitEvent = (data: unknown) => {
+          const cb = (window as unknown as Record<string, (e: unknown) => void>)[`_${handlerId}`];
+          cb?.({ event: 'batch-state', id: handlerId, payload: data });
+        };
+        return Math.floor(Math.random() * 1000);
+      }
+      if (cmd === 'plugin:event|unlisten') {
+        return;
+      }
+      if (cmd === 'batch_snapshot') {
+        return {
+          revision: 1,
+          nativeAvailable: true,
+          source: {
+            selectionId: 'src-1',
+            displayRoot: 'C:/models',
+            parCount: 1,
+            psmCount: 0,
+            asmCount: 0,
+            dftCount: 0,
+            skippedCount: 0,
+            previewFiles: ['part1.par'],
+          },
+          output: {
+            selectionId: 'out-1',
+            displayPath: 'C:/exports',
+          },
+          run: null,
+        } satisfies BatchSnapshot;
+      }
+      if (cmd === 'batch_result') {
+        return getResultPromise;
+      }
+      return;
+    });
+
+    const { result } = renderHook(() => useBatch());
+
+    await waitFor(() => {
+      expect(result.current.isSubscribed).toBe(true);
+    });
+
+    // 1. Emit terminal snapshot for run-batch-001
+    await act(async () => {
+      emitEvent({
+        revision: 2,
+        nativeAvailable: true,
+        source: {
+          selectionId: 'src-1',
+          displayRoot: 'C:/models',
+          parCount: 1,
+          psmCount: 0,
+          asmCount: 0,
+          dftCount: 0,
+          skippedCount: 0,
+          previewFiles: ['part1.par'],
+        },
+        output: {
+          selectionId: 'out-1',
+          displayPath: 'C:/exports',
+        },
+        run: {
+          requestId: 'run-batch-001',
+          state: 'terminal',
+          engineStatus: 'completed',
+          phase: 'batch_finished',
+          totalFiles: 1,
+          completedFiles: 1,
+          currentFile: null,
+          currentFormat: null,
+          lastFileStatus: null,
+          cleanup: 'no_failure_observed',
+          closeRequested: false,
+          manifestState: 'validated',
+          reason: null,
+        },
+      } satisfies BatchSnapshot);
+    });
+
+    // Verify batch_result fetch was initiated
+    await waitFor(() => {
+      expect(invokeSpy).toHaveBeenCalledWith('batch_result', {
+        request: { requestId: 'run-batch-001' },
+      });
+    });
+    expect(result.current.activeResult).toBeNull();
+
+    // 2. Emit another snapshot for the SAME run (e.g. revision 3, updated output selection)
+    await act(async () => {
+      emitEvent({
+        revision: 3,
+        nativeAvailable: true,
+        source: {
+          selectionId: 'src-1',
+          displayRoot: 'C:/models',
+          parCount: 1,
+          psmCount: 0,
+          asmCount: 0,
+          dftCount: 0,
+          skippedCount: 0,
+          previewFiles: ['part1.par'],
+        },
+        output: {
+          selectionId: 'out-2',
+          displayPath: 'C:/exports_updated',
+        },
+        run: {
+          requestId: 'run-batch-001',
+          state: 'terminal',
+          engineStatus: 'completed',
+          phase: 'batch_finished',
+          totalFiles: 1,
+          completedFiles: 1,
+          currentFile: null,
+          currentFormat: null,
+          lastFileStatus: null,
+          cleanup: 'no_failure_observed',
+          closeRequested: false,
+          manifestState: 'validated',
+          reason: null,
+        },
+      } satisfies BatchSnapshot);
+    });
+
+    // 3. Resolve the pending batch_result fetch
+    await act(async () => {
+      resolveGetResult({
+        requestId: 'run-batch-001',
+        engineStatus: 'completed',
+        operation: '3D CAD Export',
+        summary: {
+          total: 1,
+          accepted: 1,
+          partial: 0,
+          failed: 0,
+          cancelled: 0,
+          unprocessed: 0,
+        },
+        rows: [],
+        manifestState: 'validated',
+        manifestPath: 'C:/exports/manifest.json',
+        reason: null,
+      });
+    });
+
+    // 4. CRITICAL: The pending fetch completion must NOT be dropped or ignored!
+    await waitFor(() => {
+      expect(result.current.activeResult?.requestId).toBe('run-batch-001');
+    });
+  });
+
   it('does not display in-progress close confirmation modal when batch run is in terminal state', async () => {
     invokeSpy.mockImplementation(async (cmd: string, payload?: unknown) => {
       const p = payload as Record<string, unknown> | undefined;
@@ -1497,6 +1905,144 @@ describe('useBatch controller lifecycle & error resilience', () => {
     expect(
       screen.queryByRole('dialog', { name: /batch operation in progress/i })
     ).not.toBeInTheDocument();
+
+    unmount();
+  });
+
+  it('displays recovery close confirmation modal when cleanup is incomplete even if state is terminal', async () => {
+    invokeSpy.mockImplementation(async (cmd: string, payload?: unknown) => {
+      const p = payload as Record<string, unknown> | undefined;
+      if (cmd === 'plugin:event|listen') {
+        const event = p?.event as string;
+        const handlerId = p?.handler as number;
+        if (!eventListenerIds[event]) {
+          eventListenerIds[event] = [];
+        }
+        eventListenerIds[event].push(handlerId);
+        return Math.floor(Math.random() * 1000);
+      }
+      if (cmd === 'plugin:event|unlisten') {
+        return;
+      }
+      if (cmd === 'batch_snapshot') {
+        return {
+          revision: 1,
+          nativeAvailable: true,
+          source: null,
+          output: null,
+          run: {
+            requestId: 'run-incomplete',
+            state: 'terminal',
+            engineStatus: 'failed',
+            phase: null,
+            totalFiles: 1,
+            completedFiles: 0,
+            currentFile: null,
+            currentFormat: null,
+            lastFileStatus: null,
+            cleanup: 'incomplete',
+            closeRequested: true,
+            manifestState: 'validated',
+            reason: 'Solid Edge crashed',
+          },
+        };
+      }
+      return;
+    });
+
+    const { unmount } = render(<App />);
+
+    // Wait for the recovery modal to render
+    await waitFor(() => {
+      expect(
+        screen.getByRole('dialog', { name: /cad session cleanup incomplete/i })
+      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /keep open/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /force close/i })).toBeInTheDocument();
+    });
+
+    // Clicking Force Close sends cancel_and_close decision
+    const forceCloseBtn = screen.getByRole('button', { name: /force close/i });
+    fireEvent.click(forceCloseBtn);
+
+    expect(invokeSpy).toHaveBeenCalledWith('batch_resolve_close', {
+      request: {
+        requestId: 'run-incomplete',
+        decision: 'cancel_and_close',
+      },
+    });
+
+    unmount();
+  });
+
+  it('dispatches stay decision when Keep Open is clicked on incomplete cleanup modal', async () => {
+    invokeSpy.mockImplementation(async (cmd: string, payload?: unknown) => {
+      const p = payload as Record<string, unknown> | undefined;
+      if (cmd === 'plugin:event|listen') {
+        const event = p?.event as string;
+        const handlerId = p?.handler as number;
+        if (!eventListenerIds[event]) {
+          eventListenerIds[event] = [];
+        }
+        eventListenerIds[event].push(handlerId);
+        return Math.floor(Math.random() * 1000);
+      }
+      if (cmd === 'plugin:event|unlisten') {
+        return;
+      }
+      if (cmd === 'batch_snapshot') {
+        return {
+          revision: 1,
+          nativeAvailable: true,
+          source: null,
+          output: null,
+          run: {
+            requestId: 'run-incomplete-stay',
+            state: 'terminal',
+            engineStatus: 'failed',
+            phase: null,
+            totalFiles: 1,
+            completedFiles: 0,
+            currentFile: null,
+            currentFormat: null,
+            lastFileStatus: null,
+            cleanup: 'incomplete',
+            closeRequested: true,
+            manifestState: 'validated',
+            reason: 'Solid Edge crashed',
+          },
+        };
+      }
+      if (cmd === 'batch_resolve_close') {
+        return {
+          revision: 2,
+          nativeAvailable: true,
+          source: null,
+          output: null,
+          run: null,
+        };
+      }
+      return;
+    });
+
+    const { unmount } = render(<App />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('dialog', { name: /cad session cleanup incomplete/i })
+      ).toBeInTheDocument();
+    });
+
+    // Clicking Keep Open sends stay decision
+    const keepOpenBtn = screen.getByRole('button', { name: /keep open/i });
+    fireEvent.click(keepOpenBtn);
+
+    expect(invokeSpy).toHaveBeenCalledWith('batch_resolve_close', {
+      request: {
+        requestId: 'run-incomplete-stay',
+        decision: 'stay',
+      },
+    });
 
     unmount();
   });
@@ -1647,5 +2193,136 @@ describe('useBatch controller lifecycle & error resilience', () => {
     });
 
     unmount();
+  });
+});
+
+describe('BatchPage status live region', () => {
+  it('announces running, completed, cancelled, and failed states to screen readers with polite priority', () => {
+    const mockBatch: UseBatchReturn = {
+      snapshot: {
+        revision: 1,
+        nativeAvailable: true,
+        source: null,
+        output: null,
+        run: {
+          requestId: 'batch-live-1',
+          state: 'running',
+          engineStatus: null,
+          phase: 'batch_started',
+          totalFiles: 5,
+          completedFiles: 2,
+          currentFile: 'test.par',
+          currentFormat: 'step',
+          lastFileStatus: null,
+          cleanup: 'no_failure_observed',
+          closeRequested: false,
+          manifestState: 'not_applicable',
+          reason: null,
+        },
+      },
+      sourceFiles: ['test.par'],
+      selectedOperation: 'export_3d',
+      setOperation: vi.fn(),
+      selectedFormats: ['step'],
+      toggleFormat: vi.fn(),
+      continueOnError: false,
+      setContinueOnError: vi.fn(),
+      maxFiles: 100,
+      setMaxFiles: vi.fn(),
+      selectSource: vi.fn(),
+      selectOutput: vi.fn(),
+      startRun: vi.fn(),
+      cancelRun: vi.fn(),
+      resolveClose: vi.fn(),
+      activeResult: null,
+      revealOutput: vi.fn(),
+      actionError: null,
+      clearActionError: vi.fn(),
+      isSubmitting: false,
+      isSelectionPending: false,
+      isSubscribed: true,
+      retrySubscription: vi.fn(),
+    };
+
+    const { rerender } = render(<BatchPage batch={mockBatch} />);
+
+    const liveRegion = screen.getByRole('status');
+    expect(liveRegion).toHaveAttribute('aria-live', 'polite');
+    expect(liveRegion).toHaveTextContent('Batch operation in progress: 2 of 5 files processed.');
+
+    // Completed outcome with result
+    rerender(
+      <BatchPage
+        batch={{
+          ...mockBatch,
+          snapshot: {
+            ...mockBatch.snapshot,
+            run: {
+              ...mockBatch.snapshot.run!,
+              state: 'terminal',
+              engineStatus: 'completed',
+              completedFiles: 5,
+            },
+          },
+          activeResult: {
+            requestId: 'batch-live-1',
+            engineStatus: 'completed',
+            operation: '3D CAD Export',
+            summary: {
+              total: 5,
+              accepted: 4,
+              partial: 1,
+              failed: 0,
+              cancelled: 0,
+              unprocessed: 0,
+            },
+            rows: [],
+            manifestState: 'validated',
+            manifestPath: 'C:/exports/manifest.json',
+            reason: null,
+          },
+        }}
+      />
+    );
+    expect(liveRegion).toHaveTextContent('Batch operation finished: 4 accepted, 1 need attention.');
+
+    // Cancelled outcome
+    rerender(
+      <BatchPage
+        batch={{
+          ...mockBatch,
+          activeResult: null,
+          snapshot: {
+            ...mockBatch.snapshot,
+            run: {
+              ...mockBatch.snapshot.run!,
+              state: 'terminal',
+              engineStatus: 'cancelled',
+            },
+          },
+        }}
+      />
+    );
+    expect(liveRegion).toHaveTextContent('Batch operation was cancelled.');
+
+    // Failed outcome
+    rerender(
+      <BatchPage
+        batch={{
+          ...mockBatch,
+          activeResult: null,
+          snapshot: {
+            ...mockBatch.snapshot,
+            run: {
+              ...mockBatch.snapshot.run!,
+              state: 'terminal',
+              engineStatus: 'failed',
+              reason: 'Directory write access denied',
+            },
+          },
+        }}
+      />
+    );
+    expect(liveRegion).toHaveTextContent('Batch operation failed: Directory write access denied');
   });
 });

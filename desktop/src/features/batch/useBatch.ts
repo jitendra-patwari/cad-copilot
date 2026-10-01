@@ -34,6 +34,7 @@ export interface UseBatchReturn {
   actionError: CommandError | null;
   clearActionError: () => void;
   isSubmitting: boolean;
+  isSelectionPending: boolean;
   isSubscribed: boolean;
   retrySubscription: () => Promise<void>;
   selectSource: (mode: SourceSelectMode) => Promise<void>;
@@ -64,10 +65,12 @@ export function useBatch(): UseBatchReturn {
   const [activeResult, setActiveResult] = useState<BatchResultResponse | null>(null);
   const [actionError, setActionError] = useState<CommandError | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isSelectionPending, setIsSelectionPending] = useState<boolean>(false);
   const [isSubscribed, setIsSubscribed] = useState<boolean>(false);
 
   const currentRevisionRef = useRef<number>(0);
   const fetchedResultRequestIdRef = useRef<string | null>(null);
+  const inFlightResultRequestIdRef = useRef<string | null>(null);
   const currentRunRequestIdRef = useRef<string | null>(null);
   const subscriptionSeqRef = useRef<number>(0);
   const activeUnsubRef = useRef<(() => void) | null>(null);
@@ -152,41 +155,51 @@ export function useBatch(): UseBatchReturn {
     };
   }, [initSubscription, cancelActiveSubscription]);
 
+  const runState = snapshot.run?.state;
+  const runRequestId = snapshot.run?.requestId;
+
   // Fetch terminal result automatically when terminal state reached
   useEffect(() => {
-    let isMounted = true;
-    const run = snapshot.run;
-    currentRunRequestIdRef.current = run?.requestId ?? null;
+    currentRunRequestIdRef.current = runRequestId ?? null;
 
-    if (
-      run &&
-      run.state === 'terminal' &&
-      run.requestId &&
-      fetchedResultRequestIdRef.current !== run.requestId
-    ) {
-      const targetRequestId = run.requestId;
-      fetchedResultRequestIdRef.current = targetRequestId;
-      getBatchResult(targetRequestId)
-        .then((res) => {
-          if (
-            isMounted &&
-            currentRunRequestIdRef.current === targetRequestId &&
-            res.requestId === targetRequestId
-          ) {
-            setActiveResult(res);
-          }
-        })
-        .catch((err: CommandError) => {
-          if (isMounted && err.code !== 'RESULT_ACCESS_UNAVAILABLE') {
-            setActionError(err);
-          }
-        });
+    if (runState !== 'terminal' || !runRequestId) {
+      return;
     }
 
-    return () => {
-      isMounted = false;
-    };
-  }, [snapshot.run]);
+    if (
+      fetchedResultRequestIdRef.current === runRequestId ||
+      inFlightResultRequestIdRef.current === runRequestId
+    ) {
+      return;
+    }
+
+    const targetRequestId = runRequestId;
+    inFlightResultRequestIdRef.current = targetRequestId;
+
+    getBatchResult(targetRequestId)
+      .then((res) => {
+        if (
+          inFlightResultRequestIdRef.current === targetRequestId &&
+          currentRunRequestIdRef.current === targetRequestId &&
+          res.requestId === targetRequestId
+        ) {
+          fetchedResultRequestIdRef.current = targetRequestId;
+          setActiveResult(res);
+        }
+      })
+      .catch((err: CommandError) => {
+        if (inFlightResultRequestIdRef.current === targetRequestId) {
+          if (err.code !== 'RESULT_ACCESS_UNAVAILABLE') {
+            setActionError(err);
+          }
+        }
+      })
+      .finally(() => {
+        if (inFlightResultRequestIdRef.current === targetRequestId) {
+          inFlightResultRequestIdRef.current = null;
+        }
+      });
+  }, [runState, runRequestId]);
 
   const setOperation = useCallback((operation: 'export_3d' | 'publish_drawing') => {
     setSelectedOperation(operation);
@@ -210,7 +223,7 @@ export function useBatch(): UseBatchReturn {
   const selectSource = useCallback(
     async (mode: SourceSelectMode) => {
       clearTransientError();
-      setIsSubmitting(true);
+      setIsSelectionPending(true);
       try {
         const resp = await selectBatchSource(mode);
         setSourceFiles(resp.files);
@@ -223,7 +236,7 @@ export function useBatch(): UseBatchReturn {
           setActionError(e);
         }
       } finally {
-        setIsSubmitting(false);
+        setIsSelectionPending(false);
       }
     },
     [clearTransientError, applySnapshot]
@@ -231,7 +244,7 @@ export function useBatch(): UseBatchReturn {
 
   const selectOutput = useCallback(async () => {
     clearTransientError();
-    setIsSubmitting(true);
+    setIsSelectionPending(true);
     try {
       await selectBatchOutput();
       const snap = await getBatchSnapshot();
@@ -242,7 +255,7 @@ export function useBatch(): UseBatchReturn {
         setActionError(e);
       }
     } finally {
-      setIsSubmitting(false);
+      setIsSelectionPending(false);
     }
   }, [clearTransientError, applySnapshot]);
 
@@ -326,6 +339,9 @@ export function useBatch(): UseBatchReturn {
       if (fetchedResultRequestIdRef.current !== newRequestId) {
         fetchedResultRequestIdRef.current = null;
       }
+      if (inFlightResultRequestIdRef.current !== newRequestId) {
+        inFlightResultRequestIdRef.current = null;
+      }
       applySnapshot(snap);
     } catch (err: unknown) {
       setActionError(err as CommandError);
@@ -407,6 +423,7 @@ export function useBatch(): UseBatchReturn {
     actionError,
     clearActionError,
     isSubmitting,
+    isSelectionPending,
     isSubscribed,
     retrySubscription: initSubscription,
     selectSource,
