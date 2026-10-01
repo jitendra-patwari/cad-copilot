@@ -16,13 +16,13 @@ CAD Copilot is an open-source Windows desktop application that converts natural-
 - **Local-First Privacy & Optional AI:** CAD processing and output files stay local, with no telemetry. Optional Gemini prompt generation sends the text request to Google using a session-supplied API key. Deterministic examples and batch translation need no key or network connection.
 - **Process Lifecycle & Safety:** A dedicated Solid Edge COM worker, targeted cancellation, bounded execution, and atomic output publication protect failed and cancelled runs.
 
-![CAD Copilot Batch Workspace (.par Multi-File Export)](docs/media/batch-workspace.png)
+![CAD Copilot Batch Operations & Export Workspace](docs/media/batch-workspace.png)
 
 ---
 
 ## Run from Source
 
-The current preview runs from source on Windows 10/11 (64-bit) with a locally installed, licensed copy of Siemens Solid Edge®. Install the Python, Node.js/pnpm, and Rust toolchains described in the **[Getting Started Guide](docs/getting-started.md)**, then launch the Tauri development app with `pnpm --filter @cad-copilot/desktop tauri dev`.
+The current preview runs from source on Windows 10/11 (64-bit) with a local installation of Siemens Solid Edge®. Siemens offers **[Solid Edge Community Edition](docs/solid-edge-community-edition.md)** free of charge for personal, non-commercial use. Install the Python, Node.js/pnpm, and Rust toolchains described in the **[Getting Started Guide](docs/getting-started.md)**, then launch the Tauri development app with `pnpm --filter @cad-copilot/desktop tauri dev`.
 
 A downloadable installer is planned after the updated build passes separate installed acceptance.
 
@@ -56,12 +56,12 @@ CAD Copilot maintains strict separation between automated portable gates and liv
 | Layer | Scope & Test Count | Verification Boundary |
 | :--- | :--- | :--- |
 | **Python Engine** | 2,473 passed, 4 skipped, 56 deselected | Gemini-fix source candidate: offline pytest, strict MyPy, Ruff linter & formatter |
-| **Desktop Frontend** | 90 passed across 9 test files | Vitest suites |
+| **Desktop Frontend** | 98 passed across 8 test files | Vitest suites, TypeScript typecheck, ESLint, Prettier, production Vite build |
 | **Rust Desktop Host** | 131 passed, 8 ignored | Default Cargo test suite |
 | **Live Source-App Checks** | Three repeated pad-and-through-hole runs inspected | Saved Solid Edge parts and canonical manifests on a licensed workstation |
 | **Hosted CI Pipeline** | 3 portable jobs configured | GitHub records results for each pull request commit |
 
-*Hosted GitHub Actions runners execute portable checks; live Solid Edge COM automation requires a licensed Windows workstation. Installed acceptance for the updated build remains pending. See **[Verification Evidence](docs/verification.md)** for the current source-candidate boundary.*
+*Hosted GitHub Actions runners execute portable checks; live Solid Edge COM automation requires a licensed Windows workstation. Installed acceptance for the updated build remains pending. See **[Verification Evidence](docs/verification.md)** for detailed evidence and component records.*
 
 ---
 
