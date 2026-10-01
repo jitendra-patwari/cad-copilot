@@ -1,13 +1,5 @@
 import React, { useState } from 'react';
-import {
-  CheckCircle2,
-  AlertTriangle,
-  XCircle,
-  FolderOpen,
-  FileCheck,
-  Search,
-  Layers,
-} from 'lucide-react';
+import { CheckCircle2, AlertTriangle, XCircle, FolderOpen, Search, Layers } from 'lucide-react';
 import type { BatchResultResponse, BatchRowCategory } from './types';
 import { formatBytes } from './batchState';
 
@@ -18,12 +10,18 @@ interface BatchResultCardProps {
 
 export const BatchResultCard: React.FC<BatchResultCardProps> = ({ result, onRevealOutput }) => {
   const [filterQuery, setFilterQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'succeeded' | 'needs_attention'>(
+    'all'
+  );
 
   const { summary, rows } = result;
+  const needsAttentionCount = summary.total - summary.accepted;
 
   const filteredRows = rows.filter((r) => {
-    if (categoryFilter !== 'all' && r.category !== categoryFilter) {
+    if (categoryFilter === 'succeeded' && r.category !== 'succeeded') {
+      return false;
+    }
+    if (categoryFilter === 'needs_attention' && r.category === 'succeeded') {
       return false;
     }
     if (filterQuery.trim()) {
@@ -126,43 +124,46 @@ export const BatchResultCard: React.FC<BatchResultCardProps> = ({ result, onReve
       </div>
 
       {/* Summary Metrics */}
-      <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-center">
-        <div className="rounded-lg bg-slate-50 p-2 border border-slate-200/70">
-          <span className="text-[10px] font-bold uppercase text-slate-500">Total</span>
-          <p className="text-base font-bold text-slate-900">{summary.total}</p>
+      <div className="grid grid-cols-3 gap-3 text-center">
+        <div className="rounded-lg bg-slate-50 p-2.5 sm:p-3 border border-slate-200/70">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            Total
+          </span>
+          <p className="mt-0.5 text-base sm:text-lg font-bold text-slate-900">{summary.total}</p>
         </div>
-        <div className="rounded-lg bg-emerald-50 p-2 border border-emerald-200/70">
-          <span className="text-[10px] font-bold uppercase text-emerald-600">Succeeded</span>
-          <p className="text-base font-bold text-emerald-800">{summary.accepted}</p>
+        <div className="rounded-lg bg-emerald-50 p-2.5 sm:p-3 border border-emerald-200/70">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600">
+            Succeeded
+          </span>
+          <p className="mt-0.5 text-base sm:text-lg font-bold text-emerald-800">
+            {summary.accepted}
+          </p>
         </div>
-        <div className="rounded-lg bg-amber-50 p-2 border border-amber-200/70">
-          <span className="text-[10px] font-bold uppercase text-amber-600">Partial</span>
-          <p className="text-base font-bold text-amber-800">{summary.partial}</p>
-        </div>
-        <div className="rounded-lg bg-rose-50 p-2 border border-rose-200/70">
-          <span className="text-[10px] font-bold uppercase text-rose-600">Failed</span>
-          <p className="text-base font-bold text-rose-800">{summary.failed}</p>
-        </div>
-        <div className="rounded-lg bg-slate-100 p-2 border border-slate-200">
-          <span className="text-[10px] font-bold uppercase text-slate-600">Cancelled</span>
-          <p className="text-base font-bold text-slate-800">{summary.cancelled}</p>
-        </div>
-        <div className="rounded-lg bg-slate-50 p-2 border border-slate-200/70">
-          <span className="text-[10px] font-bold uppercase text-slate-400">Unprocessed</span>
-          <p className="text-base font-bold text-slate-600">{summary.unprocessed}</p>
+        <div
+          className={`rounded-lg p-2.5 sm:p-3 border ${
+            needsAttentionCount > 0
+              ? 'bg-amber-50 border-amber-200/70'
+              : 'bg-slate-50 border-slate-200/70'
+          }`}
+        >
+          <span
+            className={`text-[11px] font-bold uppercase tracking-wider ${
+              needsAttentionCount > 0 ? 'text-amber-700' : 'text-slate-500'
+            }`}
+          >
+            Needs Attention
+          </span>
+          <p
+            className={`mt-0.5 text-base sm:text-lg font-bold ${
+              needsAttentionCount > 0 ? 'text-amber-900' : 'text-slate-900'
+            }`}
+          >
+            {needsAttentionCount}
+          </p>
         </div>
       </div>
 
-      {/* Manifest Status Banner */}
-      {result.manifestState === 'validated' && (
-        <div className="flex items-center gap-2 rounded-lg bg-emerald-50/70 px-3 py-2 text-xs text-emerald-900 border border-emerald-200">
-          <FileCheck className="h-4 w-4 text-emerald-600 shrink-0" />
-          <span>
-            Batch manifest validated and published to output root:{' '}
-            <span className="font-mono text-emerald-950 font-semibold">{result.manifestPath}</span>
-          </span>
-        </div>
-      )}
+      {/* Manifest Status Warning (only if unavailable) */}
       {result.manifestState === 'unavailable' && (
         <div className="flex items-center gap-2 rounded-lg bg-amber-50/70 px-3 py-2 text-xs text-amber-900 border border-amber-200">
           <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
@@ -198,26 +199,32 @@ export const BatchResultCard: React.FC<BatchResultCardProps> = ({ result, onReve
 
           <div className="flex flex-wrap items-center gap-1 text-xs">
             <span className="text-slate-500 text-[11px] mr-1">Filter:</span>
-            {['all', 'succeeded', 'partial', 'failed', 'cancelled', 'unprocessed'].map((cat) => (
+            {(
+              [
+                { id: 'all', label: 'All' },
+                { id: 'succeeded', label: 'Succeeded' },
+                { id: 'needs_attention', label: 'Needs Attention' },
+              ] as const
+            ).map((opt) => (
               <button
-                key={cat}
+                key={opt.id}
                 type="button"
-                aria-pressed={categoryFilter === cat}
-                onClick={() => setCategoryFilter(cat)}
-                className={`rounded px-2 py-0.5 text-[11px] font-medium capitalize transition-colors ${
-                  categoryFilter === cat
+                aria-pressed={categoryFilter === opt.id}
+                onClick={() => setCategoryFilter(opt.id)}
+                className={`rounded px-2.5 py-0.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                  categoryFilter === opt.id
                     ? 'bg-blue-600 text-white'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                {cat}
+                {opt.label}
               </button>
             ))}
           </div>
         </div>
 
         {/* Results HTML Table */}
-        <div className="overflow-x-auto rounded-lg border border-slate-200">
+        <div className="overflow-x-auto max-h-60 overflow-y-auto rounded-lg border border-slate-200">
           <table
             className="min-w-full divide-y divide-slate-200 text-left text-xs"
             aria-label="Batch execution results"

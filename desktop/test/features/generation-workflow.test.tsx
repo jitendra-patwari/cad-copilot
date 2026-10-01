@@ -8,12 +8,15 @@ import {
   isTerminalState,
 } from '../../src/features/generate/generationState';
 import { GenerateForm } from '../../src/features/generate/GenerateForm';
+import { GeneratePage } from '../../src/features/generate/GeneratePage';
 import { GenerationProgress } from '../../src/features/generate/GenerationProgress';
 import { GenerationResult } from '../../src/features/generate/GenerationResult';
 import { useGeneration } from '../../src/features/generate/useGeneration';
+import type { UseGenerationReturn } from '../../src/features/generate/useGeneration';
 import type {
   GenerationResultResponse,
   GenerationRunSnapshot,
+  GenerationSnapshot,
 } from '../../src/features/generate/types';
 
 describe('generationState unit tests', () => {
@@ -34,9 +37,16 @@ describe('generationState unit tests', () => {
     expect(overRes.valid).toBe(false);
     expect(overRes.error).toContain('8,000 characters');
 
-    // Emoji handling (surrogate pairs count as single code points)
-    const emojiPrompt = '⚙️'.repeat(4000);
-    expect(validatePrompt(emojiPrompt).valid).toBe(true);
+    // Supplementary character outside BMP (surrogate pairs in UTF-16, single code points)
+    // '🚀' (U+1F680): .length is 2 UTF-16 code units, but 1 Unicode code point.
+    const supplementaryPrompt = '🚀'.repeat(8000);
+    expect(validatePrompt(supplementaryPrompt).valid).toBe(true);
+
+    // 8,001 supplementary code points (16,002 UTF-16 code units) is rejected
+    const overSupplementary = '🚀'.repeat(8001);
+    const overSuppRes = validatePrompt(overSupplementary);
+    expect(overSuppRes.valid).toBe(false);
+    expect(overSuppRes.error).toContain('8,000 characters');
   });
 
   it('formats byte counts cleanly', () => {
@@ -89,7 +99,7 @@ describe('GenerateForm component', () => {
       />
     );
 
-    expect(screen.getByText('Canonical 24-Tooth Spur Gear')).toBeInTheDocument();
+    expect(screen.getByText('Conceptual 24-Tooth Spur Gear')).toBeInTheDocument();
     expect(screen.getByText('No output directory selected')).toBeInTheDocument();
 
     const submitBtn = screen.getByRole('button', { name: /run cad generation/i });
@@ -105,7 +115,36 @@ describe('GenerateForm component', () => {
     const setIsKeyEditorOpenMock = vi.fn();
     const setPromptMock = vi.fn();
 
-    render(
+    const { rerender } = render(
+      <GenerateForm
+        mode="example"
+        setMode={setModeMock}
+        prompt="Design an L-bracket"
+        setPrompt={setPromptMock}
+        output={{ selectionId: 'sel_1', displayPath: 'C:\\test_output' }}
+        selectFolder={vi.fn()}
+        keyConfigured={false}
+        isKeyEditorOpen={false}
+        setIsKeyEditorOpen={setIsKeyEditorOpenMock}
+        keyInput=""
+        setKeyInput={vi.fn()}
+        saveKey={vi.fn()}
+        clearKey={vi.fn()}
+        startRun={vi.fn()}
+        isRunActive={false}
+        isSubmitting={false}
+        actionError={null}
+        clearActionError={vi.fn()}
+      />
+    );
+
+    // Click the Prompt to CAD tab button to trigger mode switch
+    const promptTabBtn = screen.getByRole('button', { name: /prompt to cad/i });
+    fireEvent.click(promptTabBtn);
+    expect(setModeMock).toHaveBeenCalledWith('prompt');
+
+    // Rerender with mode="prompt" and key editor open
+    rerender(
       <GenerateForm
         mode="prompt"
         setMode={setModeMock}
@@ -214,7 +253,7 @@ describe('GenerateForm component', () => {
           keyConfigured: false,
           output: { selectionId: 'sel_1', displayPath: 'C:\\test_out' },
           run: null,
-        };
+        } satisfies GenerationSnapshot;
       }
       if (cmd === 'generation_start') {
         return {
@@ -227,12 +266,13 @@ describe('GenerateForm component', () => {
             state: 'running',
             engineStatus: null,
             phase: 'generation_started',
+            reason: null,
+            resultAccess: 'none',
             cleanup: 'no_failure_observed',
             closeRequested: false,
-            manifestState: 'not_applicable',
-            reason: null,
+            warnings: [],
           },
-        };
+        } satisfies GenerationSnapshot;
       }
       return;
     });
@@ -305,7 +345,7 @@ describe('GenerationProgress component', () => {
 });
 
 describe('GenerationResult component', () => {
-  it('renders succeeded outcome, published artifacts, and manifest provenance', () => {
+  it('renders succeeded outcome and published artifacts', () => {
     const revealMock = vi.fn();
     const run: GenerationRunSnapshot = {
       requestId: 'gen_succ_456',
@@ -367,17 +407,486 @@ describe('GenerationResult component', () => {
     );
 
     expect(screen.getByText('CAD Model Successfully Generated')).toBeInTheDocument();
-    expect(screen.getByText('model.par')).toBeInTheDocument();
-    expect(screen.getByText('model.step')).toBeInTheDocument();
-    expect(screen.getByText('model.stl')).toBeInTheDocument();
+    expect(screen.getByTitle('model.par')).toBeInTheDocument();
+    expect(screen.getByTitle('model.step')).toBeInTheDocument();
+    expect(screen.getByTitle('model.stl')).toBeInTheDocument();
+    expect(screen.getByTestId('artifact-par')).toBeInTheDocument();
+    expect(screen.getByTestId('artifact-step')).toBeInTheDocument();
+    expect(screen.getByTestId('artifact-stl')).toBeInTheDocument();
     expect(screen.getByText('Mesh density warning')).toBeInTheDocument();
-    expect(screen.getByText('226.00.00.106')).toBeInTheDocument();
-    expect(screen.getByText('1 executed')).toBeInTheDocument();
-    expect(screen.getByText('01234567…')).toBeInTheDocument();
-    expect(screen.getByText('Solid Edge runtime verified in normal state')).toBeInTheDocument();
 
     const showFolderBtn = screen.getByRole('button', { name: /show in folder/i });
     fireEvent.click(showFolderBtn);
     expect(revealMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables submit and displays warning when opposite workflow is busy in GenerateForm', () => {
+    render(
+      <GenerateForm
+        mode="example"
+        setMode={vi.fn()}
+        prompt=""
+        setPrompt={vi.fn()}
+        output={{ selectionId: 'out-1', displayPath: 'C:\\exports' }}
+        selectFolder={vi.fn()}
+        keyConfigured={false}
+        isKeyEditorOpen={false}
+        setIsKeyEditorOpen={vi.fn()}
+        keyInput=""
+        setKeyInput={vi.fn()}
+        saveKey={vi.fn()}
+        clearKey={vi.fn()}
+        startRun={vi.fn()}
+        isRunActive={false}
+        isSubmitting={false}
+        actionError={null}
+        clearActionError={vi.fn()}
+        isOtherBusy={true}
+      />
+    );
+
+    const submitBtn = screen.getByRole('button', { name: /run cad generation/i });
+    expect(submitBtn).toBeDisabled();
+    expect(
+      screen.getByText(/batch conversion operation is currently running/i)
+    ).toBeInTheDocument();
+  });
+
+  it('renders role="alert" on action error banner in GenerateForm', () => {
+    render(
+      <GenerateForm
+        mode="example"
+        setMode={vi.fn()}
+        prompt=""
+        setPrompt={vi.fn()}
+        output={{ selectionId: 'out-1', displayPath: 'C:\\exports' }}
+        selectFolder={vi.fn()}
+        keyConfigured={false}
+        isKeyEditorOpen={false}
+        setIsKeyEditorOpen={vi.fn()}
+        keyInput=""
+        setKeyInput={vi.fn()}
+        saveKey={vi.fn()}
+        clearKey={vi.fn()}
+        startRun={vi.fn()}
+        isRunActive={false}
+        isSubmitting={false}
+        actionError={{ code: 'FAILED_OPERATION', message: 'Test error message' }}
+        clearActionError={vi.fn()}
+      />
+    );
+
+    const alertBanner = screen.getByRole('alert');
+    expect(alertBanner).toBeInTheDocument();
+    expect(alertBanner).toHaveTextContent('FAILED_OPERATION');
+    expect(alertBanner).toHaveTextContent('Test error message');
+  });
+
+  it('preserves final result when fast run delivers terminal event before startGeneration resolves in useGeneration', async () => {
+    let resolveStartGeneration!: (snap: unknown) => void;
+    const startPromise = new Promise((resolve) => {
+      resolveStartGeneration = resolve;
+    });
+
+    const eventListenerIds: Record<string, number[]> = {};
+    const invokeSpy = vi.fn(async (cmd: string, payload?: unknown) => {
+      const p = payload as Record<string, unknown> | undefined;
+      if (cmd === 'plugin:event|listen') {
+        const event = p?.event as string;
+        const handlerId = p?.handler as number;
+        if (!eventListenerIds[event]) {
+          eventListenerIds[event] = [];
+        }
+        eventListenerIds[event].push(handlerId);
+        return Math.floor(Math.random() * 1000);
+      }
+      if (cmd === 'plugin:event|unlisten') {
+        return;
+      }
+      if (cmd === 'generation_snapshot') {
+        return {
+          revision: 1,
+          nativeAvailable: true,
+          keyConfigured: true,
+          output: { selectionId: 'out-fast', displayPath: 'C:\\exports' },
+          run: null,
+        } satisfies GenerationSnapshot;
+      }
+      if (cmd === 'generation_start') {
+        await startPromise;
+        return {
+          revision: 2,
+          nativeAvailable: true,
+          keyConfigured: true,
+          output: { selectionId: 'out-fast', displayPath: 'C:\\exports' },
+          run: {
+            requestId: 'gen-fast-001',
+            state: 'running',
+            engineStatus: 'accepted',
+            phase: 'generation_started',
+            reason: null,
+            resultAccess: 'none',
+            cleanup: 'no_failure_observed',
+            closeRequested: false,
+            warnings: [],
+          },
+        } satisfies GenerationSnapshot;
+      }
+      if (cmd === 'generation_result') {
+        return {
+          requestId: 'gen-fast-001',
+          runFolder: 'C:\\exports\\gen-fast-001',
+          artifacts: [],
+          hasPreview: false,
+          manifestSummary: {
+            schemaVersion: 'cad_copilot.run_manifest.v1',
+            provenanceKind: 'example_plan',
+            sourceId: 'spur_gear',
+            cadRuntimeVersion: '226.00.00.106',
+            operationsExecuted: 1,
+            planSha256: 'abc',
+            promptSha256: null,
+            warnings: [],
+            diagnostics: [],
+          },
+        };
+      }
+      return;
+    });
+
+    mockIPC(invokeSpy);
+
+    try {
+      const { result } = renderHook(() => useGeneration());
+
+      await waitFor(() => {
+        expect(result.current.isSubscribed).toBe(true);
+      });
+
+      // Start run in flight
+      let runPromise: Promise<void>;
+      act(() => {
+        runPromise = result.current.startRun();
+      });
+
+      // Deliver terminal event while startGeneration is still in flight
+      await act(async () => {
+        const ids = eventListenerIds['generation-state'] || [];
+        ids.forEach((id) => {
+          const cb = (window as unknown as Record<string, (e: unknown) => void>)[`_${id}`];
+          cb?.({
+            event: 'generation-state',
+            id,
+            payload: {
+              revision: 3,
+              nativeAvailable: true,
+              keyConfigured: true,
+              output: { selectionId: 'out-fast', displayPath: 'C:\\exports' },
+              run: {
+                requestId: 'gen-fast-001',
+                state: 'succeeded',
+                engineStatus: 'accepted',
+                phase: 'response_ready',
+                reason: null,
+                resultAccess: 'ready',
+                cleanup: 'no_failure_observed',
+                closeRequested: false,
+                warnings: [],
+              },
+            } satisfies GenerationSnapshot,
+          });
+        });
+      });
+
+      // Await result retrieval from the terminal event
+      await waitFor(() => {
+        expect(result.current.activeResult?.requestId).toBe('gen-fast-001');
+      });
+
+      // Now resolve startGeneration with revision 2 snapshot
+      await act(async () => {
+        resolveStartGeneration({
+          revision: 2,
+          nativeAvailable: true,
+          keyConfigured: true,
+          output: { selectionId: 'out-fast', displayPath: 'C:\\exports' },
+          run: {
+            requestId: 'gen-fast-001',
+            state: 'running',
+            engineStatus: 'accepted',
+            phase: 'generation_started',
+            reason: null,
+            resultAccess: 'none',
+            cleanup: 'no_failure_observed',
+            closeRequested: false,
+            warnings: [],
+          },
+        } satisfies GenerationSnapshot);
+        await runPromise;
+      });
+
+      // CRITICAL: The fast activeResult must NOT be wiped out!
+      expect(result.current.activeResult?.requestId).toBe('gen-fast-001');
+    } finally {
+      clearMocks();
+    }
+  });
+
+  it('preserves pending result fetch when startGeneration resolves while result fetch is in flight', async () => {
+    let resolveGetResult!: (res: GenerationResultResponse) => void;
+    const getResultPromise = new Promise<GenerationResultResponse>((resolve) => {
+      resolveGetResult = resolve;
+    });
+
+    let resolveStartGeneration!: (snap: unknown) => void;
+    const startPromise = new Promise((resolve) => {
+      resolveStartGeneration = resolve;
+    });
+
+    const eventListenerIds: Record<string, number[]> = {};
+    const invokeSpy = vi.fn(async (cmd: string, payload?: unknown) => {
+      const p = payload as Record<string, unknown> | undefined;
+      if (cmd === 'plugin:event|listen') {
+        const event = p?.event as string;
+        const handlerId = p?.handler as number;
+        if (!eventListenerIds[event]) {
+          eventListenerIds[event] = [];
+        }
+        eventListenerIds[event].push(handlerId);
+        return Math.floor(Math.random() * 1000);
+      }
+      if (cmd === 'plugin:event|unlisten') {
+        return;
+      }
+      if (cmd === 'generation_snapshot') {
+        return {
+          revision: 1,
+          nativeAvailable: true,
+          keyConfigured: true,
+          output: { selectionId: 'out-fast', displayPath: 'C:\\exports' },
+          run: null,
+        } satisfies GenerationSnapshot;
+      }
+      if (cmd === 'generation_start') {
+        await startPromise;
+        return {
+          revision: 2,
+          nativeAvailable: true,
+          keyConfigured: true,
+          output: { selectionId: 'out-fast', displayPath: 'C:\\exports' },
+          run: {
+            requestId: 'gen-pending-001',
+            state: 'running',
+            engineStatus: 'accepted',
+            phase: 'generation_started',
+            reason: null,
+            resultAccess: 'none',
+            cleanup: 'no_failure_observed',
+            closeRequested: false,
+            warnings: [],
+          },
+        } satisfies GenerationSnapshot;
+      }
+      if (cmd === 'generation_result') {
+        return getResultPromise;
+      }
+      return;
+    });
+
+    mockIPC(invokeSpy);
+
+    try {
+      const { result } = renderHook(() => useGeneration());
+
+      await waitFor(() => {
+        expect(result.current.isSubscribed).toBe(true);
+      });
+
+      // 1. Start run in flight
+      let runPromise: Promise<void>;
+      act(() => {
+        runPromise = result.current.startRun();
+      });
+
+      // 2. Deliver terminal event while startGeneration is still in flight
+      await act(async () => {
+        const ids = eventListenerIds['generation-state'] || [];
+        ids.forEach((id) => {
+          const cb = (window as unknown as Record<string, (e: unknown) => void>)[`_${id}`];
+          cb?.({
+            event: 'generation-state',
+            id,
+            payload: {
+              revision: 3,
+              nativeAvailable: true,
+              keyConfigured: true,
+              output: { selectionId: 'out-fast', displayPath: 'C:\\exports' },
+              run: {
+                requestId: 'gen-pending-001',
+                state: 'succeeded',
+                engineStatus: 'accepted',
+                phase: 'response_ready',
+                reason: null,
+                resultAccess: 'ready',
+                cleanup: 'no_failure_observed',
+                closeRequested: false,
+                warnings: [],
+              },
+            } satisfies GenerationSnapshot,
+          });
+        });
+      });
+
+      // Verify generation_result fetch was initiated
+      await waitFor(() => {
+        expect(invokeSpy).toHaveBeenCalledWith('generation_result', {
+          request: { requestId: 'gen-pending-001' },
+        });
+      });
+      expect(result.current.activeResult).toBeNull();
+
+      // 3. Resolve startGeneration while generation_result fetch is still pending
+      await act(async () => {
+        resolveStartGeneration({
+          revision: 2,
+          nativeAvailable: true,
+          keyConfigured: true,
+          output: { selectionId: 'out-fast', displayPath: 'C:\\exports' },
+          run: {
+            requestId: 'gen-pending-001',
+            state: 'running',
+            engineStatus: 'accepted',
+            phase: 'generation_started',
+            reason: null,
+            resultAccess: 'none',
+            cleanup: 'no_failure_observed',
+            closeRequested: false,
+            warnings: [],
+          },
+        } satisfies GenerationSnapshot);
+        await runPromise;
+      });
+
+      // 4. Finally resolve the pending generation_result fetch
+      await act(async () => {
+        resolveGetResult({
+          requestId: 'gen-pending-001',
+          runFolder: 'C:\\exports\\gen-pending-001',
+          artifacts: [],
+          hasPreview: false,
+          manifestSummary: {
+            schemaVersion: 'cad_copilot.run_manifest.v1',
+            provenanceKind: 'example_plan',
+            sourceId: 'spur_gear',
+            cadRuntimeVersion: '226.00.00.106',
+            operationsExecuted: 1,
+            planSha256: 'abc',
+            promptSha256: null,
+            warnings: [],
+            diagnostics: [],
+          },
+        });
+      });
+
+      // 5. CRITICAL: The pending fetch completion must NOT be ignored!
+      await waitFor(() => {
+        expect(result.current.activeResult?.requestId).toBe('gen-pending-001');
+      });
+    } finally {
+      clearMocks();
+    }
+  });
+});
+
+describe('GeneratePage status live region', () => {
+  it('announces running, succeeded, and failed states to screen readers with polite priority', () => {
+    const mockGeneration: UseGenerationReturn = {
+      snapshot: {
+        revision: 1,
+        nativeAvailable: true,
+        keyConfigured: true,
+        output: { selectionId: 'out-1', displayPath: 'C:\\exports' },
+        run: {
+          requestId: 'gen-live-001',
+          state: 'running',
+          phase: 'generation_started',
+          engineStatus: 'accepted',
+          reason: null,
+          resultAccess: 'none',
+          cleanup: 'no_failure_observed',
+          closeRequested: false,
+          warnings: [],
+        },
+      },
+      mode: 'example',
+      setMode: vi.fn(),
+      prompt: '',
+      setPrompt: vi.fn(),
+      isKeyEditorOpen: false,
+      setIsKeyEditorOpen: vi.fn(),
+      keyInput: '',
+      setKeyInput: vi.fn(),
+      clearKeyDraft: vi.fn(),
+      saveKey: vi.fn(),
+      clearKey: vi.fn(),
+      selectFolder: vi.fn(),
+      startRun: vi.fn(),
+      cancelRun: vi.fn(),
+      resolveClose: vi.fn(),
+      activeResult: null,
+      previewBlobUrl: null,
+      clearBlobUrl: vi.fn(),
+      revealFolder: vi.fn(),
+      actionError: null,
+      clearActionError: vi.fn(),
+      isSubmitting: false,
+      isSubscribed: true,
+      retrySubscription: vi.fn(),
+    };
+
+    const { rerender } = render(<GeneratePage generation={mockGeneration} />);
+
+    const liveRegion = screen.getByRole('status');
+    expect(liveRegion).toHaveAttribute('aria-live', 'polite');
+    expect(liveRegion).toHaveTextContent('Generation running in Siemens Solid Edge.');
+
+    // Succeeded state
+    rerender(
+      <GeneratePage
+        generation={{
+          ...mockGeneration,
+          snapshot: {
+            ...mockGeneration.snapshot,
+            run: {
+              ...mockGeneration.snapshot.run!,
+              state: 'succeeded',
+              phase: 'response_ready',
+              resultAccess: 'ready',
+            },
+          },
+        }}
+      />
+    );
+    expect(liveRegion).toHaveTextContent('Generation completed successfully. 3D models ready.');
+
+    // Failed state
+    rerender(
+      <GeneratePage
+        generation={{
+          ...mockGeneration,
+          snapshot: {
+            ...mockGeneration.snapshot,
+            run: {
+              ...mockGeneration.snapshot.run!,
+              state: 'failed',
+              engineStatus: 'failed',
+              reason: 'Solid Edge license missing',
+              resultAccess: 'unavailable',
+            },
+          },
+        }}
+      />
+    );
+    expect(liveRegion).toHaveTextContent('Generation run failed: Solid Edge license missing');
   });
 });

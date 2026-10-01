@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, screen, waitFor } from '@testing-library/react';
 import { App } from '../src/app/App';
 
 describe('Root workspace discovery and script behavior', () => {
@@ -86,7 +86,7 @@ describe('Zero runtime network and zero persistent storage baseline', () => {
     });
 
     // Native IPC test doubles
-    tauriInvokeSpy = vi.fn((cmd: string) => {
+    tauriInvokeSpy = vi.fn((cmd: string, args?: unknown) => {
       if (cmd === 'generation_snapshot') {
         return Promise.resolve({
           revision: 1,
@@ -104,6 +104,10 @@ describe('Zero runtime network and zero persistent storage baseline', () => {
           output: null,
           run: null,
         });
+      }
+      if (cmd === 'generation_set_key') {
+        const payload = args as { request?: { key?: string | null } } | undefined;
+        return Promise.resolve({ configured: Boolean(payload?.request?.key) });
       }
       throw new Error(`Blocked unexpected native Tauri IPC invoke: ${cmd}`);
     });
@@ -147,11 +151,11 @@ describe('Zero runtime network and zero persistent storage baseline', () => {
     const generateBtn = getByRole('button', { name: /^generate/i });
     fireEvent.click(generateBtn);
 
-    // Open and close diagnostics while collapsed
-    const triggerBtn = getByRole('button', { name: /open settings and diagnostics/i });
-    fireEvent.click(triggerBtn);
+    // Open and close help modal while collapsed
+    const helpBtn = getByRole('button', { name: /open help and documentation/i });
+    fireEvent.click(helpBtn);
 
-    const closeBtn = getByRole('button', { name: /close diagnostics/i });
+    const closeBtn = getByRole('button', { name: /close help/i });
     fireEvent.click(closeBtn);
 
     // Expand sidebar back
@@ -176,28 +180,92 @@ describe('Zero runtime network and zero persistent storage baseline', () => {
     ).toBe(true);
   });
 
-  it('creates zero persistent settings, keys, or browser storage entries across all interactions', () => {
-    const { getByRole } = render(<App />);
+  it('creates zero persistent settings, keys, or browser storage entries across all interactions including key configuration and draft clearing', async () => {
+    render(<App />);
 
-    // Collapse sidebar
-    const collapseBtn = getByRole('button', { name: /collapse sidebar/i });
+    // 1. Switch to Prompt mode and enter a draft API key
+    const promptTabBtn = screen.getByRole('button', { name: /prompt to cad/i });
+    fireEvent.click(promptTabBtn);
+
+    const keyInput = screen.getByPlaceholderText(/enter gemini api key/i);
+    fireEvent.change(keyInput, { target: { value: 'AIzaSyDraftSecretKey123' } });
+    expect(keyInput).toHaveValue('AIzaSyDraftSecretKey123');
+
+    // Storage remains strictly empty while drafting
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+
+    // 2. Collapse sidebar
+    const collapseBtn = screen.getByRole('button', { name: /collapse sidebar/i });
     fireEvent.click(collapseBtn);
 
-    // Interact with views and diagnostics while collapsed
-    const batchBtn = getByRole('button', { name: /^batch/i });
+    // 3. Switch away to Batch view - this must immediately wipe the draft key in memory
+    const batchBtn = screen.getByRole('button', { name: /^batch/i });
     fireEvent.click(batchBtn);
 
-    const triggerBtn = getByRole('button', { name: /open settings and diagnostics/i });
-    fireEvent.click(triggerBtn);
+    // Storage remains strictly empty in Batch
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
 
-    const closeBtn = getByRole('button', { name: /close diagnostics/i });
+    // 4. Interact with Help modal
+    const helpBtn = screen.getByRole('button', { name: /open help and documentation/i });
+    fireEvent.click(helpBtn);
+    const closeBtn = screen.getByRole('button', { name: /close help/i });
     fireEvent.click(closeBtn);
 
-    // Expand sidebar back
-    const expandBtn = getByRole('button', { name: /expand sidebar/i });
+    // 5. Expand sidebar back
+    const expandBtn = screen.getByRole('button', { name: /expand sidebar/i });
     fireEvent.click(expandBtn);
 
-    // Verify storage remains strictly empty
+    // 6. Navigate back to Generate view and verify draft key was wiped clean
+    const generateBtn = screen.getByRole('button', { name: /^generate/i });
+    fireEvent.click(generateBtn);
+    fireEvent.click(screen.getByRole('button', { name: /prompt to cad/i }));
+
+    const reopenedInput = screen.getByPlaceholderText(/enter gemini api key/i);
+    expect(reopenedInput).toHaveValue('');
+
+    // 7. Save a key to native session memory via IPC
+    fireEvent.change(reopenedInput, { target: { value: 'AIzaSySavedKey789' } });
+    const saveBtn = screen.getByRole('button', { name: /^save$/i });
+    fireEvent.click(saveBtn);
+
+    // Await completion of async save handler and verify configured state in UI
+    await waitFor(() => {
+      expect(screen.getByText('Configured (Session memory)')).toBeInTheDocument();
+    });
+
+    expect(tauriInvokeSpy).toHaveBeenCalledWith(
+      'generation_set_key',
+      { request: { key: 'AIzaSySavedKey789' } },
+      undefined
+    );
+
+    // Storage remains strictly 0 after saving finishes
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+
+    // 8. Open key editor, clear key, and verify null key is transmitted via IPC
+    const keyConfigHeader = screen.getByRole('button', {
+      name: /google gemini api configuration/i,
+    });
+    fireEvent.click(keyConfigHeader);
+
+    const clearBtn = await screen.findByRole('button', { name: /^clear$/i });
+    fireEvent.click(clearBtn);
+
+    // Wait for unconfigured key badge to reappear
+    await waitFor(() => {
+      expect(screen.getByText(/key required for prompt/i)).toBeInTheDocument();
+    });
+
+    expect(tauriInvokeSpy).toHaveBeenCalledWith(
+      'generation_set_key',
+      { request: { key: null } },
+      undefined
+    );
+
+    // Storage remains strictly 0 after clearing
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
   });

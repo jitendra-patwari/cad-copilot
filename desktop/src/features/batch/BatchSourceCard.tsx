@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Folder, Files, FileCode, ChevronDown, ChevronUp, Search } from 'lucide-react';
+import { Folder, Files, FileCode, ChevronDown, ChevronUp } from 'lucide-react';
 import type { BatchSourceSelection, SourceSelectMode } from './types';
 
 interface BatchSourceCardProps {
@@ -7,6 +7,8 @@ interface BatchSourceCardProps {
   sourceFiles: string[];
   disabled: boolean;
   onSelectSource: (mode: SourceSelectMode) => void;
+  initialExpanded?: boolean;
+  embedded?: boolean;
 }
 
 export const BatchSourceCard: React.FC<BatchSourceCardProps> = ({
@@ -14,24 +16,23 @@ export const BatchSourceCard: React.FC<BatchSourceCardProps> = ({
   sourceFiles,
   disabled,
   onSelectSource,
+  initialExpanded = false,
+  embedded = false,
 }) => {
-  const [isListExpanded, setIsListExpanded] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [isListExpanded, setIsListExpanded] = useState(initialExpanded);
 
   const displayFiles = sourceFiles.length > 0 ? sourceFiles : (source?.previewFiles ?? []);
-  const filteredFiles = searchQuery.trim()
-    ? displayFiles.filter((f) => f.toLowerCase().includes(searchQuery.trim().toLowerCase()))
-    : displayFiles;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-900">1. Source CAD Files</h2>
-          <p className="text-xs text-slate-500">
-            Select a folder or group of CAD files to process sequentially.
-          </p>
-        </div>
+    <div
+      className={
+        embedded
+          ? 'space-y-3'
+          : 'rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm space-y-3'
+      }
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-2">
+        <h2 className="text-xs font-semibold text-slate-800">Source CAD Files</h2>
         <div className="flex gap-2">
           <button
             type="button"
@@ -102,20 +103,9 @@ export const BatchSourceCard: React.FC<BatchSourceCardProps> = ({
               </button>
 
               {isListExpanded && (
-                <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Filter files..."
-                      aria-label="Filter source files"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full rounded-md border border-slate-300 bg-white py-1 pl-8 pr-3 text-xs text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none"
-                    />
-                  </div>
-                  <div className="max-h-48 overflow-y-auto space-y-1">
-                    {filteredFiles.map((file, idx) => (
+                <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                  <div className="max-h-60 overflow-y-auto space-y-1">
+                    {displayFiles.map((file, idx) => (
                       <div
                         key={idx}
                         className="truncate rounded bg-white px-2 py-1 font-mono text-[11px] text-slate-700 border border-slate-200/60"
@@ -124,9 +114,6 @@ export const BatchSourceCard: React.FC<BatchSourceCardProps> = ({
                         {file}
                       </div>
                     ))}
-                    {filteredFiles.length === 0 && (
-                      <p className="text-center text-xs text-slate-500 py-2">No matching files</p>
-                    )}
                   </div>
                 </div>
               )}
@@ -134,8 +121,17 @@ export const BatchSourceCard: React.FC<BatchSourceCardProps> = ({
           )}
         </div>
       ) : (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50/50 p-4 text-center">
-          <p className="text-xs text-slate-500">No source directory or files selected.</p>
+        <div className="flex flex-col items-center justify-center p-8 rounded-lg border border-dashed border-slate-300 bg-slate-50/50 text-center min-h-[200px]">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600 border border-blue-100 mb-2">
+            <Folder className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <p className="text-xs font-semibold text-slate-700">
+            No source directory or files selected.
+          </p>
+          <p className="mt-1 text-[11px] text-slate-400 max-w-xs leading-normal">
+            Choose a CAD project folder or select multiple model files (.par, .psm, .asm, .dft) to
+            begin.
+          </p>
         </div>
       )}
     </div>

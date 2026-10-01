@@ -11,7 +11,6 @@ import {
   FileCode,
 } from 'lucide-react';
 import type { GenerationResultResponse, GenerationRunSnapshot } from './types';
-import { formatBytes } from './generationState';
 
 interface GenerationResultProps {
   run: GenerationRunSnapshot;
@@ -136,77 +135,26 @@ export const GenerationResult: React.FC<GenerationResultProps> = ({
         </div>
       )}
 
-      {isSucceeded && result && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-              Published CAD Artifacts
-            </h3>
-            <span className="text-xs text-slate-500">
-              {result.artifacts.length} files verified against manifest
-            </span>
-          </div>
-
-          <div className="overflow-hidden rounded-lg border border-slate-200">
-            <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-semibold">
-                <tr>
-                  <th scope="col" className="px-3 py-2">
-                    Format
-                  </th>
-                  <th scope="col" className="px-3 py-2">
-                    Filename
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-right">
-                    Size
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 bg-white text-slate-800">
-                {result.artifacts.map((art) => (
-                  <tr key={art.filename} className="hover:bg-slate-50/70">
-                    <td className="whitespace-nowrap px-3 py-2 font-medium">
-                      <div className="flex items-center gap-1.5">
-                        {art.format === 'par' && <FileBox className="h-3.5 w-3.5 text-blue-600" />}
-                        {art.format === 'step' && (
-                          <Layers className="h-3.5 w-3.5 text-indigo-600" />
-                        )}
-                        {art.format === 'stl' && (
-                          <FileCode className="h-3.5 w-3.5 text-emerald-600" />
-                        )}
-                        {art.format === 'jpg' && (
-                          <ImageIcon className="h-3.5 w-3.5 text-amber-600" />
-                        )}
-                        <span className="uppercase">{art.format}</span>
-                      </div>
-                    </td>
-                    <td className="font-mono text-slate-700 px-3 py-2" title={art.path}>
-                      {art.filename}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-slate-600">
-                      {formatBytes(art.sizeBytes)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Static JPEG Preview */}
+      {/* Static JPEG Preview under CAD Geometry Preview header */}
       {isSucceeded && (
-        <div className="space-y-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-            Rendered Preview
-          </h3>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+              CAD Geometry Preview
+            </h3>
+            {result && (
+              <span className="text-[11px] text-slate-500 font-medium">
+                {result.artifacts.length} format{result.artifacts.length === 1 ? '' : 's'} verified
+              </span>
+            )}
+          </div>
 
           {previewBlobUrl && !decodeError ? (
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-900/5 p-2 text-center">
               <img
                 src={previewBlobUrl}
                 alt="Solid Edge Rendered CAD Preview"
-                className="mx-auto max-h-80 w-auto rounded-lg object-contain shadow-xs"
+                className="mx-auto max-h-64 sm:max-h-72 w-auto rounded-lg object-contain shadow-xs"
                 onError={handleImageError}
               />
             </div>
@@ -231,88 +179,25 @@ export const GenerationResult: React.FC<GenerationResultProps> = ({
         </div>
       )}
 
-      {/* Manifest Summary Details */}
-      {isSucceeded && result?.manifestSummary && (
-        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-2 text-xs">
-          <p className="font-semibold text-slate-800">Execution Provenance & Environment</p>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-slate-600 sm:grid-cols-3">
-            <div>
-              <span className="text-slate-400">Provenance: </span>
-              <span className="font-medium text-slate-800">
-                {result.manifestSummary.provenanceKind}
+      {/* Published Format Badges */}
+      {isSucceeded && result && (
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            {result.artifacts.map((art) => (
+              <span
+                key={art.filename}
+                title={art.filename}
+                data-testid={`artifact-${art.format}`}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-2xs"
+              >
+                {art.format === 'par' && <FileBox className="h-3.5 w-3.5 text-blue-600" />}
+                {art.format === 'step' && <Layers className="h-3.5 w-3.5 text-indigo-600" />}
+                {art.format === 'stl' && <FileCode className="h-3.5 w-3.5 text-emerald-600" />}
+                {art.format === 'jpg' && <ImageIcon className="h-3.5 w-3.5 text-amber-600" />}
+                <span className="uppercase">{art.format}</span>
               </span>
-            </div>
-            {result.manifestSummary.sourceId && (
-              <div>
-                <span className="text-slate-400">Source: </span>
-                <span className="font-medium text-slate-800">
-                  {result.manifestSummary.sourceId}
-                </span>
-              </div>
-            )}
-            {result.manifestSummary.operationsExecuted != null && (
-              <div>
-                <span className="text-slate-400">Operations: </span>
-                <span className="font-semibold text-slate-800">
-                  {result.manifestSummary.operationsExecuted} executed
-                </span>
-              </div>
-            )}
-            {result.manifestSummary.cadRuntimeVersion && (
-              <div>
-                <span className="text-slate-400">Solid Edge Build: </span>
-                <span className="font-mono text-slate-800">
-                  {result.manifestSummary.cadRuntimeVersion}
-                </span>
-              </div>
-            )}
-            <div>
-              <span className="text-slate-400">Schema: </span>
-              <span className="font-mono text-slate-800">
-                {result.manifestSummary.schemaVersion}
-              </span>
-            </div>
-            {result.manifestSummary.planSha256 && (
-              <div>
-                <span className="text-slate-400">Plan SHA-256: </span>
-                <span
-                  className="font-mono text-slate-800"
-                  title={result.manifestSummary.planSha256}
-                >
-                  {result.manifestSummary.planSha256.substring(0, 8)}…
-                </span>
-              </div>
-            )}
-            {result.manifestSummary.promptSha256 && (
-              <div>
-                <span className="text-slate-400">Prompt SHA-256: </span>
-                <span
-                  className="font-mono text-slate-800"
-                  title={result.manifestSummary.promptSha256}
-                >
-                  {result.manifestSummary.promptSha256.substring(0, 8)}…
-                </span>
-              </div>
-            )}
+            ))}
           </div>
-          {result.manifestSummary.diagnostics && result.manifestSummary.diagnostics.length > 0 && (
-            <div className="mt-3 border-t border-slate-200/80 pt-2.5">
-              <p className="font-semibold text-slate-700">
-                Diagnostics ({result.manifestSummary.diagnostics.length})
-              </p>
-              <ul className="mt-1 space-y-1">
-                {result.manifestSummary.diagnostics.map((diag, idx) => (
-                  <li key={idx} className="flex items-start gap-1.5 text-slate-700">
-                    <span className="font-medium text-slate-500 uppercase text-[10px]">
-                      [{diag.severity}]
-                    </span>
-                    <span className="font-mono text-slate-600">{diag.code}:</span>
-                    <span>{diag.message}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
         </div>
       )}
     </div>

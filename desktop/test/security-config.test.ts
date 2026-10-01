@@ -127,9 +127,17 @@ describe('Tauri security configuration baseline', () => {
       'batch_resolve_close',
     ];
 
-    for (const cmd of approvedCommands) {
-      expect(libRs).toContain(cmd);
-    }
+    // Extract exact commands registered in tauri::generate_handler![...]
+    const handlerMatch = libRs.match(/generate_handler!\[\s*([\s\S]*?)\s*\]/);
+    expect(handlerMatch).not.toBeNull();
+
+    const registeredCommands = handlerMatch![1]
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0)
+      .map((entry) => entry.split('::').pop()!);
+
+    expect(registeredCommands.slice().sort()).toEqual(approvedCommands.slice().sort());
   });
 
   it('prohibits asset protocol and broad capability scopes', () => {

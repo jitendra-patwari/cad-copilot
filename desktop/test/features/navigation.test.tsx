@@ -1,6 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
 import { App } from '../../src/app/App';
+import type { GenerationSnapshot } from '../../src/features/generate/types';
+import type { BatchSnapshot } from '../../src/features/batch/types';
 
 describe('Application Shell Navigation', () => {
   it('renders CAD Copilot header and default Generate view', () => {
@@ -8,7 +11,7 @@ describe('Application Shell Navigation', () => {
 
     expect(screen.getByText('CAD Copilot')).toBeInTheDocument();
     expect(
-      screen.getByRole('heading', { level: 1, name: /cad model generation/i })
+      screen.getByRole('heading', { level: 1, name: /design workspace/i })
     ).toBeInTheDocument();
   });
 
@@ -52,7 +55,7 @@ describe('Application Shell Navigation', () => {
     fireEvent.click(generateBtn);
 
     expect(
-      screen.getByRole('heading', { level: 1, name: /cad model generation/i })
+      screen.getByRole('heading', { level: 1, name: /design workspace/i })
     ).toBeInTheDocument();
     expect(generateBtn).toHaveAttribute('aria-current', 'page');
     expect(batchBtn).not.toHaveAttribute('aria-current');
@@ -131,7 +134,7 @@ describe('Application Shell Navigation', () => {
     expect(screen.getByRole('button', { name: /collapse sidebar/i })).toBeInTheDocument();
   });
 
-  it('supports accessible navigation and diagnostics opening when sidebar is collapsed', async () => {
+  it('supports accessible navigation and Help panel opening when sidebar is collapsed', async () => {
     render(<App />);
 
     // Collapse sidebar
@@ -162,34 +165,68 @@ describe('Application Shell Navigation', () => {
     expect(document.activeElement).toBe(generateBtn);
     fireEvent.click(generateBtn);
     expect(
-      screen.getByRole('heading', { level: 1, name: /cad model generation/i })
+      screen.getByRole('heading', { level: 1, name: /design workspace/i })
     ).toBeInTheDocument();
     expect(generateBtn).toHaveAttribute('aria-current', 'page');
 
-    // Opening settings/diagnostics panel while collapsed works as expected
-    const diagnosticsBtn = screen.getByRole('button', {
-      name: /open settings and diagnostics/i,
-    });
-    expect(diagnosticsBtn).toBeInTheDocument();
-    expect(diagnosticsBtn).toHaveAttribute('aria-label', 'Open settings and diagnostics');
+    // Verify Settings button is not rendered (removed dead-end surface)
+    expect(
+      screen.queryByRole('button', { name: /open settings and diagnostics/i })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /settings/i })).not.toBeInTheDocument();
 
-    diagnosticsBtn.focus();
-    expect(document.activeElement).toBe(diagnosticsBtn);
-    fireEvent.click(diagnosticsBtn);
+    // Opening Help panel while collapsed works as expected
+    const helpBtn = screen.getByRole('button', {
+      name: /open help and documentation/i,
+    });
+    expect(helpBtn).toBeInTheDocument();
+
+    helpBtn.focus();
+    expect(document.activeElement).toBe(helpBtn);
+    fireEvent.click(helpBtn);
 
     expect(screen.getByRole('dialog')).toBeInTheDocument();
 
-    const closeBtn = screen.getByRole('button', { name: /close diagnostics/i });
+    const closeBtn = screen.getByRole('button', { name: /close help/i });
     // Await initial delayed focus moving inside dialog
     await waitFor(() => {
       expect(document.activeElement).toBe(closeBtn);
     });
 
-    // Closing diagnostics dismisses modal and restores focus to trigger button
+    // Closing help dismisses modal and restores focus to trigger button
     fireEvent.click(closeBtn);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await waitFor(() => {
-      expect(document.activeElement).toBe(diagnosticsBtn);
+      expect(document.activeElement).toBe(helpBtn);
+    });
+  });
+
+  it('supports accessible Help panel opening and dismissal from sidebar footer', async () => {
+    render(<App />);
+
+    const helpBtn = screen.getByRole('button', {
+      name: /open help and documentation/i,
+    });
+    expect(helpBtn).toBeInTheDocument();
+    expect(helpBtn).toHaveAttribute('aria-label', 'Open help and documentation');
+
+    helpBtn.focus();
+    expect(document.activeElement).toBe(helpBtn);
+    fireEvent.click(helpBtn);
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /^help$/i })).toBeInTheDocument();
+
+    const closeBtn = screen.getByRole('button', { name: /close help/i });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(closeBtn);
+    });
+
+    // Dismissing Help restores focus to Help button
+    fireEvent.click(closeBtn);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(document.activeElement).toBe(helpBtn);
     });
   });
 
@@ -203,5 +240,157 @@ describe('Application Shell Navigation', () => {
     expect(textContent).not.toContain('subscription');
     expect(textContent).not.toContain('mock mode');
     expect(textContent).not.toContain('upload image');
+  });
+
+  it('contains no secret input fields, server configuration, or license fields anywhere in the shell', () => {
+    const { container } = render(<App />);
+
+    const inputs = container.querySelectorAll('input[type="password"], input[name*="license"]');
+    expect(inputs).toHaveLength(0);
+
+    const appText = container.textContent?.toLowerCase() ?? '';
+    expect(appText).not.toContain('server url');
+    expect(appText).not.toContain('license key');
+    expect(appText).not.toContain('password');
+    expect(appText).not.toContain('telemetry');
+    expect(appText).not.toContain('account settings');
+    expect(appText).not.toContain('diagnostics & settings');
+  });
+
+  it('disables Batch run button and displays busy warning in Batch view when Generation is busy in App', async () => {
+    const invokeSpy = vi.fn(async (cmd: string) => {
+      if (cmd === 'plugin:event|listen') {
+        return Math.floor(Math.random() * 1000);
+      }
+      if (cmd === 'plugin:event|unlisten') {
+        return;
+      }
+      if (cmd === 'generation_snapshot') {
+        return {
+          revision: 1,
+          nativeAvailable: true,
+          keyConfigured: false,
+          output: null,
+          run: {
+            requestId: 'gen-active-app',
+            state: 'running',
+            phase: 'generation_started',
+            engineStatus: 'accepted',
+            reason: null,
+            resultAccess: 'none',
+            cleanup: 'no_failure_observed',
+            closeRequested: false,
+            warnings: [],
+          },
+        } satisfies GenerationSnapshot;
+      }
+      if (cmd === 'batch_snapshot') {
+        return {
+          revision: 1,
+          nativeAvailable: true,
+          source: {
+            selectionId: 'src-1',
+            displayRoot: 'C:/models',
+            parCount: 1,
+            psmCount: 0,
+            asmCount: 0,
+            dftCount: 0,
+            skippedCount: 0,
+            previewFiles: ['part1.par'],
+          },
+          output: {
+            selectionId: 'out-1',
+            displayPath: 'C:/exports',
+          },
+          run: null,
+        } satisfies BatchSnapshot;
+      }
+      return;
+    });
+
+    mockIPC(invokeSpy);
+
+    try {
+      render(<App />);
+
+      // Switch to Batch
+      const batchBtn = screen.getByRole('button', { name: /^batch/i });
+      fireEvent.click(batchBtn);
+
+      // Start Batch Run button must be disabled and warning displayed
+      await waitFor(() => {
+        const startBatchBtn = screen.getByRole('button', { name: /start batch run/i });
+        expect(startBatchBtn).toBeDisabled();
+        expect(
+          screen.getByText(/a cad model generation is currently running/i)
+        ).toBeInTheDocument();
+      });
+    } finally {
+      clearMocks();
+    }
+  });
+
+  it('disables Generation run button and displays busy warning in Generate view when Batch is busy in App', async () => {
+    const invokeSpy = vi.fn(async (cmd: string) => {
+      if (cmd === 'plugin:event|listen') {
+        return Math.floor(Math.random() * 1000);
+      }
+      if (cmd === 'plugin:event|unlisten') {
+        return;
+      }
+      if (cmd === 'generation_snapshot') {
+        return {
+          revision: 1,
+          nativeAvailable: true,
+          keyConfigured: false,
+          output: {
+            selectionId: 'out-1',
+            displayPath: 'C:/exports',
+          },
+          run: null,
+        } satisfies GenerationSnapshot;
+      }
+      if (cmd === 'batch_snapshot') {
+        return {
+          revision: 1,
+          nativeAvailable: true,
+          source: null,
+          output: null,
+          run: {
+            requestId: 'batch-active-app',
+            state: 'running',
+            engineStatus: null,
+            phase: 'batch_started',
+            totalFiles: 5,
+            completedFiles: 1,
+            currentFile: 'test.par',
+            currentFormat: 'step',
+            lastFileStatus: null,
+            cleanup: 'no_failure_observed',
+            closeRequested: false,
+            manifestState: 'not_applicable',
+            reason: null,
+          },
+        } satisfies BatchSnapshot;
+      }
+      return;
+    });
+
+    mockIPC(invokeSpy);
+
+    try {
+      render(<App />);
+
+      // Default view is Generate. Submit button must be disabled due to isBatchBusy
+      await waitFor(() => {
+        const startGenBtn = screen.getByRole('button', { name: /run cad generation/i });
+        expect(startGenBtn).toBeDisabled();
+        expect(
+          screen.getByText(/a batch conversion operation is currently running/i)
+        ).toBeInTheDocument();
+      });
+    } finally {
+      clearMocks();
+    }
   });
 });
