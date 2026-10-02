@@ -18,6 +18,8 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({ generation, isOtherB
     setMode,
     prompt,
     setPrompt,
+    keepPartOpen,
+    setKeepPartOpen,
     isKeyEditorOpen,
     setIsKeyEditorOpen,
     keyInput,
@@ -84,6 +86,8 @@ export const GeneratePage: React.FC<GeneratePageProps> = ({ generation, isOtherB
                 setMode={setMode}
                 prompt={prompt}
                 setPrompt={setPrompt}
+                keepPartOpen={keepPartOpen}
+                setKeepPartOpen={setKeepPartOpen}
                 output={snapshot.output}
                 selectFolder={selectFolder}
                 keyConfigured={snapshot.keyConfigured}

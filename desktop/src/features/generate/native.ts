@@ -49,7 +49,8 @@ export async function setSessionKey(key: string | null): Promise<{ configured: b
 
 export async function startGeneration(
   selectionId: string,
-  input: GenerationInput
+  input: GenerationInput,
+  keepPartOpen = false
 ): Promise<GenerationSnapshot> {
   if (!isTauriAvailable()) {
     throw {
@@ -58,7 +59,7 @@ export async function startGeneration(
     } satisfies CommandError;
   }
   return invoke<GenerationSnapshot>('generation_start', {
-    request: { selectionId, input },
+    request: { selectionId, input, keepPartOpen },
   });
 }
 

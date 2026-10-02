@@ -753,6 +753,7 @@ fn test_generation_supervisor_terminates_child_hanging_after_response_ready() {
                 cad_copilot_desktop_lib::generation::types::GenerationInput::ExamplePlan {
                     example_id: "spur_gear".to_string(),
                 },
+                false,
             )
             .expect("reserve_run should succeed");
         snap.run.expect("Active run snapshot must exist").request_id
@@ -860,6 +861,7 @@ while True:
             cad_copilot_desktop_lib::generation::types::GenerationInput::ExamplePlan {
                 example_id: "spur_gear".to_string(),
             },
+            false,
         );
         assert!(
             rerun_res.is_err(),

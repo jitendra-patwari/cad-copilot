@@ -592,6 +592,49 @@ class SolidEdgeRuntime(CADRuntimeABC):
         self._open_document_handles[handle.handle_id] = handle
         return handle
 
+    def open_part_for_user(self, path: Path) -> None:
+        """Reopen a published part, leaving its document and application under user control.
+
+        Export documents must already be released. Failures before transfer retain
+        ownership so normal teardown still closes the reopened document.
+        """
+        if self._is_poisoned or self._open_document_handles or self._pending_creation is not None:
+            raise CADRuntimeError("Cannot transfer a session with unfinished request documents")
+        if self._application is None:
+            raise CADRuntimeError("No active Solid Edge application instance")
+        resolved_path = path.resolve()
+        if not resolved_path.is_file() or resolved_path.suffix.lower() != ".par":
+            raise CADDocumentError("Published native part is unavailable")
+        worker = self._ensure_worker()
+
+        def _transfer() -> None:
+            app = worker._raw_app
+            if app is None:
+                raise CADRuntimeError("No active Solid Edge application instance")
+            raw_doc = worker._invoke_com(lambda: app.Documents.Open(str(resolved_path)))
+            handle = SolidEdgeDocumentHandle(handle_id=str(uuid.uuid4()), path=resolved_path)
+            # Track on the worker as soon as Open returns, including completion
+            # after a caller timeout. Failed activation remains cleanup-owned.
+            worker._document_registry[handle.handle_id] = raw_doc
+            self._open_document_handles[handle.handle_id] = handle
+            worker._invoke_com(lambda: raw_doc.Activate())
+            worker._invoke_com(lambda: setattr(app, "Visible", True))
+            if self._owned_process_identity is not None:
+                worker._invoke_com(lambda: setattr(app, "DisplayAlerts", True))
+            # Commit the transfer on the worker, including late completion after
+            # a caller timeout. Teardown must never quit a transferred session.
+            worker._document_registry.pop(handle.handle_id)
+            self._open_document_handles.pop(handle.handle_id)
+            assert self._application is not None
+            self._application = dataclasses.replace(self._application, ownership=OwnershipMode.BORROWED)
+            self._owned_process_identity = None
+
+        try:
+            worker.call(_transfer, timeout=15.0)
+        except TimeoutError:
+            self._is_poisoned = True
+            raise
+
     def _worker_close_document(self, worker: Any, handle_id: str) -> None:
         """Worker-side document close, reference release, pending-idle tracking, and DoIdle sequence.
 

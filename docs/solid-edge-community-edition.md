@@ -42,3 +42,5 @@ When testing your local Solid Edge installation with CAD Copilot:
 2. Launch CAD Copilot via `pnpm --filter @cad-copilot/desktop tauri dev`.
 3. In the **Design Workspace**, select the default **Example (Spur Gear)** mode and choose an output directory.
 4. Click **Run CAD Generation**. This deterministic path verifies COM connection, part creation, and artifact export completely locally without requiring an API key or network access.
+
+To also test natural-language generation, follow **[Gemini API Key Setup](gemini-api-key.md)** for a Google AI Studio key, free-tier limits, and a first **Prompt to CAD** run.

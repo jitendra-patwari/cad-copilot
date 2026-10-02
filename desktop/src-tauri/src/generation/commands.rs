@@ -146,7 +146,8 @@ pub fn generation_start(
             ));
         }
 
-        let snap = guard.reserve_run(&request.selection_id, request.input)?;
+        let snap =
+            guard.reserve_run(&request.selection_id, request.input, request.keep_part_open)?;
         if let Some(run) = &snap.run {
             if let Err(msg) =
                 claim_guard.claim(crate::run_claim::RunKind::Generation, &run.request_id)

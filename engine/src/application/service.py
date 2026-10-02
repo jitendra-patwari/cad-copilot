@@ -397,13 +397,26 @@ class GenerationService:
                 return build_failed_response(valid_req_id, "INTERNAL_ERROR", warnings=accumulated_warnings)
 
             try:
-                return build_accepted_response(
+                response = build_accepted_response(
                     valid_req_id,
                     finalized.exported_artifacts,
                     warnings=accumulated_warnings,
                 )
             except ArtifactProjectionError:
                 return build_failed_response(valid_req_id, "INTERNAL_ERROR", warnings=accumulated_warnings)
+
+            if request.keep_part_open:
+                try:
+                    native_part = next(a for a in response["data"]["artifacts"] if a["format"] == "par")
+                    published_path = Path(native_part["path"])
+                    assert_contained(published_path, resolved_root)
+                    runtime.open_part_for_user(published_path)
+                except Exception:
+                    accumulated_warnings.append({"code": "PART_OPEN_FAILED"})
+                    # Artifacts have already been projected and validated. Only
+                    # update the public warning list; do not reproject them.
+                    response["warnings"] = project_warnings(accumulated_warnings)
+            return response
 
         finally:
             # Phase E: Guaranteed Teardown

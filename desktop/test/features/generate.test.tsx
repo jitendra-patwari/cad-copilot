@@ -3,6 +3,16 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { App } from '../../src/app/App';
 
 describe('Generate Workspace Geometry Scope', () => {
+  it('offers an unchecked keep-open checkbox that the user can toggle', () => {
+    render(<App />);
+    const checkbox = screen.getByRole('checkbox', { name: /keep part open in solid edge/i });
+    expect(checkbox).not.toBeChecked();
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    fireEvent.click(checkbox);
+    expect(checkbox).not.toBeChecked();
+  });
+
   it('renders verified geometric capabilities and avoids unpromoted operations in Help panel', () => {
     render(<App />);
 

@@ -282,6 +282,7 @@ def build_typed_generation_request(payload: dict[str, Any]) -> GenerationRequest
                 unit="mm",
                 example_id=payload["example_id"],
                 metadata=copied_metadata,
+                keep_part_open=payload.get("keep_part_open", False),
             )
         if kind == "prompt_to_cad":
             return PromptGenerationRequest(
@@ -291,6 +292,7 @@ def build_typed_generation_request(payload: dict[str, Any]) -> GenerationRequest
                 unit="mm",
                 prompt=payload["prompt"],
                 metadata=copied_metadata,
+                keep_part_open=payload.get("keep_part_open", False),
             )
         raise InvalidRequestError(f"Unsupported request kind '{kind}'", request_id=safe_req_id)
     except ValueError as exc:

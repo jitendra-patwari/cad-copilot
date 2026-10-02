@@ -60,6 +60,7 @@ PUBLIC_WARNING_MESSAGES: Mapping[str, str] = {
     # Artifact & Preview warnings
     "PREVIEW_EXPORT_FAILED": "Preview image generation was skipped or unavailable; CAD geometry exported successfully.",
     "PREVIEW_CLEANUP_FAILED": "Temporary preview export file cleanup failed.",
+    "PART_OPEN_FAILED": "CAD files were generated, but the saved part could not be left open in Solid Edge.",
     # Runtime warnings
     "VERSION_METADATA_UNAVAILABLE": "CAD runtime did not report version metadata.",
     # Validation & Gate Policy warnings

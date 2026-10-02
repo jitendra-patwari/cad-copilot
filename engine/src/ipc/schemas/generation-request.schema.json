@@ -18,7 +18,8 @@
           "maxLength": 8000,
           "pattern": "\\S"
         },
-        "metadata": { "$ref": "#/$defs/metadataPayload" }
+        "metadata": { "$ref": "#/$defs/metadataPayload" },
+        "keep_part_open": { "type": "boolean", "default": false }
       }
     },
     {
@@ -34,7 +35,8 @@
           "type": "string",
           "enum": ["spur_gear"]
         },
-        "metadata": { "$ref": "#/$defs/metadataPayload" }
+        "metadata": { "$ref": "#/$defs/metadataPayload" },
+        "keep_part_open": { "type": "boolean", "default": false }
       }
     }
   ],

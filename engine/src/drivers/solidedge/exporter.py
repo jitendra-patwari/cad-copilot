@@ -4,8 +4,8 @@ Invariants:
     - Dedicated STA Seam: all COM calls execute strictly within an STA thread worker.
     - Identity-Preserving Export: uses `SaveCopyAs` for all required model formats (PAR, STEP, STL),
       preserving active in-memory document identity and file path without identity mutation.
-    - Document-Owned Preview: captures thumbnails strictly through the document's own window/view
-      (`raw_doc.Windows.Item(1).View.SaveAsImage(...)`).
+    - Request-Bound Preview: activates the request document, verifies its COM identity against
+      Application.ActiveDocument, then captures Application.ActiveWindow.View.
     - Localized Preview Classification: distinguishes localized preview failures (non-fatal warning
       if post-failure document health probe succeeds) from fatal document loss or worker crash.
     - Sanitized Error Diagnostics (SEC-07): strips absolute workstation paths and COM pointers from
@@ -263,11 +263,20 @@ def capture_preview_image(
     target_fspath = os.fspath(output_path.resolve(strict=False))
 
     try:
-        # Resolve window collection strictly from the request document's own Windows collection
-        windows = worker._invoke_com(lambda: getattr(raw_doc, "Windows", None))
-        win_count = worker._invoke_com(lambda: getattr(windows, "Count", 0)) if windows is not None else 0
+        # PartDocument.Windows is not implemented in some Solid Edge versions.
+        # Activate our document, then use the application's documented window.
+        worker._invoke_com(lambda: raw_doc.Activate())
+        app = worker._invoke_com(lambda: raw_doc.Application)
+        target_win = worker._invoke_com(lambda: app.ActiveWindow)
+        # Pywin32 dispatch equality compares the underlying COM objects. Never
+        # capture a user's unrelated part by matching a filename or caption.
+        if not worker._invoke_com(lambda: app.ActiveDocument == raw_doc):
+            raise CADExportError(
+                "The active preview window does not belong to the request document",
+                error_code="PREVIEW_EXPORT_FAILED",
+            )
 
-        if win_count <= 0:
+        if target_win is None:
             # Check document health before raising localized failure
             if not probe_document_health(raw_doc, worker):
                 raise CADDocumentError(
@@ -279,7 +288,6 @@ def capture_preview_image(
                 error_code="PREVIEW_EXPORT_FAILED",
             )
 
-        target_win = worker._invoke_com(lambda: windows.Item(1))
         view = worker._invoke_com(lambda: getattr(target_win, "View", None)) if target_win is not None else None
 
         if view is None:
@@ -293,7 +301,12 @@ def capture_preview_image(
                 error_code="PREVIEW_EXPORT_FAILED",
             )
 
-        worker._invoke_com(lambda: view.SaveAsImage(target_fspath, width, height))
+        worker._invoke_com(lambda: view.Fit())
+        # Width/height are multiplied by Resolution. Pin it to 1 for pixels,
+        # and use the documented 24-bit JPEG depth rather than user defaults.
+        # Missing preserves the current view style, including localized/custom
+        # templates; None is a COM null value rather than an omitted argument.
+        worker._invoke_com(lambda: view.SaveAsImage(target_fspath, width, height, worker._pythoncom.Missing, 1, 24))
 
     except (CADDocumentError, CADExportError) as _flow_exc:
         raise

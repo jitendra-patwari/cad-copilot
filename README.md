@@ -24,6 +24,8 @@ CAD Copilot is an open-source Windows desktop application that converts natural-
 
 The current preview runs from source on Windows 10/11 (64-bit) with a local installation of Siemens Solid Edge®. Siemens offers **[Solid Edge Community Edition](docs/solid-edge-community-edition.md)** free of charge for personal, non-commercial use. Install the Python, Node.js/pnpm, and Rust toolchains described in the **[Getting Started Guide](docs/getting-started.md)**, then launch the Tauri development app with `pnpm --filter @cad-copilot/desktop tauri dev`.
 
+For natural-language generation, follow **[Gemini API Key Setup](docs/gemini-api-key.md)** to obtain a key in Google AI Studio and run a first prompt using an eligible free-tier project. The guide covers session key entry, quotas, and free-tier data handling. Examples and batch exports need no API key.
+
 A downloadable installer is planned after the updated build passes separate installed acceptance.
 
 ---

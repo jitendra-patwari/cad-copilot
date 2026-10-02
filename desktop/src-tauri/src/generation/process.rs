@@ -6,7 +6,8 @@ use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager, Window};
 
 use super::launcher::{
-    format_request_payload, prepare_child_env_for_launch, resolve_engine_launch, EngineWorkflow,
+    format_request_payload_with_options, prepare_child_env_for_launch, resolve_engine_launch,
+    EngineWorkflow,
 };
 use super::protocol::{
     WireResponse, WireResponseData, MAX_STDERR_AGGREGATE_BYTES, MAX_STDERR_LINE_BYTES,
@@ -58,6 +59,10 @@ pub const KNOWN_WARNING_PRESENTATIONS: &[(&str, &str)] = &[
     (
         "PREVIEW_CLEANUP_FAILED",
         "Temporary preview export file cleanup failed.",
+    ),
+    (
+        "PART_OPEN_FAILED",
+        "CAD files were generated, but the saved part could not be left open in Solid Edge.",
     ),
     (
         "VERSION_METADATA_UNAVAILABLE",
@@ -500,10 +505,11 @@ fn run_supervisor(
             output_path,
             guard.session_key.clone(),
             run.cancel_token.clone(),
+            run.keep_part_open,
         ))
     });
 
-    let (input, output_path, session_key, cancel_token) = match init_result {
+    let (input, output_path, session_key, cancel_token, keep_part_open) = match init_result {
         Some(Ok(data)) => data,
         Some(Err(msg)) => {
             finalize_terminal(
@@ -628,7 +634,7 @@ fn run_supervisor(
     }
 
     // Step 4: Format payload & prepare environment
-    let payload = match format_request_payload(&request_id, &input) {
+    let payload = match format_request_payload_with_options(&request_id, &input, keep_part_open) {
         Ok(p) => p,
         Err(e) => {
             finalize_terminal(

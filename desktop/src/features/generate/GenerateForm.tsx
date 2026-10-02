@@ -19,6 +19,8 @@ interface GenerateFormProps {
   setMode: (mode: 'example' | 'prompt') => void;
   prompt: string;
   setPrompt: (prompt: string) => void;
+  keepPartOpen: boolean;
+  setKeepPartOpen: (keepOpen: boolean) => void;
   output: GenerationOutputSelection | null;
   selectFolder: () => Promise<void>;
   keyConfigured: boolean;
@@ -43,6 +45,8 @@ export const GenerateForm: React.FC<GenerateFormProps> = ({
   setMode,
   prompt,
   setPrompt,
+  keepPartOpen,
+  setKeepPartOpen,
   output,
   selectFolder,
   keyConfigured,
@@ -340,6 +344,22 @@ export const GenerateForm: React.FC<GenerateFormProps> = ({
           </button>
         </div>
       </div>
+
+      <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-700 shadow-sm">
+        <input
+          type="checkbox"
+          checked={keepPartOpen}
+          onChange={(event) => setKeepPartOpen(event.target.checked)}
+          disabled={isRunActive || isSubmitting || isOtherBusy}
+          className="mt-0.5 h-4 w-4 accent-blue-600"
+        />
+        <span>
+          <span className="font-semibold">Keep part open in Solid Edge</span>
+          <span className="mt-1 block text-slate-500">
+            Opens the saved part after successful generation. Leave unchecked to close it.
+          </span>
+        </span>
+      </label>
 
       {/* Action Error Banner */}
       {actionError && (

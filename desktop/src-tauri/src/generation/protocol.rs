@@ -18,6 +18,8 @@ pub struct WireRequest {
     pub example_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
+    #[serde(default)]
+    pub keep_part_open: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

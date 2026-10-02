@@ -25,6 +25,8 @@ export interface UseGenerationReturn {
   setMode: (mode: 'example' | 'prompt') => void;
   prompt: string;
   setPrompt: (prompt: string) => void;
+  keepPartOpen: boolean;
+  setKeepPartOpen: (keepOpen: boolean) => void;
   isKeyEditorOpen: boolean;
   setIsKeyEditorOpen: (open: boolean) => void;
   keyInput: string;
@@ -59,6 +61,7 @@ export function useGeneration(): UseGenerationReturn {
   const [snapshot, setSnapshot] = useState<GenerationSnapshot>(DEFAULT_SNAPSHOT);
   const [mode, setModeState] = useState<'example' | 'prompt'>('example');
   const [prompt, setPrompt] = useState<string>('');
+  const [keepPartOpen, setKeepPartOpen] = useState(false);
   const [isKeyEditorOpen, setIsKeyEditorOpenState] = useState<boolean>(false);
   const [keyInput, setKeyInput] = useState<string>('');
   const [activeResult, setActiveResult] = useState<GenerationResultResponse | null>(null);
@@ -335,7 +338,7 @@ export function useGeneration(): UseGenerationReturn {
     setIsSubmitting(true);
 
     try {
-      const newSnap = await startGeneration(snapshot.output.selectionId, input);
+      const newSnap = await startGeneration(snapshot.output.selectionId, input, keepPartOpen);
       const newRequestId = newSnap.run?.requestId;
       // Clear prior results only if the active result does not already belong to this new run
       // (a fast terminal event and result fetch may have already completed while startGeneration was in flight)
@@ -365,6 +368,7 @@ export function useGeneration(): UseGenerationReturn {
     snapshot.keyConfigured,
     mode,
     prompt,
+    keepPartOpen,
     isSubscribed,
     clearBlobUrl,
     applySnapshot,
@@ -421,6 +425,8 @@ export function useGeneration(): UseGenerationReturn {
     setMode,
     prompt,
     setPrompt,
+    keepPartOpen,
+    setKeepPartOpen,
     isKeyEditorOpen,
     setIsKeyEditorOpen,
     keyInput,

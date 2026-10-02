@@ -110,6 +110,8 @@ pub struct SetKeyResponse {
 pub struct StartGenerationRequest {
     pub selection_id: String,
     pub input: GenerationInput,
+    #[serde(default)]
+    pub keep_part_open: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -41,6 +41,25 @@ CANONICAL_SCHEMAS_DIR = ROOT_DIR / "contracts" / "schemas" / "generation"
 PACKAGED_SCHEMAS_DIR = Path(__file__).resolve().parents[2] / "src" / "ipc" / "schemas"
 
 
+@pytest.mark.parametrize("kind", ["example_plan", "prompt_to_cad"])
+@pytest.mark.parametrize("keep_open", [None, False, True, "true", 1])
+def test_keep_part_open_request_contract(kind: str, keep_open: Any) -> None:
+    payload: dict[str, Any] = {
+        "contract_version": "1.0",
+        "request_id": "req_open",
+        "kind": kind,
+        "unit": "mm",
+    }
+    payload.update({"example_id": "spur_gear"} if kind == "example_plan" else {"prompt": "Make a block"})
+    if keep_open is not None:
+        payload["keep_part_open"] = keep_open
+    if keep_open is not None and type(keep_open) is not bool:
+        with pytest.raises(InvalidRequestError):
+            build_typed_generation_request(payload)
+    else:
+        assert build_typed_generation_request(payload).keep_part_open is (keep_open is True)
+
+
 # ---------------------------------------------------------------------------
 # 1. Canonical Schema Parity and Meta-Validation
 # ---------------------------------------------------------------------------

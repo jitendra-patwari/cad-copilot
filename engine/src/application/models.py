@@ -35,8 +35,11 @@ class ExampleGenerationRequest:
     unit: Literal["mm"]
     example_id: str
     metadata: Mapping[str, str] | None = None
+    keep_part_open: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.keep_part_open) is not bool:
+            raise ValueError("keep_part_open must be a boolean")
         if self.contract_version != "1.0":
             raise ValueError(f"Unsupported contract_version '{self.contract_version}', expected '1.0'")
         if (
@@ -65,8 +68,11 @@ class PromptGenerationRequest:
     unit: Literal["mm"]
     prompt: str
     metadata: Mapping[str, str] | None = None
+    keep_part_open: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.keep_part_open) is not bool:
+            raise ValueError("keep_part_open must be a boolean")
         if self.contract_version != "1.0":
             raise ValueError(f"Unsupported contract_version '{self.contract_version}', expected '1.0'")
         if (

@@ -111,6 +111,59 @@ def _make_valid_creation_ft() -> int:
     return int(time.time() * 10000000 + 116444736000000000)
 
 
+@pytest.mark.parametrize("owned", [False, True])
+def test_user_part_survives_teardown_with_owned_or_borrowed_session(tmp_path: Path, owned: bool) -> None:
+    runtime = SolidEdgeRuntime()
+    app = MockSolidEdgeApp(pid=os.getpid())
+    doc = MagicMock()
+    app.Documents.Open = MagicMock(return_value=doc)  # type: ignore[method-assign]
+    part = tmp_path / "published.par"
+    part.write_bytes(b"published native part")
+    with (
+        patch("drivers.solidedge.runtime._load_pywin32_modules") as modules,
+        patch("drivers.solidedge.runtime.get_process_identity") as identity,
+    ):
+        client = MagicMock()
+        if owned:
+            client.GetActiveObject.side_effect = MockCOMError(MK_E_UNAVAILABLE, "Unavailable")
+            client.gencache.EnsureDispatch.return_value = app
+        else:
+            client.GetActiveObject.return_value = app
+        modules.return_value = (None, client)
+        identity.return_value = ProcessIdentity(pid=os.getpid(), creation_time_ft=_make_valid_creation_ft())
+        runtime.connect_application()
+        runtime.open_part_for_user(part)
+        assert runtime._owned_process_identity is None
+        assert runtime._open_document_handles == {}
+        assert app.Visible is True
+        assert app.DisplayAlerts is True
+        doc.Activate.assert_called_once()
+        assert runtime.teardown() is True
+        doc.Close.assert_not_called()
+        assert app.quit_called is False
+
+
+def test_failed_user_part_activation_stays_tracked_for_cleanup(tmp_path: Path) -> None:
+    runtime = SolidEdgeRuntime()
+    app = MockSolidEdgeApp(pid=os.getpid())
+    doc = MagicMock()
+    doc.Activate.side_effect = RuntimeError("Activation failed")
+    app.Documents.Open = MagicMock(return_value=doc)  # type: ignore[method-assign]
+    part = tmp_path / "published.par"
+    part.write_bytes(b"published native part")
+    with patch("drivers.solidedge.runtime._load_pywin32_modules") as modules:
+        client = MagicMock()
+        client.GetActiveObject.return_value = app
+        modules.return_value = (None, client)
+        runtime.connect_application()
+        with pytest.raises(CADRuntimeError):
+            runtime.open_part_for_user(part)
+        assert len(runtime._open_document_handles) == 1
+        assert runtime.teardown() is True
+        doc.Close.assert_called_once_with(False)
+        assert app.quit_called is False
+
+
 def test_sta_worker_executes_on_dedicated_thread() -> None:
     """Proves that tasks submitted to STAThreadWorker execute strictly on the worker thread."""
     worker = STAThreadWorker()

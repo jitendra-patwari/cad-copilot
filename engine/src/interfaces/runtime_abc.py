@@ -32,6 +32,10 @@ class CADRuntimeABC(abc.ABC):
     def close_document(self, doc_handle: Any) -> None:
         """Release or close an open CAD document handle unconditionally without saving."""
 
+    def open_part_for_user(self, path: Path) -> None:
+        """Open a published part and transfer its session to the user before teardown."""
+        raise NotImplementedError("This CAD runtime cannot transfer a part to the user")
+
     @abc.abstractmethod
     def teardown(self, force_kill_on_failure: bool = False) -> bool:
         """Cleanly close request documents, restore application state, and terminate owned CAD processes.

@@ -53,6 +53,25 @@ The request schema supports two explicit variants via `oneOf`:
 
 > **Note on Outputs**: Generation outputs are **not** caller-selectable. Successful generation always guarantees the creation of the native Solid Edge part (`.par`), exchange geometry (`step`), and 3D print mesh (`stl`). A preview snapshot (`jpg`) is generated on a best-effort basis.
 
+Both request variants accept optional `keep_part_open` (boolean, default `false`).
+The Generate screen exposes this as **Keep part open in Solid Edge**. When checked,
+the engine first releases the export document and publishes the artifacts, then
+reopens the saved `.par` and transfers its document and application to the user.
+Normal runtime teardown releases COM references without closing that part or
+quitting the transferred application. Failed generation retains normal cleanup;
+failure to reopen an otherwise successful run adds a warning to its response.
+That warning occurs after publication and is not added to the already published manifest.
+
+Preview capture activates the request document, verifies it against the application's
+active document, and uses `Application.ActiveWindow.View`. This avoids depending
+on the document-level `Windows` property, which is not implemented in some installations.
+It fits the document view and explicitly uses 800 x 600 pixels,
+resolution `1`, and 24-bit JPEG color depth. These settings follow the
+[Siemens SaveAsImage API](https://support.industrysoftware.automation.siemens.com/trainings/se/107/api/SolidEdgeFramework~View~SaveAsImage.html),
+avoiding dependency on the user's image resolution and color-depth defaults.
+The alternate view-style argument is omitted with COM `Missing`, preserving the
+current style in custom and localized templates.
+
 
 ---
 

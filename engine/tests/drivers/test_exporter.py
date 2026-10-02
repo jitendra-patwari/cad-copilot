@@ -2,7 +2,7 @@
 
 Invariants:
     - Verifies SaveCopyAs invocation for required model formats (PAR, STEP, STL).
-    - Verifies document-owned Window -> View -> SaveAsImage sequence for preview.
+    - Verifies request activation and application-owned Window -> View -> SaveAsImage.
     - Verifies localized preview failure classification vs fatal document loss.
     - Verifies error sanitization (SEC-07): no raw absolute paths or COM pointers in error messages.
     - Verifies input path preflight: non-existent parent, extension mismatch, and symlink rejection.
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -52,41 +53,39 @@ class FakeWorker:
 
     def __init__(self) -> None:
         self.call_log: list[str] = []
+        self._pythoncom = SimpleNamespace(Missing=object())
 
     def _invoke_com(self, call: Any) -> Any:
         return call()
 
 
 class FakePartDocument:
-    """Fake Solid Edge COM PartDocument supporting Name, SaveCopyAs, and Windows."""
+    """Fake part whose document-level Windows property is not implemented."""
 
     def __init__(self, name: str = "TestPart.par") -> None:
         self.Name = name
         self.save_copy_as_calls: list[str] = []
-        self.windows: FakeWindowsCollection | None = FakeWindowsCollection()
+        self.window: FakeWindow | None = FakeWindow()
+        self.Application = FakeApplication(self)
+        self.activation_count = 0
 
     def SaveCopyAs(self, filename: str) -> None:
         self.save_copy_as_calls.append(filename)
 
     @property
-    def Windows(self) -> FakeWindowsCollection | None:
-        return self.windows
+    def Windows(self) -> Any:
+        raise MockCOMError(0x80004001, "Document.Windows is not implemented")
+
+    def Activate(self) -> None:
+        self.activation_count += 1
+        self.Application.ActiveDocument = self
+        self.Application.ActiveWindow = self.window
 
 
-class FakeWindowsCollection:
-    """Fake Windows collection returning fake window items."""
-
-    def __init__(self, items: list[FakeWindow] | None = None) -> None:
-        self._items = items if items is not None else [FakeWindow()]
-
-    @property
-    def Count(self) -> int:
-        return len(self._items)
-
-    def Item(self, index: int) -> FakeWindow:
-        if 1 <= index <= len(self._items):
-            return self._items[index - 1]
-        raise IndexError("Collection index out of range")
+class FakeApplication:
+    def __init__(self, document: FakePartDocument) -> None:
+        self.ActiveDocument: Any = document
+        self.ActiveWindow = document.window
 
 
 _DEFAULT_VIEW: Any = object()
@@ -104,13 +103,13 @@ class FakeView:
 
     def __init__(self) -> None:
         self.fit_called: bool = False
-        self.save_as_image_calls: list[tuple[str, int, int]] = []
+        self.save_as_image_calls: list[tuple[Any, ...]] = []
 
     def Fit(self) -> None:
         self.fit_called = True
 
-    def SaveAsImage(self, filename: str, width: int, height: int) -> None:
-        self.save_as_image_calls.append((filename, width, height))
+    def SaveAsImage(self, filename: str, width: int, height: int, *options: Any) -> None:
+        self.save_as_image_calls.append((filename, width, height, *options))
 
 
 # ===========================================================================
@@ -394,10 +393,52 @@ class TestCapturePreviewImage:
 
         capture_preview_image(raw_doc, worker, out_file, width=1024, height=768)
 
-        assert raw_doc.windows is not None
-        win = raw_doc.windows.Item(1)
+        assert raw_doc.window is not None
+        win = raw_doc.window
+        assert raw_doc.activation_count == 1
+        assert win.View.fit_called is True
         assert len(win.View.save_as_image_calls) == 1
-        assert win.View.save_as_image_calls[0] == (os.fspath(out_file), 1024, 768)
+        assert win.View.save_as_image_calls[0] == (os.fspath(out_file), 1024, 768, worker._pythoncom.Missing, 1, 24)
+
+    def test_capture_activates_request_instead_of_capturing_another_part(self, tmp_path: Path) -> None:
+        raw_doc = FakePartDocument()
+        unrelated = FakePartDocument("UsersOtherPart.par")
+        raw_doc.Application.ActiveDocument = unrelated
+        raw_doc.Application.ActiveWindow = unrelated.window
+        worker = FakeWorker()
+
+        capture_preview_image(raw_doc, worker, tmp_path / "preview.jpg")
+
+        assert raw_doc.Application.ActiveDocument is raw_doc
+        assert raw_doc.window is not None and unrelated.window is not None
+        assert len(raw_doc.window.View.save_as_image_calls) == 1
+        assert unrelated.window.View.save_as_image_calls == []
+
+    def test_capture_refuses_window_if_activation_did_not_select_request(self, tmp_path: Path) -> None:
+        raw_doc = FakePartDocument()
+        unrelated = FakePartDocument("UsersOtherPart.par")
+        raw_doc.Application.ActiveDocument = unrelated
+        raw_doc.Application.ActiveWindow = unrelated.window
+        raw_doc.Activate = lambda: None  # type: ignore[method-assign]
+
+        with pytest.raises(CADExportError, match="does not belong to the request document"):
+            capture_preview_image(raw_doc, FakeWorker(), tmp_path / "preview.jpg")
+
+        assert unrelated.window is not None
+        assert unrelated.window.View.save_as_image_calls == []
+
+    def test_fit_failure_preserves_fatal_runtime_error(self, tmp_path: Path) -> None:
+        raw_doc = FakePartDocument()
+        worker = FakeWorker()
+        view = raw_doc.window.View  # type: ignore[union-attr]
+
+        def fail_fit() -> None:
+            raise CADRuntimeUnavailableError("Server unavailable")
+
+        view.Fit = fail_fit  # type: ignore[method-assign]
+        with pytest.raises(CADRuntimeUnavailableError):
+            capture_preview_image(raw_doc, worker, tmp_path / "preview.jpg")
+        assert view.save_as_image_calls == []
 
     def test_capture_preview_image_default_dimensions(self, tmp_path: Path) -> None:
         raw_doc = FakePartDocument()
@@ -406,8 +447,16 @@ class TestCapturePreviewImage:
 
         capture_preview_image(raw_doc, worker, out_file)
 
-        win = raw_doc.windows.Item(1)  # type: ignore[union-attr]
-        assert win.View.save_as_image_calls[0] == (os.fspath(out_file), DEFAULT_PREVIEW_WIDTH, DEFAULT_PREVIEW_HEIGHT)
+        assert raw_doc.window is not None
+        assert raw_doc.window.View is not None
+        assert raw_doc.window.View.save_as_image_calls[0] == (
+            os.fspath(out_file),
+            DEFAULT_PREVIEW_WIDTH,
+            DEFAULT_PREVIEW_HEIGHT,
+            worker._pythoncom.Missing,
+            1,
+            24,
+        )
 
     def test_capture_preview_image_resolves_relative_path_to_absolute(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -419,9 +468,17 @@ class TestCapturePreviewImage:
 
         capture_preview_image(raw_doc, worker, rel_file)
 
-        win = raw_doc.windows.Item(1)  # type: ignore[union-attr]
+        assert raw_doc.window is not None
+        assert raw_doc.window.View is not None
         expected_abs = os.fspath(tmp_path / "rel_preview.jpg")
-        assert win.View.save_as_image_calls[0] == (expected_abs, DEFAULT_PREVIEW_WIDTH, DEFAULT_PREVIEW_HEIGHT)
+        assert raw_doc.window.View.save_as_image_calls[0] == (
+            expected_abs,
+            DEFAULT_PREVIEW_WIDTH,
+            DEFAULT_PREVIEW_HEIGHT,
+            worker._pythoncom.Missing,
+            1,
+            24,
+        )
 
     def test_capture_preview_image_rejects_non_path(self, tmp_path: Path) -> None:
         raw_doc = FakePartDocument()
@@ -483,7 +540,7 @@ class TestCapturePreviewImage:
 
     def test_capture_preview_image_missing_window_raises_localized_failure_when_healthy(self, tmp_path: Path) -> None:
         raw_doc = FakePartDocument()
-        raw_doc.windows = FakeWindowsCollection([])  # Empty collection (Count == 0)
+        raw_doc.window = None  # No application window
         worker = FakeWorker()
         out_file = tmp_path / "preview.jpg"
 
@@ -494,7 +551,7 @@ class TestCapturePreviewImage:
 
     def test_capture_preview_image_missing_view_raises_localized_failure_when_healthy(self, tmp_path: Path) -> None:
         raw_doc = FakePartDocument()
-        raw_doc.windows = FakeWindowsCollection([FakeWindow(view=None)])  # Window with no View
+        raw_doc.window = FakeWindow(view=None)  # Window with no View
         worker = FakeWorker()
         out_file = tmp_path / "preview.jpg"
 
@@ -508,10 +565,10 @@ class TestCapturePreviewImage:
         worker = FakeWorker()
         out_file = tmp_path / "preview.jpg"
 
-        def fail_save_image(filename: str, width: int, height: int) -> None:
+        def fail_save_image(filename: str, width: int, height: int, *options: Any) -> None:
             raise RuntimeError(f"GDI rendering failed at {filename} with hex 0x80004005")
 
-        raw_doc.windows.Item(1).View.SaveAsImage = fail_save_image  # type: ignore[union-attr,method-assign]
+        raw_doc.window.View.SaveAsImage = fail_save_image  # type: ignore[union-attr,method-assign]
 
         with pytest.raises(CADExportError) as exc_info:
             capture_preview_image(raw_doc, worker, out_file)
@@ -526,12 +583,12 @@ class TestCapturePreviewImage:
         worker = FakeWorker()
         out_file = tmp_path / "preview.jpg"
 
-        def crash_save_and_lose_doc(filename: str, width: int, height: int) -> None:
+        def crash_save_and_lose_doc(filename: str, width: int, height: int, *options: Any) -> None:
             # Simulate crash: document unseated from process
             raw_doc.Name = ""
             raise ConnectionResetError("Solid Edge process disconnected")
 
-        raw_doc.windows.Item(1).View.SaveAsImage = crash_save_and_lose_doc  # type: ignore[union-attr,method-assign]
+        raw_doc.window.View.SaveAsImage = crash_save_and_lose_doc  # type: ignore[union-attr,method-assign]
 
         with pytest.raises(CADDocumentError) as exc_info:
             capture_preview_image(raw_doc, worker, out_file)
@@ -544,10 +601,10 @@ class TestCapturePreviewImage:
         worker = FakeWorker()
         out_file = tmp_path / "preview.jpg"
 
-        def raise_busy(filename: str, width: int, height: int) -> None:
+        def raise_busy(filename: str, width: int, height: int, *options: Any) -> None:
             raise CADRuntimeBusyError("Server busy timeout")
 
-        raw_doc.windows.Item(1).View.SaveAsImage = raise_busy  # type: ignore[union-attr,method-assign]
+        raw_doc.window.View.SaveAsImage = raise_busy  # type: ignore[union-attr,method-assign]
 
         # Must raise CADRuntimeBusyError, NOT PREVIEW_EXPORT_FAILED
         with pytest.raises(CADRuntimeBusyError) as exc_info:
@@ -559,10 +616,10 @@ class TestCapturePreviewImage:
         worker = FakeWorker()
         out_file = tmp_path / "preview.jpg"
 
-        def raise_retrylater(filename: str, width: int, height: int) -> None:
+        def raise_retrylater(filename: str, width: int, height: int, *options: Any) -> None:
             raise MockCOMError(RPC_E_SERVERCALL_RETRYLATER, "Server call retry later")
 
-        raw_doc.windows.Item(1).View.SaveAsImage = raise_retrylater  # type: ignore[union-attr,method-assign]
+        raw_doc.window.View.SaveAsImage = raise_retrylater  # type: ignore[union-attr,method-assign]
 
         # Raw COM error must be normalized and preserved as fatal CADRuntimeBusyError
         with pytest.raises(CADRuntimeBusyError) as exc_info:
@@ -574,10 +631,10 @@ class TestCapturePreviewImage:
         worker = FakeWorker()
         out_file = tmp_path / "preview.jpg"
 
-        def raise_rejected(filename: str, width: int, height: int) -> None:
+        def raise_rejected(filename: str, width: int, height: int, *options: Any) -> None:
             raise MockCOMError(RPC_E_CALL_REJECTED, "Server call rejected")
 
-        raw_doc.windows.Item(1).View.SaveAsImage = raise_rejected  # type: ignore[union-attr,method-assign]
+        raw_doc.window.View.SaveAsImage = raise_rejected  # type: ignore[union-attr,method-assign]
 
         with pytest.raises(CADRuntimeBusyError) as exc_info:
             capture_preview_image(raw_doc, worker, out_file)
@@ -588,10 +645,10 @@ class TestCapturePreviewImage:
         worker = FakeWorker()
         out_file = tmp_path / "preview.jpg"
 
-        def raise_unavailable(filename: str, width: int, height: int) -> None:
+        def raise_unavailable(filename: str, width: int, height: int, *options: Any) -> None:
             raise CADRuntimeUnavailableError("Solid Edge session died")
 
-        raw_doc.windows.Item(1).View.SaveAsImage = raise_unavailable  # type: ignore[union-attr,method-assign]
+        raw_doc.window.View.SaveAsImage = raise_unavailable  # type: ignore[union-attr,method-assign]
 
         with pytest.raises(CADRuntimeUnavailableError) as exc_info:
             capture_preview_image(raw_doc, worker, out_file)
@@ -602,10 +659,10 @@ class TestCapturePreviewImage:
         worker = FakeWorker()
         out_file = tmp_path / "preview.jpg"
 
-        def raise_server_died(filename: str, width: int, height: int) -> None:
+        def raise_server_died(filename: str, width: int, height: int, *options: Any) -> None:
             raise MockCOMError(RPC_E_SERVER_DIED, "Server died")
 
-        raw_doc.windows.Item(1).View.SaveAsImage = raise_server_died  # type: ignore[union-attr,method-assign]
+        raw_doc.window.View.SaveAsImage = raise_server_died  # type: ignore[union-attr,method-assign]
 
         with pytest.raises(CADRuntimeUnavailableError) as exc_info:
             capture_preview_image(raw_doc, worker, out_file)
@@ -618,10 +675,10 @@ class TestCapturePreviewImage:
         worker = FakeWorker()
         out_file = tmp_path / "preview.jpg"
 
-        def raise_sensitive_image_fault(filename: str, width: int, height: int) -> None:
+        def raise_sensitive_image_fault(filename: str, width: int, height: int, *options: Any) -> None:
             raise RuntimeError(r"GDI write failed at E:\Client (SECRET_ORGANIZATION)\Private Project\preview.jpg")
 
-        raw_doc.windows.Item(1).View.SaveAsImage = raise_sensitive_image_fault  # type: ignore[union-attr,method-assign]
+        raw_doc.window.View.SaveAsImage = raise_sensitive_image_fault  # type: ignore[union-attr,method-assign]
 
         with pytest.raises(CADExportError) as exc_info:
             capture_preview_image(raw_doc, worker, out_file)
@@ -645,12 +702,12 @@ class TestCapturePreviewImage:
         worker = FakeWorker()
         out_file = tmp_path / "preview.jpg"
 
-        def raise_comma_unc_preview_fault(filename: str, width: int, height: int) -> None:
+        def raise_comma_unc_preview_fault(filename: str, width: int, height: int, *options: Any) -> None:
             raise RuntimeError(
                 r"GDI write failed at E:\Client, LLC\SECRET_PROJECT\preview.jpg and \\nas01\share; LLC\SECRET_PROJECT!\preview.jpg: failed"
             )
 
-        raw_doc.windows.Item(1).View.SaveAsImage = raise_comma_unc_preview_fault  # type: ignore[union-attr,method-assign]
+        raw_doc.window.View.SaveAsImage = raise_comma_unc_preview_fault  # type: ignore[union-attr,method-assign]
 
         with pytest.raises(CADExportError) as exc_info:
             capture_preview_image(raw_doc, worker, out_file)
@@ -672,7 +729,7 @@ class TestCapturePreviewImage:
     def test_capture_preview_image_no_capture_after_fatal_failure(self, tmp_path: Path) -> None:
         raw_doc = FakePartDocument()
         # Missing windows triggers probe_document_health; simulate broken document
-        raw_doc.windows = FakeWindowsCollection([])
+        raw_doc.window = None
         raw_doc.Name = ""
         worker = FakeWorker()
         out_file = tmp_path / "preview.jpg"

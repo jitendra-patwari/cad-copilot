@@ -36,6 +36,19 @@ The desktop UI refresh candidate was committed at `9847675` (`feat(desktop): [FR
 - **Terminal State Preservation:** Batch and Generate terminal outcome results are preserved on navigation or subsequent state transitions until explicitly cleared or rerun.
 - **Live User Smoke Checks:** User reports successful live operation after the UI updates. *(Note: These user observations were conducted directly on the local workstation and were not independently rerun by the reviewer in this verification cycle).*
 
+## Preview and keep-open follow-up (2 October 2026)
+
+The source candidate fixes preview capture through the active Solid Edge application window and adds the Generate screen's **Keep part open in Solid Edge** checkbox. Focused portable checks after the changes passed:
+
+| Component | Scope | Result |
+| :--- | :--- | :--- |
+| Python engine | Exporter, application, artifact pipeline, runtime lifecycle/document tasks, and generation IPC | **357 passed** |
+| Rust desktop host | Generation library tests and generation lifecycle integration tests | **59 + 5 passed; 2 live tests ignored** |
+| Desktop frontend | Generate and generation workflow tests | **17 passed** |
+| Quality checks | TypeScript, ESLint, MyPy, Ruff lint/format, and Git whitespace | **Passed** |
+
+The user reports that live testing of the updated app was successful. This is user-reported workstation acceptance and was not independently rerun by the reviewer. It does not establish separate Community Edition qualification or installer acceptance. The focused checks above supplement the earlier full-suite results rather than replacing them.
+
 ## Live Solid Edge checks
 
 The source-run Tauri app was exercised on a licensed Siemens Solid Edge 2026 workstation. Saved parts and canonical `run_manifest.json` plans were inspected, including:

@@ -78,6 +78,8 @@ describe('GenerateForm component', () => {
 
     render(
       <GenerateForm
+        keepPartOpen={false}
+        setKeepPartOpen={vi.fn()}
         mode="example"
         setMode={vi.fn()}
         prompt=""
@@ -117,6 +119,8 @@ describe('GenerateForm component', () => {
 
     const { rerender } = render(
       <GenerateForm
+        keepPartOpen={false}
+        setKeepPartOpen={vi.fn()}
         mode="example"
         setMode={setModeMock}
         prompt="Design an L-bracket"
@@ -146,6 +150,8 @@ describe('GenerateForm component', () => {
     // Rerender with mode="prompt" and key editor open
     rerender(
       <GenerateForm
+        keepPartOpen={false}
+        setKeepPartOpen={vi.fn()}
         mode="prompt"
         setMode={setModeMock}
         prompt="Design an L-bracket"
@@ -181,6 +187,8 @@ describe('GenerateForm component', () => {
 
     render(
       <GenerateForm
+        keepPartOpen={false}
+        setKeepPartOpen={vi.fn()}
         mode="example"
         setMode={vi.fn()}
         prompt=""
@@ -347,6 +355,8 @@ describe('GenerationProgress component', () => {
 describe('GenerationResult component', () => {
   it('renders succeeded outcome and published artifacts', () => {
     const revealMock = vi.fn();
+    const reopenWarning =
+      'CAD files were generated, but the saved part could not be left open in Solid Edge.';
     const run: GenerationRunSnapshot = {
       requestId: 'gen_succ_456',
       state: 'succeeded',
@@ -356,7 +366,7 @@ describe('GenerationResult component', () => {
       resultAccess: 'ready',
       cleanup: 'no_failure_observed',
       closeRequested: false,
-      warnings: ['Mesh density warning'],
+      warnings: ['Mesh density warning', reopenWarning],
     };
 
     const result: GenerationResultResponse = {
@@ -402,9 +412,19 @@ describe('GenerationResult component', () => {
       },
     };
 
-    render(
+    const { rerender } = render(
+      <GenerationResult
+        run={{ ...run, resultAccess: 'checking' }}
+        result={null}
+        previewBlobUrl={null}
+        revealFolder={revealMock}
+      />
+    );
+    expect(screen.getByText(reopenWarning)).toBeInTheDocument();
+    rerender(
       <GenerationResult run={run} result={result} previewBlobUrl={null} revealFolder={revealMock} />
     );
+    expect(screen.getByText(reopenWarning)).toBeInTheDocument();
 
     expect(screen.getByText('CAD Model Successfully Generated')).toBeInTheDocument();
     expect(screen.getByTitle('model.par')).toBeInTheDocument();
@@ -423,6 +443,8 @@ describe('GenerationResult component', () => {
   it('disables submit and displays warning when opposite workflow is busy in GenerateForm', () => {
     render(
       <GenerateForm
+        keepPartOpen={false}
+        setKeepPartOpen={vi.fn()}
         mode="example"
         setMode={vi.fn()}
         prompt=""
@@ -455,6 +477,8 @@ describe('GenerationResult component', () => {
   it('renders role="alert" on action error banner in GenerateForm', () => {
     render(
       <GenerateForm
+        keepPartOpen={false}
+        setKeepPartOpen={vi.fn()}
         mode="example"
         setMode={vi.fn()}
         prompt=""
@@ -564,10 +588,17 @@ describe('GenerationResult component', () => {
       });
 
       // Start run in flight
+      act(() => result.current.setKeepPartOpen(true));
       let runPromise: Promise<void>;
       act(() => {
         runPromise = result.current.startRun();
       });
+      expect(invokeSpy).toHaveBeenCalledWith(
+        'generation_start',
+        expect.objectContaining({
+          request: expect.objectContaining({ keepPartOpen: true }),
+        })
+      );
 
       // Deliver terminal event while startGeneration is still in flight
       await act(async () => {
@@ -822,6 +853,8 @@ describe('GeneratePage status live region', () => {
       setMode: vi.fn(),
       prompt: '',
       setPrompt: vi.fn(),
+      keepPartOpen: false,
+      setKeepPartOpen: vi.fn(),
       isKeyEditorOpen: false,
       setIsKeyEditorOpen: vi.fn(),
       keyInput: '',

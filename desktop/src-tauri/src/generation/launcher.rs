@@ -111,6 +111,14 @@ pub fn format_request_payload(
     request_id: &str,
     input: &GenerationInput,
 ) -> Result<Vec<u8>, CommandError> {
+    format_request_payload_with_options(request_id, input, false)
+}
+
+pub fn format_request_payload_with_options(
+    request_id: &str,
+    input: &GenerationInput,
+    keep_part_open: bool,
+) -> Result<Vec<u8>, CommandError> {
     let wire_req = match input {
         GenerationInput::ExamplePlan { example_id } => WireRequest {
             contract_version: "1.0".to_string(),
@@ -119,6 +127,7 @@ pub fn format_request_payload(
             unit: "mm".to_string(),
             example_id: Some(example_id.clone()),
             prompt: None,
+            keep_part_open,
         },
         GenerationInput::PromptToCad { prompt } => WireRequest {
             contract_version: "1.0".to_string(),
@@ -127,6 +136,7 @@ pub fn format_request_payload(
             unit: "mm".to_string(),
             example_id: None,
             prompt: Some(prompt.clone()),
+            keep_part_open,
         },
     };
 
@@ -186,6 +196,25 @@ mod tests {
         assert!(s.contains(r#""kind":"prompt_to_cad""#));
         assert!(s.contains(r#""prompt":"Create a miter gear""#));
         assert!(s.ends_with('\n'));
+    }
+
+    #[test]
+    fn test_keep_part_open_serializes_for_both_input_modes() {
+        for input in [
+            GenerationInput::ExamplePlan {
+                example_id: "spur_gear".to_string(),
+            },
+            GenerationInput::PromptToCad {
+                prompt: "Create a block".to_string(),
+            },
+        ] {
+            for keep_open in [false, true] {
+                let payload =
+                    format_request_payload_with_options("req_open", &input, keep_open).unwrap();
+                let wire: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+                assert_eq!(wire["keep_part_open"], keep_open);
+            }
+        }
     }
 
     #[test]

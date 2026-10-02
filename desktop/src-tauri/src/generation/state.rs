@@ -11,6 +11,7 @@ use super::types::{
 pub struct ActiveRunState {
     pub request_id: String,
     pub input: GenerationInput,
+    pub keep_part_open: bool,
     pub output_root: PathBuf,
     pub output_root_identity: super::output::FileSystemIdentity,
     pub state: RunState,
@@ -168,6 +169,7 @@ impl GenerationState {
         &mut self,
         selection_id: &str,
         input: GenerationInput,
+        keep_part_open: bool,
     ) -> Result<GenerationSnapshot, CommandError> {
         if self.terminating {
             return Err(CommandError::new(
@@ -263,6 +265,7 @@ impl GenerationState {
         self.active_run = Some(ActiveRunState {
             request_id,
             input,
+            keep_part_open,
             output_root,
             output_root_identity,
             state: RunState::Starting,
@@ -460,9 +463,40 @@ mod tests {
                 GenerationInput::ExamplePlan {
                     example_id: "spur_gear".to_string(),
                 },
+                false,
             )
             .unwrap_err();
         assert_eq!(err.code, "OUTPUT_SELECTION_REQUIRED");
+    }
+
+    #[test]
+    fn test_reserve_run_records_keep_open_choice_before_returning() {
+        for keep_part_open in [false, true] {
+            let mut state = GenerationState::new();
+            let output_dir = create_test_output_dir("keep_open");
+            state
+                .set_output(
+                    GenerationOutputSelection {
+                        selection_id: "sel_1".to_string(),
+                        display_path: output_dir.to_string_lossy().to_string(),
+                    },
+                    output_dir,
+                )
+                .unwrap();
+            state
+                .reserve_run(
+                    "sel_1",
+                    GenerationInput::ExamplePlan {
+                        example_id: "spur_gear".to_string(),
+                    },
+                    keep_part_open,
+                )
+                .unwrap();
+            assert_eq!(
+                state.active_run.as_ref().unwrap().keep_part_open,
+                keep_part_open
+            );
+        }
     }
 
     fn create_test_output_dir(prefix: &str) -> PathBuf {
@@ -495,6 +529,7 @@ mod tests {
                 GenerationInput::PromptToCad {
                     prompt: "create a gear".to_string(),
                 },
+                false,
             )
             .unwrap_err();
         assert_eq!(err.code, "KEY_REQUIRED");
@@ -520,6 +555,7 @@ mod tests {
                 GenerationInput::ExamplePlan {
                     example_id: "spur_gear".to_string(),
                 },
+                false,
             )
             .unwrap();
 
@@ -535,6 +571,7 @@ mod tests {
                 GenerationInput::ExamplePlan {
                     example_id: "spur_gear".to_string(),
                 },
+                false,
             )
             .unwrap_err();
         assert_eq!(err2.code, "RUN_ACTIVE");
@@ -579,6 +616,7 @@ mod tests {
                 GenerationInput::ExamplePlan {
                     example_id: "spur_gear".to_string(),
                 },
+                false,
             )
             .unwrap();
         let req_id = snap.run.unwrap().request_id;
@@ -626,6 +664,7 @@ mod tests {
                 GenerationInput::ExamplePlan {
                     example_id: "spur_gear".to_string(),
                 },
+                false,
             )
             .unwrap();
         let req_id = snap.run.unwrap().request_id;
@@ -722,6 +761,7 @@ mod tests {
                 GenerationInput::ExamplePlan {
                     example_id: "spur_gear".to_string(),
                 },
+                false,
             )
             .unwrap();
         let req_id1 = snap1.run.unwrap().request_id;
@@ -739,6 +779,7 @@ mod tests {
                 GenerationInput::ExamplePlan {
                     example_id: "spur_gear".to_string(),
                 },
+                false,
             )
             .unwrap();
         let req_id2 = snap2.run.unwrap().request_id;
@@ -757,6 +798,7 @@ mod tests {
                 GenerationInput::ExamplePlan {
                     example_id: "spur_gear".to_string(),
                 },
+                false,
             )
             .unwrap_err();
         assert_eq!(err3.code, "INCOMPLETE_CLEANUP");
@@ -783,6 +825,7 @@ mod tests {
                 GenerationInput::ExamplePlan {
                     example_id: "spur_gear".to_string(),
                 },
+                false,
             )
             .unwrap();
         let req_id1 = snap1.run.unwrap().request_id;
@@ -800,6 +843,7 @@ mod tests {
                 GenerationInput::ExamplePlan {
                     example_id: "spur_gear".to_string(),
                 },
+                false,
             )
             .unwrap();
         let req_id2 = snap2.run.unwrap().request_id;

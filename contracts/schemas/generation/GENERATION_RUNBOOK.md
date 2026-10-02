@@ -60,6 +60,9 @@ $env:CAD_OUTPUT_ROOT = "C:\cad-output"
 ```
 
 ### 2. Natural Language Prompt Request (Requires Gemini API Key)
+
+Obtain a key through [Gemini API Key Setup](../../../docs/gemini-api-key.md). The guide covers free-tier project selection and quotas. The environment variable below is for this command-line run; the desktop app instead accepts a key in its session key editor.
+
 ```powershell
 $env:CAD_OUTPUT_ROOT = "C:\cad-output"
 $env:GEMINI_API_KEY = "AIzaSy..."

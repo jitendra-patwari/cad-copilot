@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import struct
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,7 @@ from application.models import (
     PreparedPlanContext,
     PromptGenerationRequest,
 )
+from application.projection import ArtifactProjectionError, build_accepted_response
 from application.service import (
     GenerationService,
     _preflight_request,
@@ -59,6 +61,102 @@ from manifests import (
 # ---------------------------------------------------------------------------
 # Test Fixtures & Fakes
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("keep_open", [False, True])
+@pytest.mark.parametrize("reopen_fails", [False, True])
+def test_keep_part_open_only_after_artifact_publication(
+    tmp_path: Path, keep_open: bool, reopen_fails: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events: list[str] = []
+    projection_calls = 0
+
+    def project_once(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        nonlocal projection_calls
+        projection_calls += 1
+        if projection_calls > 1:
+            raise ArtifactProjectionError("Artifacts should not be projected again after handoff")
+        return build_accepted_response(*args, **kwargs)
+
+    monkeypatch.setattr("application.service.build_accepted_response", project_once)
+
+    class UserRuntime(FakeRuntime):
+        def open_part_for_user(self, path: Path) -> None:
+            assert events == ["published"]
+            assert path == tmp_path / "req_keep_open" / "published_part.par"
+            events.append("open")
+            if reopen_fails:
+                raise RuntimeError("private workstation path and internal failure")
+
+        def teardown(self, force_kill_on_failure: bool = False) -> bool:
+            events.append("teardown")
+            return super().teardown(force_kill_on_failure)
+
+    def finalize(*args: Any, **kwargs: Any) -> ExecutionSuccess:
+        events.append("published")
+        finalized = fake_artifact_finalizer(*args, **kwargs)
+        native_part = replace(
+            finalized.exported_artifacts[0], path=str(tmp_path / "req_keep_open" / "published_part.par")
+        )
+        return replace(finalized, exported_artifacts=[native_part, *finalized.exported_artifacts[1:]])
+
+    runtime = UserRuntime()
+    service = GenerationService(
+        example_resolver=lambda req: PlanProposal(
+            plan_payload=make_valid_plan_payload(req.request_id),
+            provenance="example_plan",
+            source_id="sample_cube",
+        ),
+        runtime_factory=lambda: runtime,
+        executor_factory=lambda rt, dh: FakeExecutor(rt, dh),
+        artifact_finalizer=finalize,
+    )
+    req = ExampleGenerationRequest(
+        contract_version="1.0",
+        request_id="req_keep_open",
+        kind="example_plan",
+        unit="mm",
+        example_id="sample_cube",
+        keep_part_open=keep_open,
+    )
+    response = service.generate(req, output_root=tmp_path)
+    assert response["status"] == "accepted"
+    assert projection_calls == 1
+    assert events == (["published", "open", "teardown"] if keep_open else ["published", "teardown"])
+    expected_warning = keep_open and reopen_fails
+    assert ("could not be left open" in str(response)) is expected_warning
+    assert "private workstation" not in str(response)
+
+
+def test_keep_part_open_does_not_reopen_after_export_failure(tmp_path: Path) -> None:
+    class UserRuntime(FakeRuntime):
+        def open_part_for_user(self, path: Path) -> None:
+            pytest.fail("Failed generation must never transfer a document")
+
+    def fail_finalizer(*args: Any, **kwargs: Any) -> ExecutionSuccess:
+        raise CADExportError("Export failed")
+
+    runtime = UserRuntime()
+    service = GenerationService(
+        example_resolver=lambda req: PlanProposal(
+            plan_payload=make_valid_plan_payload(req.request_id),
+            provenance="example_plan",
+            source_id="sample_cube",
+        ),
+        runtime_factory=lambda: runtime,
+        executor_factory=lambda rt, dh: FakeExecutor(rt, dh),
+        artifact_finalizer=fail_finalizer,
+    )
+    req = ExampleGenerationRequest(
+        contract_version="1.0",
+        request_id="req_keep_fail",
+        kind="example_plan",
+        unit="mm",
+        example_id="sample_cube",
+        keep_part_open=True,
+    )
+    assert service.generate(req, output_root=tmp_path)["status"] == "failed"
+    assert runtime.teardown_count == 1
 
 
 def make_valid_plan_payload(request_id: str = "req_valid_01") -> dict[str, Any]:
