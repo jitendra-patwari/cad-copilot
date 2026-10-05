@@ -12,7 +12,7 @@ For a free-tier test, use a project without paid billing enabled. A key inherits
 
 ## 2. Run a first prompt in CAD Copilot
 
-1. Follow [Getting Started](getting-started.md), including the optional `engine[dev,gemini]` dependency installation. Confirm the deterministic **Example (Spur Gear)** run works with your Solid Edge installation first.
+1. Follow [Getting Started](getting-started.md). The installer includes Gemini support; source users need the optional `engine[dev,gemini]` dependency installation. Confirm the deterministic **Example (Spur Gear)** run works with your Solid Edge installation first.
 2. Switch to **Prompt to CAD** in the Generate workspace. Paste your key into **Google Gemini API Configuration** and click **Save**. This saves it for the current app session only; it is not written to disk. Enter it again after restarting the app.
 3. Choose an output folder and enter a simple prompt, such as:
 
@@ -29,6 +29,6 @@ As checked on **2 October 2026**, CAD Copilot defaults to `gemini-3.5-flash-lite
 
 - **Quota or rate limit reached:** Check your project's limits in AI Studio and retry after the relevant limit resets. Generating a new key for the same project does not reset its quota.
 - **Key rejected:** Check that you copied the full key for the intended project. For an old blocked or unrestricted key, create a fresh key in AI Studio following Google's key setup guide.
-- **Provider unavailable:** Confirm the Gemini dependencies are installed in the repository's `.venv`, a session key is saved, and your network can reach Google.
+- **Provider unavailable:** Confirm a session key is saved and your network can reach Google. If running from source, also confirm the Gemini dependencies are installed in the repository's `.venv`.
 
 Use generic test prompts. Google's [unpaid-service terms](https://ai.google.dev/gemini-api/terms#unpaid-services) allow prompts and responses to be used for product improvement and possible human review, so avoid confidential or personal information. CAD Copilot sends the prompt text; native CAD files and exports remain local.

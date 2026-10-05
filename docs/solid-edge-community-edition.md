@@ -39,7 +39,7 @@ CAD Copilot interacts with local Solid Edge installations through standard publi
 When testing your local Solid Edge installation with CAD Copilot:
 
 1. Launch Solid Edge once manually to confirm proper Windows registration and set your default environment to **Ordered** mode.
-2. Launch CAD Copilot via `pnpm --filter @cad-copilot/desktop tauri dev`.
+2. Open the installed **CAD Copilot** app from the Windows Start menu, or use the source instructions in [Getting Started](getting-started.md).
 3. In the **Design Workspace**, select the default **Example (Spur Gear)** mode and choose an output directory.
 4. Click **Run CAD Generation**. This deterministic path verifies COM connection, part creation, and artifact export completely locally without requiring an API key or network access.
 

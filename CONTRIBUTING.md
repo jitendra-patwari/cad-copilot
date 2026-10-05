@@ -18,7 +18,7 @@ We are committed to providing a welcoming, inclusive, and harassment-free enviro
 - **Rust**: Verified workstation baseline `rustc 1.95.0` / `cargo 1.95.0` (required for desktop Tauri host compilation).
 - **Operating System**: Windows 10/11 x64 with licensed Siemens Solid Edge® for live COM automation. Pure geometry and contract checks do not require COM; some offline driver tests use Windows process APIs. Exclude live tests explicitly with `-m "not com and not live_ai"`.
 
-As of 25 September 2026: Milestones 1 through 6.5 are implemented. The earlier M6.4 installer completed its historical acceptance, but the Gemini-fixed source candidate needs a new installer and installed acceptance before distribution. GitHub records portable CI results for each pull request commit. Milestone 6.6 public documentation is in progress. See [engine status](engine/README.md).
+Milestones 1 through 6.5 are implemented. The [v0.1.0 Windows preview](https://github.com/jitendra-patwari/cad-copilot/releases/tag/v0.1.0) packages source `491f536` and has its own packaging checks and user-reported installed acceptance. See [verification evidence](docs/verification.md) and [engine status](engine/README.md); historical M6.4 acceptance applies to an earlier build.
 
 ### Initializing the Workspace
 ```powershell

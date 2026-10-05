@@ -1,6 +1,6 @@
 # Verification & Quality Evidence
 
-This page describes the current **source preview**. CAD Copilot has no downloadable installer for this candidate. Automated checks and live Solid Edge observations cover different boundaries.
+This page records the **[v0.1.0 Windows preview](https://github.com/jitendra-patwari/cad-copilot/releases/tag/v0.1.0)** and its historical source checks. Automated checks, packaging checks, and live Solid Edge observations cover different boundaries.
 
 ## Portable checks
 
@@ -58,6 +58,24 @@ The source-run Tauri app was exercised on a licensed Siemens Solid Edge 2026 wor
 
 These observations verify the listed prompts and runs. Gemini output varies, so every prompt-generated part should be checked for feature count, dimensions, target faces, and final geometry before use.
 
-## Installer boundary
+## Windows installer and release (5 October 2026)
 
-An earlier installer passed its own historical acceptance checks, but it predates the Gemini changes and will not be distributed. A new installer requires a fresh build, provenance check, and installed acceptance before any release claim. No installer or video is included in this source preview.
+The v0.1.0 Windows x64 installer was built on **4 October 2026** from clean source commit [`491f536`](https://github.com/jitendra-patwari/cad-copilot/commit/491f536296d799448d6642d2aa50c5d31bac4bc0) using `pnpm package:desktop`. The release tag identifies that source commit; subsequent documentation updates do not change the packaged application.
+
+| Check | Result |
+| :--- | :--- |
+| Source CI | [All three portable jobs passed](https://github.com/jitendra-patwari/cad-copilot/actions/runs/36996167591) |
+| Packaging and privacy audits | Engine payload, compiled metadata, and installer audits passed |
+| Engine inventory | All 170 payload files matched their recorded sizes and SHA-256 hashes; packaged generation schema matched source |
+| Packaged-engine offline lifecycle | **6 passed, 0 failed**; copied outside the checkout and exercised without developer PATH/Python configuration |
+| Installed-app acceptance | **User confirmed complete on 5 October 2026**; not independently rerun by the reviewer |
+
+The installed-app checklist covered example and Gemini generation, preview display, keep-open behavior, batch operation, and cancellation. The two recorded demos show successful gear generation and prompt-generated mounting-plate creation with the saved part kept open. These records do not establish separate Community Edition qualification for all export formats.
+
+**Installer:** [CAD-Copilot_0.1.0_x64-setup.exe](https://github.com/jitendra-patwari/cad-copilot/releases/download/v0.1.0/CAD-Copilot_0.1.0_x64-setup.exe) (27,498,484 bytes). SHA-256:
+
+```text
+6d009ca8ad6fc27707d65155fc7d156065462c0d9786c7a5e061a92c0e3601e2
+```
+
+The [release](https://github.com/jitendra-patwari/cad-copilot/releases/tag/v0.1.0) includes the installer, both MP4 demos, and `SHA256SUMS.txt`. Follow [Getting Started](getting-started.md) for installation. Earlier M6.4 installed acceptance belongs to its earlier build; it is not substituted for this build's evidence.

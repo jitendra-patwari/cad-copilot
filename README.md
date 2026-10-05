@@ -1,4 +1,4 @@
-# CAD Copilot — Source Preview
+# CAD Copilot — Windows Preview
 
 > **Local AI-assisted Solid Edge® generation and native batch export.**
 
@@ -20,13 +20,23 @@ CAD Copilot is an open-source Windows desktop application that converts natural-
 
 ---
 
-## Run from Source
+## Try the App
 
-The current preview runs from source on Windows 10/11 (64-bit) with a local installation of Siemens Solid Edge®. Siemens offers **[Solid Edge Community Edition](docs/solid-edge-community-edition.md)** free of charge for personal, non-commercial use. Install the Python, Node.js/pnpm, and Rust toolchains described in the **[Getting Started Guide](docs/getting-started.md)**, then launch the Tauri development app with `pnpm --filter @cad-copilot/desktop tauri dev`.
+**[Download the Windows x64 installer](https://github.com/jitendra-patwari/cad-copilot/releases/download/v0.1.0/CAD-Copilot_0.1.0_x64-setup.exe)** · **[Release notes and checksums](https://github.com/jitendra-patwari/cad-copilot/releases/tag/v0.1.0)**
+
+Install CAD Copilot on Windows 10/11 (64-bit) with a local installation of Siemens Solid Edge®. The installer includes the engine and its dependencies; Python, Node.js, and Rust are only needed for development. Follow the **[Getting Started Guide](docs/getting-started.md)** for installation, checksum verification, a first key-free example, and optional source setup. Siemens offers **[Solid Edge Community Edition](docs/solid-edge-community-edition.md)** free of charge for personal, non-commercial use; separate qualification of every export format on that edition remains open.
 
 For natural-language generation, follow **[Gemini API Key Setup](docs/gemini-api-key.md)** to obtain a key in Google AI Studio and run a first prompt using an eligible free-tier project. The guide covers session key entry, quotas, and free-tier data handling. Examples and batch exports need no API key.
 
-A downloadable installer is planned after the updated build passes separate installed acceptance.
+## Watch the Demos
+
+Click a preview to open the recorded MP4 demo.
+
+| Key-free gear example (19 seconds) | Prompt to actuator mounting plate (65 seconds) |
+| :--- | :--- |
+| [![Key-free gear generation and successful artifact preview](docs/media/gear-example.jpg)](https://github.com/jitendra-patwari/cad-copilot/releases/download/v0.1.0/gear-example.mp4) | [![Prompt-generated mounting plate open in Solid Edge](docs/media/prompt-actuator-mounting-plate.jpg)](https://github.com/jitendra-patwari/cad-copilot/releases/download/v0.1.0/prompt-actuator-mounting-plate.mp4) |
+
+The gear demo runs locally without an API key. The prompt demo shows a multi-feature part, its exported preview, and the keep-open option.
 
 ---
 
@@ -61,9 +71,10 @@ CAD Copilot maintains strict separation between automated portable gates and liv
 | **Desktop Frontend** | 98 passed across 8 test files | Vitest suites, TypeScript typecheck, ESLint, Prettier, production Vite build |
 | **Rust Desktop Host** | 131 passed, 8 ignored | Default Cargo test suite |
 | **Live Source-App Checks** | Three repeated pad-and-through-hole runs inspected | Saved Solid Edge parts and canonical manifests on a licensed workstation |
-| **Hosted CI Pipeline** | 3 portable jobs configured | GitHub records results for each pull request commit |
+| **Packaged Engine** | 6 offline lifecycle tests passed | Installer build from `491f536`, tested outside the checkout without developer tools |
+| **Hosted CI Pipeline** | [3 jobs passed for the packaged source](https://github.com/jitendra-patwari/cad-copilot/actions/runs/36996167591) | Portable Python, frontend, and Rust checks |
 
-*Hosted GitHub Actions runners execute portable checks; live Solid Edge COM automation requires a licensed Windows workstation. Installed acceptance for the updated build remains pending. See **[Verification Evidence](docs/verification.md)** for detailed evidence and component records.*
+*Full-suite counts above are dated historical records; the packaged build also has the focused follow-up checks documented in **[Verification Evidence](docs/verification.md)**. The user confirmed installed-app acceptance for the updated build on 5 October 2026; this was not independently rerun by the reviewer. Hosted CI does not run live Solid Edge COM automation.*
 
 ---
 

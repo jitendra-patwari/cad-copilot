@@ -28,7 +28,7 @@ As of 25 September 2026:
 
 Milestones 1 through 6.5 are fully implemented, hardened, and verified. M6.4 packaging architecture, NSIS configuration, standalone bundled engine, per-user installation, and all 8 installed acceptance gates are verified and closed. Milestone 6.6 (Repository Sanitization, Public Documentation & v0.1.0 Release Publication) is in progress.
 
-The installed M6.4 results apply to an earlier build. The Gemini-fixed source preview has no distributable installer yet; a new build and installed acceptance are pending.
+The installed M6.4 results apply to an earlier build. The current [v0.1.0 Windows preview](https://github.com/jitendra-patwari/cad-copilot/releases/tag/v0.1.0) packages source `491f536`, with six offline packaged-engine checks and user-reported installed acceptance on 5 October 2026. See [verification evidence](../docs/verification.md) for the separate build records.
 
 Install optional Gemini support via `pip install -e ".[gemini]"`. Deterministic example workflows, geometry parsing, validation, lowering, and offline tests do not require the Google SDK.
 
